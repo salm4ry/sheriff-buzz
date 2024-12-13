@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <signal.h>
 
+#include <sys/sysinfo.h>
+#include <time.h>
+#include <math.h>
+
 #include <net/if.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -115,6 +119,42 @@ void ip_to_str(long address, char buffer[]) {
 	inet_ntop(AF_INET, &address, buffer, MAX_ADDR_LEN);
 }
 
+/* get system uptime */
+long get_uptime()
+{
+	struct sysinfo info;
+	int res = sysinfo(&info);
+	if (res) {
+		fprintf(stderr, "error retrieving sysinfo\n");
+		exit(1);
+	}
+	return info.uptime;
+}
+
+/* get time system booted at */
+time_t get_boot_time()
+{
+	time_t current_time;
+	time(&current_time);
+
+	return current_time - get_uptime();
+}
+
+/* calculate real time from nanoseconds since boot */
+time_t ktime_to_real(unsigned long long ktime)
+{
+	time_t boot_time = get_boot_time();
+	unsigned long long ktime_seconds = ktime / pow(10,9);
+	return (time_t) (boot_time + ktime_seconds);
+}
+
+void time_to_str(time_t time, char *timestamp)
+{
+	struct tm *tm;
+	tm = localtime(&time);
+	strftime(timestamp, sizeof(timestamp), "%H:%M", tm);
+}
+
 /* get port list from comma-separated file */
 int *get_port_list(char *filename, int num_ports) {
 	FILE *fptr;
@@ -155,7 +195,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 {
 	struct rb_event *e = data;
 	int old_port_count, new_port_count;
-    char src_addr[MAX_ADDR_LEN];
+    char src_addr[MAX_ADDR_LEN], time_string[32];
 
     struct connection current_conn;
     struct packet current_packet;
@@ -176,7 +216,9 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
     }
 	*/
 
-	printf("count: %d, timestamp: %ld\n", e->count, e->timestamp);
+	time_to_str(ktime_to_real(e->timestamp), time_string);
+	printf("count: %d, timestamp: %lld -> %s\n",
+			e->count, e->timestamp, time_string);
 
 	/* TCP flags */
 	current_packet.flags[FIN] = get_tcp_flag(&e->tcph, TCP_FLAG_FIN);

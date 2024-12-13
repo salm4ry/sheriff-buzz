@@ -17,11 +17,19 @@
 #define TCP_PNUM 6 /* TCP protocol number */
 #define NUM_PORTS 65536
 
+/**
+ * Ring buffer event
+ *
+ * iph: packet IP headers
+ * tcph: packet TCP headers
+ * count: packet count (TODO remove)
+ * timestamp: time elapsed since system boot in nanoseconds
+ */
 struct rb_event {
 	struct iphdr iph;
 	struct tcphdr tcph;
 	int count;
-	unsigned long timestamp;
+	unsigned long long timestamp; /* = u64 */
 };
 
 /* return the protocol byte for an IP packet, 0 for anything else

@@ -28,7 +28,7 @@ int ifindex;
 struct ring_buffer *rb = NULL;
 int err;
 
-PGconn *db_conn;
+/* PGconn *db_conn; */
 
 int *common_ports = NULL; /* store top 1000 TCP ports */
 const int NUM_COMMON_PORTS = 1000;
@@ -200,7 +200,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
     struct connection current_conn;
     struct packet current_packet;
 
-    int db_res;
+    /* int db_res; */
 
 	/* extract data from IP and TCP headers */
 	current_conn.src_ip = get_source_addr(&e->iph);
@@ -310,8 +310,10 @@ int main(int argc, char *argv[])
 	}
 
 	/* set up database */
+	/*
 	db_conn = connect_db("root", "packet_counter");
 	create_tables(db_conn);
+	*/
 
 	common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS);
 

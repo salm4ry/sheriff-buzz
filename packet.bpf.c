@@ -46,8 +46,9 @@ int hello_packet(struct xdp_md *ctx)
 	struct packet_key current_key;
 	struct packet_value current_value;
 	__u64 *packet_entry;
+	__u64 timestamp = bpf_ktime_get_ns();
 
-	struct event *e;
+	struct rb_event *e;
 
 	int result = XDP_PASS;  /* pass packet on to network stack */
 
@@ -92,6 +93,7 @@ int hello_packet(struct xdp_md *ctx)
 		e->iph = *ip_headers;
 		e->tcph = *tcp_headers;
 
+		e->timestamp = timestamp;
 		e->count = current_value.count;
 
 		/* submit ring buffer event */

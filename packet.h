@@ -17,10 +17,11 @@
 #define TCP_PNUM 6 /* TCP protocol number */
 #define NUM_PORTS 65536
 
-struct event {
+struct rb_event {
 	struct iphdr iph;
 	struct tcphdr tcph;
 	int count;
+	unsigned long timestamp;
 };
 
 /* return the protocol byte for an IP packet, 0 for anything else

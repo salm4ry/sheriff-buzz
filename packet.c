@@ -153,7 +153,7 @@ int *get_port_list(char *filename, int num_ports) {
 
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
-	struct event *e = data;
+	struct rb_event *e = data;
 	int old_port_count, new_port_count;
     char src_addr[MAX_ADDR_LEN];
 
@@ -168,11 +168,15 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	current_conn.packet_count = e->count;
 
+	/*
     db_res = edit_connection(db_conn, &current_conn);
     if (db_res) {
         cleanup();
         exit(1);
     }
+	*/
+
+	printf("count: %d, timestamp: %ld\n", e->count, e->timestamp);
 
 	/* TCP flags */
 	current_packet.flags[FIN] = get_tcp_flag(&e->tcph, TCP_FLAG_FIN);
@@ -187,12 +191,14 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	/* TCP destination port */
 	current_packet.dst_port = get_dst_port(&e->tcph);
 
+	/*
     db_res = add_packet(db_conn, &current_conn, &current_packet);
     if (db_res) {
         printf("adding packet failed\n");
         cleanup();
         exit(1);
     }
+	*/
 
 	old_port_count = count_ports_scanned(&current_conn);
 	current_conn.ports_scanned[current_packet.dst_port] = true;

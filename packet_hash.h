@@ -3,6 +3,9 @@
 #include <time.h>
 #include "parse_headers.h"
 
+/* maximum fingerprint string length */
+#define MAX_FINGERPRINT 23
+
 /**
  * Hash table key
  *

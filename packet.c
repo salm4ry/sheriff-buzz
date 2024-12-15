@@ -165,7 +165,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
     char src_addr[MAX_ADDR_LEN], time_string[32];
 
 	struct key current_packet;
-	char fingerprint[32];
+	char fingerprint[MAX_FINGERPRINT];
 	gpointer res;
 
 	/*
@@ -216,6 +216,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	ip_to_str(current_packet.src_ip, src_addr);
 	time_to_str(ktime_to_real(e->timestamp), time_string);
 
+	/* detect flag-based scans */
 	if (is_xmas_scan(&current_packet)) {
 		printf("nmap Xmas scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
@@ -227,9 +228,11 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	}
 
 	if (is_null_scan(&current_packet)) {
-		printf("nmap null scan detected from %s!\n", src_addr);
+		printf("nmap null scan detected from %s at %s (port %d)!\n",
+				src_addr, time_string, current_packet.dst_port);
 	}
 
+	/* update hash table */
 	get_fingerprint(&current_packet, fingerprint);
 
 	/* look up hash table entry */

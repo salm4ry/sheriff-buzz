@@ -1,6 +1,8 @@
-#include <linux/if_link.h>
 #include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
 #include <time.h>
+
 #include "parse_headers.h"
 
 /* maximum fingerprint string length */
@@ -40,7 +42,8 @@ void get_fingerprint(struct key *key, char *buf)
 	for (int i = 0; i < NUM_FLAGS; i++) {
 		flags[i] = key->flags[i] ? '1' : '0';
 	}
-	flags[NUM_FLAGS-1] = '\0';
+	flags[NUM_FLAGS] = '\0';
 
-	sprintf(buf, "%ld%d%s", key->src_ip, key->dst_port, flags);
+	/* zero-padded so fingerprints are always of length MAX_FINGERPRINT */
+	snprintf(buf, MAX_FINGERPRINT, "%010ld%05d%s", key->src_ip, key->dst_port, flags);
 }

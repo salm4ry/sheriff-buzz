@@ -1,5 +1,8 @@
 #include <linux/stddef.h>
 #include <linux/types.h>
+#include <stdbool.h>
+
+#include "packet_hash.h"
 
 #define NUM_PORTS 65536
 #define MAX_QUERY 128

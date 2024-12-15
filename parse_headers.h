@@ -1,8 +1,11 @@
+#include <stdbool.h>
+
 #include <linux/ip.h>
 #include <linux/tcp.h>
 #include <netinet/in.h>
 
 #define NUM_FLAGS 8 /* excluding res1 and doff */
+#define NUM_PORTS 65536
 
 enum flag_indices {
 	FIN,

@@ -19,7 +19,6 @@
 
 #include "packet.h"
 #include "pr.h"
-#include "packet_hash.h"
 #include "detect_scan.h"
 #include "time_conv.h"
 
@@ -235,7 +234,6 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	/* update hash table */
 	get_fingerprint(&current_packet, fingerprint);
-
 	/* look up hash table entry */
 	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
 	if (res) {
@@ -259,6 +257,16 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		/* insert into hash table */
 		g_hash_table_insert(packet_table,
 				g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
+	}
+
+	if (current_packet.dst_port != 22) {
+		char **port_fingerprints = gen_port_fingerprints(current_packet.src_ip, current_packet.flags);
+		free_port_fingerprints(port_fingerprints);
+
+		/* FIXME
+		char **flag_fingerprints = gen_flag_fingerprints(current_packet.src_ip, current_packet.dst_port);
+		free_flag_fingerprints(flag_fingerprints);
+		*/
 	}
 
 	/* debug: print corresponding hash table entry */

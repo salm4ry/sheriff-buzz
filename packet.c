@@ -165,6 +165,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
     char src_addr[MAX_ADDR_LEN], time_string[32];
 
 	struct key current_packet;
+	struct value new_val;
 	char fingerprint[MAX_FINGERPRINT];
 	gpointer res;
 
@@ -236,33 +237,32 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	get_fingerprint(&current_packet, fingerprint);
 
 	/* look up hash table entry */
-	res = g_hash_table_lookup(packet_table, &fingerprint);
+	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
 	if (res) {
 		/* entry already exists */
-
 		/* update count and timestamp */
 		struct value *current_val = (struct value*) res;
-		current_val = (struct value*) res;
-		current_val->latest = ktime_to_real(e->timestamp);
-		current_val->count++;
+		new_val.first = current_val->first;
+		new_val.latest = ktime_to_real(e->timestamp);
+		new_val.count = current_val->count + 1;
 
 		/* overwrite existing entry */
 		g_hash_table_replace(packet_table,
-				(gpointer) &fingerprint, (gpointer) current_val);
+				g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
 	} else {
 		/* create new entry */
 		struct value new_val;
 		new_val.first = ktime_to_real(e->timestamp);
-		new_val.latest = ktime_to_real(e->timestamp);
+		new_val.latest = new_val.first;
 		new_val.count = 1;
 
 		/* insert into hash table */
 		g_hash_table_insert(packet_table,
-				(gpointer) &fingerprint, (gpointer) &new_val);
+				g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
 	}
 
 	/* debug: print corresponding hash table entry */
-	res = g_hash_table_lookup(packet_table, &fingerprint);
+	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
 	struct value *current_val = (struct value*) res;
 	if (current_packet.dst_port != 22) {
 		printf("%s -> {%ld, %ld, %d}\n",
@@ -323,7 +323,7 @@ int main(int argc, char *argv[])
 	 * hash function = djb hash
 	 * key equal function = string equality
 	 */
-	packet_table = g_hash_table_new(g_str_hash, g_str_equal);
+	packet_table = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
 
 	/* extract common TCP ports from file */
 	common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS);

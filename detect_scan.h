@@ -1,10 +1,6 @@
 #include <linux/stddef.h>
 #include <linux/types.h>
 
-#include "pr.h"
-#include "packet.h"
-#include "parse_headers.h"
-
 #define NUM_PORTS 65536
 #define MAX_QUERY 128
 #define MAX_PACKETS 1024
@@ -28,11 +24,6 @@ struct packet {
     int dst_port;
     bool flags[NUM_FLAGS];
 };
-
-static const char *bool_to_str(bool b)
-{
-    return b ? "TRUE" : "FALSE";
-}
 
 static int count_ports_scanned(struct connection *conn)
 {
@@ -62,7 +53,7 @@ static bool is_basic_scan(struct connection *conn, int *common_ports, int num_po
 }
 
 /* detect nmap -sF: FIN only */
-static bool is_fin_scan(struct packet *packet)
+static bool is_fin_scan(struct key *packet)
 {
 	/* check if FIN enabled */
 	if (!packet->flags[FIN]) {
@@ -79,17 +70,19 @@ static bool is_fin_scan(struct packet *packet)
 }
 
 /* detect nmap -sX: FIN + PSH + URG */
-static int is_xmas_scan(struct packet *packet) {
+static int is_xmas_scan(struct key *packet) {
 	return (packet->flags[FIN] && packet->flags[PSH] && packet->flags[URG]);
 }
 
 /* no flags set */
-static int is_null_scan(struct connection *conn, struct packet *packet) {
+static int is_null_scan(struct key *packet) {
 	/* check we actually have received packets
 	 * TODO change the 1 to list of legitimate ports to receive traffic from */
+	/*
 	if (conn->packet_count == 0 || count_ports_scanned(conn) == 1) {
 		return false;
 	}
+	*/
 
 	for (int i = FIN; i <= CWR; i++) {
 		if (packet->flags[i]) {

@@ -7,10 +7,6 @@
 #include <stdlib.h>
 #include <signal.h>
 
-#include <sys/sysinfo.h>
-#include <time.h>
-#include <math.h>
-
 #include <net/if.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -19,14 +15,21 @@
 
 #include <bpf/libbpf.h>
 
+#include <glib.h>
+
+#include "packet.h"
 #include "pr.h"
+#include "packet_hash.h"
 #include "detect_scan.h"
+#include "time_conv.h"
 
 struct bpf_object *obj;
 uint32_t xdp_flags;
 int ifindex;
 struct ring_buffer *rb = NULL;
 int err;
+
+GHashTable *packet_table;
 
 /* PGconn *db_conn; */
 
@@ -119,42 +122,6 @@ void ip_to_str(long address, char buffer[]) {
 	inet_ntop(AF_INET, &address, buffer, MAX_ADDR_LEN);
 }
 
-/* get system uptime */
-long get_uptime()
-{
-	struct sysinfo info;
-	int res = sysinfo(&info);
-	if (res) {
-		fprintf(stderr, "error retrieving sysinfo\n");
-		exit(1);
-	}
-	return info.uptime;
-}
-
-/* get time system booted at */
-time_t get_boot_time()
-{
-	time_t current_time;
-	time(&current_time);
-
-	return current_time - get_uptime();
-}
-
-/* calculate real time from nanoseconds since boot */
-time_t ktime_to_real(unsigned long long ktime)
-{
-	time_t boot_time = get_boot_time();
-	unsigned long long ktime_seconds = ktime / pow(10,9);
-	return (time_t) (boot_time + ktime_seconds);
-}
-
-void time_to_str(time_t time, char *timestamp)
-{
-	struct tm *tm;
-	tm = localtime(&time);
-	strftime(timestamp, sizeof(timestamp), "%H:%M", tm);
-}
-
 /* get port list from comma-separated file */
 int *get_port_list(char *filename, int num_ports) {
 	FILE *fptr;
@@ -197,30 +164,26 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	int old_port_count, new_port_count;
     char src_addr[MAX_ADDR_LEN], time_string[32];
 
-    struct connection current_conn;
-    struct packet current_packet;
-
-    /* int db_res; */
-
-	/* extract data from IP and TCP headers */
-	current_conn.src_ip = get_source_addr(&e->iph);
-	ip_to_str(current_conn.src_ip, src_addr);
-
-	current_conn.packet_count = e->count;
+	struct key current_packet;
+	char fingerprint[32];
+	gpointer res;
 
 	/*
-    db_res = edit_connection(db_conn, &current_conn);
-    if (db_res) {
-        cleanup();
-        exit(1);
-    }
+    struct connection current_conn;
+    struct packet current_packet;
+    int db_res;
 	*/
 
-	time_to_str(ktime_to_real(e->timestamp), time_string);
-	printf("count: %d, timestamp: %lld -> %s\n",
-			e->count, e->timestamp, time_string);
+	/* extract data from IP and TCP headers */
+
+	/* source IP address */
+	current_packet.src_ip = get_source_addr(&e->iph);
+
+	/* destination TCP port */
+	current_packet.dst_port = get_dst_port(&e->tcph);
 
 	/* TCP flags */
+	/* TODO: change to single value instead of bool array */
 	current_packet.flags[FIN] = get_tcp_flag(&e->tcph, TCP_FLAG_FIN);
 	current_packet.flags[SYN] = get_tcp_flag(&e->tcph, TCP_FLAG_SYN);
 	current_packet.flags[RST] = get_tcp_flag(&e->tcph, TCP_FLAG_RST);
@@ -230,10 +193,12 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	current_packet.flags[ECE] = get_tcp_flag(&e->tcph, TCP_FLAG_ECE);
 	current_packet.flags[CWR] = get_tcp_flag(&e->tcph, TCP_FLAG_CWR);
 
-	/* TCP destination port */
-	current_packet.dst_port = get_dst_port(&e->tcph);
-
 	/*
+    db_res = edit_connection(db_conn, &current_conn);
+    if (db_res) {
+        cleanup();
+        exit(1);
+    }
     db_res = add_packet(db_conn, &current_conn, &current_packet);
     if (db_res) {
         printf("adding packet failed\n");
@@ -242,31 +207,66 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
     }
 	*/
 
-	old_port_count = count_ports_scanned(&current_conn);
-	current_conn.ports_scanned[current_packet.dst_port] = true;
-	new_port_count = count_ports_scanned(&current_conn);
-
-	if (new_port_count > old_port_count || current_packet.dst_port != 22) {
-		printf("count: %d, dest_port: %d\n", e->count, current_packet.dst_port);
-		printf("connection from %s: %d packets, %d ports\n",
-			src_addr, current_conn.packet_count, new_port_count);
-	}
-
+	/*
 	if (is_basic_scan(&current_conn, common_ports, NUM_COMMON_PORTS)) {
 		printf("nmap (standard 1000 ports) detected from %s!\n", src_addr);
 	}
+	*/
+
+	ip_to_str(current_packet.src_ip, src_addr);
+	time_to_str(ktime_to_real(e->timestamp), time_string);
 
 	if (is_xmas_scan(&current_packet)) {
-		printf("nmap Xmas scan detected from %s!\n", src_addr);
+		printf("nmap Xmas scan detected from %s at %s (port %d)!\n",
+				src_addr, time_string, current_packet.dst_port);
 	}
 
 	if (is_fin_scan(&current_packet)) {
-		printf("nmap FIN scan detected from %s!\n", src_addr);
+		printf("nmap FIN scan detected from %s at %s (port %d)!\n",
+				src_addr, time_string, current_packet.dst_port);
 	}
 
-	if (is_null_scan(&current_conn, &current_packet)) {
+	if (is_null_scan(&current_packet)) {
 		printf("nmap null scan detected from %s!\n", src_addr);
 	}
+
+	get_fingerprint(&current_packet, fingerprint);
+
+	/* look up hash table entry */
+	res = g_hash_table_lookup(packet_table, &fingerprint);
+	if (res) {
+		/* entry already exists */
+
+		/* update count and timestamp */
+		struct value *current_val = (struct value*) res;
+		current_val = (struct value*) res;
+		current_val->latest = ktime_to_real(e->timestamp);
+		current_val->count++;
+
+		/* overwrite existing entry */
+		g_hash_table_replace(packet_table,
+				(gpointer) &fingerprint, (gpointer) current_val);
+	} else {
+		/* create new entry */
+		struct value new_val;
+		new_val.first = ktime_to_real(e->timestamp);
+		new_val.latest = ktime_to_real(e->timestamp);
+		new_val.count = 1;
+
+		/* insert into hash table */
+		g_hash_table_insert(packet_table,
+				(gpointer) &fingerprint, (gpointer) &new_val);
+	}
+
+	/* debug: print corresponding hash table entry */
+	res = g_hash_table_lookup(packet_table, &fingerprint);
+	struct value *current_val = (struct value*) res;
+	if (current_packet.dst_port != 22) {
+		printf("%s -> {%ld, %ld, %d}\n",
+				fingerprint,
+				current_val->first, current_val->latest, current_val->count);
+	}
+
 	return 0;
 }
 
@@ -315,6 +315,14 @@ int main(int argc, char *argv[])
 	create_tables(db_conn);
 	*/
 
+	/* create hash table
+	 *
+	 * hash function = djb hash
+	 * key equal function = string equality
+	 */
+	packet_table = g_hash_table_new(g_str_hash, g_str_equal);
+
+	/* extract common TCP ports from file */
 	common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS);
 
 	err = bpf_xdp_attach(ifindex, prog_fd, xdp_flags, NULL);
@@ -375,5 +383,6 @@ cleanup:
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
 	ring_buffer__free(rb);
 	free(common_ports);
+	g_hash_table_destroy(packet_table);
 	return err < 0 ? err : 0;
 }

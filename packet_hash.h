@@ -32,34 +32,6 @@ struct value {
 	int count;
 };
 
-/**
- * Hash map entry
- *
- * key: hash map key
- * val: hash map value
- * next: pointer to next entry in linked list
- */
-struct entry {
-	struct key key;
-	struct value val;
-	struct entry *next;
-};
-
-/**
- * Packet hash map
- *
- * entries: array of linked lists (separate chaining)
- * NUM_SLOTS: number of linked lists in entries
- * CAPACITY: maximum number of key:value entries (nodes)
- * size: current number of entries (cannot exceed CAPACITY)
- */
-struct hash_map {
-	struct entry **entries;
-	const int NUM_SLOTS;
-	const int CAPACITY;
-	int size;
-};
-
 /* concatenate struct members into key */
 void get_fingerprint(struct key *key, char *buf)
 {

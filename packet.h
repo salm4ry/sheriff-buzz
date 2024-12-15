@@ -22,21 +22,19 @@
  *
  * iph: packet IP headers
  * tcph: packet TCP headers
- * count: packet count (TODO remove)
  * timestamp: time elapsed since system boot in nanoseconds
  */
 struct rb_event {
 	struct iphdr iph;
 	struct tcphdr tcph;
-	int count;
 	unsigned long long timestamp; /* = u64 */
 };
 
 /* return the protocol byte for an IP packet, 0 for anything else
  * adapted from: https://github.com/lizrice/ebpf-beginners/blob/main/packet.h */
-static __always_inline __u64 lookup_protocol(struct xdp_md *ctx)
+static __always_inline __u8 lookup_protocol(struct xdp_md *ctx)
 {
-	__u64 protocol = 0;
+	__u8 protocol = 0;
 	void *data = (void *)(long)ctx->data;
 	void *data_end = (void *)(long)ctx->data_end;
 	struct ethhdr *eth = (struct ethhdr *) data;

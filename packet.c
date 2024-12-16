@@ -41,6 +41,7 @@ void cleanup()
 	/* XDP detach on SIGTERM */
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
 	ring_buffer__free(rb);
+	g_hash_table_destroy(packet_table);
 	free(common_ports);
 }
 
@@ -156,6 +157,23 @@ int *get_port_list(char *filename, int num_ports) {
 	return port_list;
 }
 
+/* get list of ports a given IP (and flag combination) has sent packets to */
+bool *get_ports_scanned(long src_ip, bool flags[NUM_FLAGS])
+{
+	bool *ports_scanned = malloc(NUM_PORTS * sizeof(bool));
+	char **fingerprints = gen_port_fingerprints(src_ip, flags);
+	gpointer res;
+
+	for (int i = 0; i < NUM_PORTS; i++) {
+		res = g_hash_table_lookup(packet_table, (gconstpointer) fingerprints[i]);
+		ports_scanned[i] = (res != NULL);
+		/* printf("%s: port %d -> %b\n", fingerprints[i], i, ports_scanned[i]); */
+	}
+
+	free_port_fingerprints(fingerprints);
+	return ports_scanned;
+}
+
 
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
@@ -267,6 +285,10 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		char **flag_fingerprints = gen_flag_fingerprints(current_packet.src_ip, current_packet.dst_port);
 		free_flag_fingerprints(flag_fingerprints);
 		*/
+
+		bool *ports_scanned = get_ports_scanned(current_packet.src_ip, current_packet.flags);
+		printf("number of ports scanned: %d\n", count_ports_scanned(ports_scanned));
+		free(ports_scanned);
 	}
 
 	/* debug: print corresponding hash table entry */

@@ -28,12 +28,12 @@ struct packet {
     bool flags[NUM_FLAGS];
 };
 
-static int count_ports_scanned(struct connection *conn)
+static int count_ports_scanned(bool *ports_scanned)
 {
 	int port_count = 0;
 
 	for (int i = 0; i < NUM_PORTS; i++) {
-		if (conn->ports_scanned[i]) {
+		if (ports_scanned[i]) {
 			port_count++;
 		}
 	}

@@ -164,11 +164,11 @@ bool *get_ports_scanned(long src_ip, bool flags[NUM_FLAGS])
 {
 	bool *ports_scanned = malloc(NUM_PORTS * sizeof(bool));
 	char **fingerprints = gen_port_fingerprints(src_ip, flags);
-	gpointer res;
+	gboolean res;
 
 	for (int i = 0; i < NUM_PORTS; i++) {
-		res = g_hash_table_lookup(packet_table, (gconstpointer) fingerprints[i]);
-		ports_scanned[i] = (res != NULL);
+		res = g_hash_table_contains(packet_table, (gconstpointer) fingerprints[i]);
+		ports_scanned[i] = res;
 		/* printf("%s: port %d -> %b\n", fingerprints[i], i, ports_scanned[i]); */
 	}
 

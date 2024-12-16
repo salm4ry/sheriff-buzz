@@ -38,7 +38,9 @@ const int MAX_ADDR_LEN = 16;
 
 void cleanup()
 {
-	/* XDP detach on SIGTERM */
+	/* redirect cleanup-related errors to /dev/null */
+	freopen("/dev/null", "r", stderr);
+
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
 	ring_buffer__free(rb);
 	g_hash_table_destroy(packet_table);
@@ -413,6 +415,9 @@ int main(int argc, char *argv[])
 	return 0;
 
 cleanup:
+	/* redirect cleanup-related errors to /dev/null */
+	freopen("/dev/null", "r", stderr);
+
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
 	ring_buffer__free(rb);
 	free(common_ports);

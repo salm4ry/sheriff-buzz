@@ -1,0 +1,32 @@
+-- DROP DATABASE if exists alerts;
+CREATE DATABASE alerts;
+
+-- ensure owner set to root
+ALTER DATABASE alerts OWNER TO root;
+
+-- connect to database
+\c alerts
+
+/*
+tables
+NOTE: inet holds IPv4/IPv6 host address (and optionally subnet) in one field
+*/
+CREATE TABLE alert_type(
+	id SERIAL PRIMARY KEY,
+	description VARCHAR(20)); -- TODO plan scan names: check if max length too short
+
+CREATE TABLE log(
+	id SERIAL PRIMARY KEY,
+	dst_port INTEGER,
+	alert_type INTEGER,
+	src_ip INET,
+	packet_count INTEGER,
+	first TIMESTAMP,
+	latest TIMESTAMP);
+
+-- foreign key relation
+ALTER TABLE IF EXISTS log
+	ADD FOREIGN KEY (alert_type)
+	REFERENCES alert_type (id) match simple
+		ON UPDATE CASCADE
+		ON DELETE CASCADE;

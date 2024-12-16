@@ -17,6 +17,7 @@ CREATE TABLE alert_type(
 
 CREATE TABLE log(
 	id SERIAL PRIMARY KEY,
+	fingerprint CHAR(23),
 	dst_port INTEGER,
 	alert_type INTEGER,
 	src_ip INET,
@@ -30,3 +31,12 @@ ALTER TABLE IF EXISTS log
 	REFERENCES alert_type (id) match simple
 		ON UPDATE CASCADE
 		ON DELETE CASCADE;
+
+
+-- set up alert types
+-- flag-based scans
+INSERT INTO alert_type (description) VALUES('Xmas scan');
+INSERT INTO alert_type (description) VALUES('FIN scan');
+INSERT INTO alert_type (description) VALUES('NULL scan');
+
+-- TODO more scan types

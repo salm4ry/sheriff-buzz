@@ -41,6 +41,7 @@ struct value {
 	time_t first;
 	time_t latest;
 	int count;
+	/* TODO flag to show whether alert has been logged */
 };
 
 /* create string fingerprint from key struct */
@@ -152,36 +153,41 @@ void free_flag_fingerprints(char **fingerprints)
 	free(fingerprints);
 }
 
-/* log alert to database */
+/* log alert to database, replacing old record if necessary */
 int log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *key, struct value *value)
 {
 	PGresult *db_res;
 	int err;
 
 	char query[MAX_QUERY];
-	char *command = "insert into log (fingerprint, dst_port, alert_type, src_ip, packet_count, first, latest) "
-				    "values (%s, %d, %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld))";
+	char *delete_command = "DELETE FROM log WHERE fingerprint = '%s'";
+	char *insert_command = "INSERT INTO log (fingerprint, dst_port, alert_type, src_ip, packet_count, first, latest) "
+				   		   "VALUES (%s, %d, %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld))";
 
 	long src_ip = ntohl(key->src_ip);
 	char ip_str[MAX_IP];
 
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
-	sprintf(query, command, fingerprint, key->dst_port, alert_type,
+	/* remove old entries from log */
+	sprintf(query, delete_command, fingerprint);
+	db_res = PQexec(db_conn, query);
+	if (PQresultStatus(db_res) != PGRES_COMMAND_OK) {
+		fprintf(stderr, "postgres: %s\n", PQerrorMessage(db_conn));
+	}
+	PQclear(db_res);
+
+	sprintf(query, insert_command, fingerprint, key->dst_port, alert_type,
 			ip_str, value->count, value->first, value->latest);
-	printf("%s\n", query);
 
 	db_res = PQexec(db_conn, query);
 	err = (PQresultStatus(db_res) == PGRES_COMMAND_OK);
 
 	if (!err) {
 		fprintf(stderr, "postgres: %s\n", PQerrorMessage(db_conn));
-	} else {
-		printf("added record %s\n", fingerprint);
 	}
 
 	PQclear(db_res);
-
 	return err;
 }
 
@@ -204,6 +210,61 @@ static PGconn *connect_db(char *user, char *dbname)
 	return conn;
 }
 
+void update_record(gpointer key, gpointer value, gpointer user_data)
+{
+	struct value *val = (struct value *) value;
+	struct update_data *data = (struct update_data *) user_data;
+
+	char *fingerprint = key;
+	PGconn *db_conn = (PGconn *) user_data;
+
+	/* convert to UNIX time for current fingerprint */
+	char *lookup_cmd = "SELECT packet_count FROM log WHERE fingerprint = '%s'";
+	char *update_cmd = "UPDATE log SET packet_count = %d, latest = to_timestamp(%ld) "
+					   "WHERE fingerprint = '%s'\n";
+
+	char lookup_query[MAX_QUERY], update_query[MAX_QUERY];
+	PGresult *res;
+
+	int db_count;
+	int table_count = val->count;
+	int rows, cols;
+
+	sprintf(lookup_query, lookup_cmd, fingerprint);
+	printf("%s\n", lookup_query);
+
+	res = PQexec(db_conn, lookup_query);
+	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+		fprintf(stderr, "postgres: %s\n", PQerrorMessage(db_conn));
+		return;
+	}
+
+	/* compare database and hash table timestamps
+	 * only one tuple (record) and field (latest) */
+	rows = PQntuples(res);
+	/* TODO replace query with flag in hash table value to avoid first lookup */
+	if (rows == 0) {
+		/* no database entry */
+		return;
+	}
+
+	db_count = atoi(PQgetvalue(res, 0, 0));
+	PQclear(res);
+	if (table_count > db_count) {
+		sprintf(update_query, update_cmd, val->count, val->latest, fingerprint);
+		printf("%s\n", update_query);
+
+		res = PQexec(db_conn, update_query);
+		if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+			fprintf(stderr, "postgres: %s\n", PQerrorMessage(db_conn));
+			return;
+		}
+		PQclear(res);
+	} else {
+		printf("no update required for %s\n", fingerprint);
+	}
+}
+
 void update_db(PGconn *db_conn, GHashTable *hash_table)
 {
 	GHashTableIter iterator;
@@ -212,17 +273,6 @@ void update_db(PGconn *db_conn, GHashTable *hash_table)
 
 	PGresult *res;
 
-	/* prepared statement */
-	/*
-	res = PQprepare(db_conn, "alert_lookup",
-			"select latest from log where fingerprint = $1 and latest > to_timestamp($2)",
-			1,
-	*/
-
-	/* iterate through hash table entries */
-	g_hash_table_iter_init(&iterator, hash_table);
-	while (g_hash_table_iter_next(&iterator,
-				(gpointer) &fingerprint, (gpointer) &current_val)) {
-		/* compare to database entry */
-	}
+	/* iterate through hash table, updating database as required */
+	g_hash_table_foreach(hash_table, update_record, (gpointer) db_conn);
 }

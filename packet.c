@@ -269,18 +269,19 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		printf("nmap Xmas scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
 
-		/* log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key key, struct value value) */
 		log_alert(db_conn, fingerprint, XMAS_SCAN, &current_packet, &new_val);
 	}
 
 	if (is_fin_scan(&current_packet)) {
 		printf("nmap FIN scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
+		log_alert(db_conn, fingerprint, FIN_SCAN, &current_packet, &new_val);
 	}
 
 	if (is_null_scan(&current_packet)) {
 		printf("nmap null scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
+		log_alert(db_conn, fingerprint, NULL_SCAN, &current_packet, &new_val);
 	}
 
 	if (current_packet.dst_port != 22) {
@@ -305,6 +306,10 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				fingerprint,
 				current_val->first, current_val->latest, current_val->count);
 	}
+
+	/* TODO replace with time/packet-based updates */
+	if (current_packet.dst_port != 22)
+		update_db(db_conn, packet_table);
 
 	return 0;
 }

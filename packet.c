@@ -22,6 +22,7 @@
 #include "pr.h"
 #include "detect_scan.h"
 #include "time_conv.h"
+#include "log.h"
 
 struct bpf_object *obj;
 uint32_t xdp_flags;
@@ -267,9 +268,9 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	if (is_xmas_scan(&current_packet)) {
 		printf("nmap Xmas scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
+
 		/* log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key key, struct value value) */
-		/* TODO remove magic constant */
-		log_alert(db_conn, fingerprint, 1, &current_packet, &new_val);
+		log_alert(db_conn, fingerprint, XMAS_SCAN, &current_packet, &new_val);
 	}
 
 	if (is_fin_scan(&current_packet)) {

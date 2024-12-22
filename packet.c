@@ -16,6 +16,7 @@
 #include <bpf/libbpf.h>
 
 #include <glib.h>
+#include <postgresql/libpq-fe.h>
 
 #include "packet.h"
 #include "pr.h"
@@ -30,7 +31,7 @@ int err;
 
 GHashTable *packet_table;
 
-/* PGconn *db_conn; */
+PGconn *db_conn;
 
 int *common_ports = NULL; /* store top 1000 TCP ports */
 const int NUM_COMMON_PORTS = 1000;
@@ -236,22 +237,6 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	ip_to_str(current_packet.src_ip, src_addr);
 	time_to_str(ktime_to_real(e->timestamp), time_string);
 
-	/* detect flag-based scans */
-	if (is_xmas_scan(&current_packet)) {
-		printf("nmap Xmas scan detected from %s at %s (port %d)!\n",
-				src_addr, time_string, current_packet.dst_port);
-	}
-
-	if (is_fin_scan(&current_packet)) {
-		printf("nmap FIN scan detected from %s at %s (port %d)!\n",
-				src_addr, time_string, current_packet.dst_port);
-	}
-
-	if (is_null_scan(&current_packet)) {
-		printf("nmap null scan detected from %s at %s (port %d)!\n",
-				src_addr, time_string, current_packet.dst_port);
-	}
-
 	/* update hash table */
 	get_fingerprint(&current_packet, fingerprint);
 	/* look up hash table entry */
@@ -269,7 +254,6 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
 	} else {
 		/* create new entry */
-		struct value new_val;
 		new_val.first = ktime_to_real(e->timestamp);
 		new_val.latest = new_val.first;
 		new_val.count = 1;
@@ -277,6 +261,25 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		/* insert into hash table */
 		g_hash_table_insert(packet_table,
 				g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
+	}
+
+	/* detect flag-based scans */
+	if (is_xmas_scan(&current_packet)) {
+		printf("nmap Xmas scan detected from %s at %s (port %d)!\n",
+				src_addr, time_string, current_packet.dst_port);
+		/* log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key key, struct value value) */
+		/* TODO remove magic constant */
+		log_alert(db_conn, fingerprint, 1, &current_packet, &new_val);
+	}
+
+	if (is_fin_scan(&current_packet)) {
+		printf("nmap FIN scan detected from %s at %s (port %d)!\n",
+				src_addr, time_string, current_packet.dst_port);
+	}
+
+	if (is_null_scan(&current_packet)) {
+		printf("nmap null scan detected from %s at %s (port %d)!\n",
+				src_addr, time_string, current_packet.dst_port);
 	}
 
 	if (current_packet.dst_port != 22) {
@@ -345,10 +348,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* set up database */
-	/*
-	db_conn = connect_db("root", "packet_counter");
-	create_tables(db_conn);
-	*/
+	db_conn = connect_db("root", "alerts");
 
 	/* create hash table
 	 *

@@ -1,4 +1,4 @@
-#include <bpf/libbpf.h>
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,10 +6,16 @@
 #include <stdbool.h>
 #include <time.h>
 
+#include <bpf/libbpf.h>
+#include <glib-2.0/glib.h>
+#include <postgresql/libpq-fe.h>
+
 #include "parse_headers.h"
 
 /* maximum fingerprint string length */
 #define MAX_FINGERPRINT 23
+#define MAX_QUERY 256
+#define MAX_IP 16
 
 /**
  * Hash table key
@@ -144,4 +150,79 @@ void free_flag_fingerprints(char **fingerprints)
 		free(fingerprints[i]);
 	}
 	free(fingerprints);
+}
+
+/* log alert to database */
+int log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *key, struct value *value)
+{
+	PGresult *db_res;
+	int err;
+
+	char query[MAX_QUERY];
+	char *command = "insert into log (fingerprint, dst_port, alert_type, src_ip, packet_count, first, latest) "
+				    "values (%s, %d, %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld))";
+
+	long src_ip = ntohl(key->src_ip);
+	char ip_str[MAX_IP];
+
+	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
+
+	sprintf(query, command, fingerprint, key->dst_port, alert_type,
+			ip_str, value->count, value->first, value->latest);
+	printf("%s\n", query);
+
+	db_res = PQexec(db_conn, query);
+	err = (PQresultStatus(db_res) == PGRES_COMMAND_OK);
+
+	if (!err) {
+		fprintf(stderr, "postgres: %s\n", PQerrorMessage(db_conn));
+	} else {
+		printf("added record %s\n", fingerprint);
+	}
+
+	PQclear(db_res);
+
+	return err;
+}
+
+/* connect to postgres database with peer authentication
+ * (postgres username = system username) */
+static PGconn *connect_db(char *user, char *dbname)
+{
+	char query[1024];
+
+	sprintf(query, "user=%s dbname=%s", user, dbname);
+	PGconn *conn = PQconnectdb(query);
+	if (PQstatus(conn) == CONNECTION_BAD) {
+		fprintf(stderr, "connection to database failed: %s\n",
+				PQerrorMessage(conn));
+		PQfinish(conn);
+		/* return NULL on error */
+		return NULL;
+	}
+
+	return conn;
+}
+
+void update_db(PGconn *db_conn, GHashTable *hash_table)
+{
+	GHashTableIter iterator;
+	char fingerprint[MAX_FINGERPRINT];
+	struct value current_val;
+
+	PGresult *res;
+
+	/* prepared statement */
+	/*
+	res = PQprepare(db_conn, "alert_lookup",
+			"select latest from log where fingerprint = $1 and latest > to_timestamp($2)",
+			1,
+	*/
+
+	/* iterate through hash table entries */
+	g_hash_table_iter_init(&iterator, hash_table);
+	while (g_hash_table_iter_next(&iterator,
+				(gpointer) &fingerprint, (gpointer) &current_val)) {
+		/* compare to database entry */
+	}
 }

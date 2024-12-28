@@ -182,7 +182,6 @@ bool *get_ports_scanned(long src_ip, bool flags[NUM_FLAGS])
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
 	struct rb_event *e = data;
-	int old_port_count, new_port_count;
     char src_addr[MAX_ADDR_LEN], time_string[32];
 
 	struct key current_packet;
@@ -320,12 +319,12 @@ int main(int argc, char *argv[])
 
 	/* catch SIGINT (e.g. Ctrl+C, kill) */
 	if (signal(SIGINT, cleanup) == SIG_ERR) {
-		pr_err("error setting up signal handler\n");
+		pr_err("error setting up SIGINT handler\n");
 		return 1;
 	}
 
 	if (signal(SIGTERM, cleanup) == SIG_ERR) {
-		pr_err("error setting up signal handler\n");
+		pr_err("error setting up SIGTERM handler\n");
 		return 1;
 	}
 

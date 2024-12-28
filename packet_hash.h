@@ -147,7 +147,7 @@ char **gen_flag_fingerprints(long src_ip, int dst_port)
 void free_flag_fingerprints(char **fingerprints)
 {
 	const int NUM_FINGERPRINTS = pow(2, NUM_FLAGS);
-	for (int i = 0; i < 256; i++) {
+	for (int i = 0; i < NUM_FINGERPRINTS; i++) {
 		printf("freeing fingerprint %i\n", i);
 		free(fingerprints[i]);
 	}
@@ -222,7 +222,6 @@ static PGconn *connect_db(char *user, char *dbname)
 void update_record(gpointer key, gpointer value, gpointer user_data)
 {
 	struct value *val = (struct value *) value;
-	struct update_data *data = (struct update_data *) user_data;
 
 	char *fingerprint = key;
 	PGconn *db_conn = (PGconn *) user_data;
@@ -281,12 +280,6 @@ void update_record(gpointer key, gpointer value, gpointer user_data)
 
 void update_db(PGconn *db_conn, GHashTable *hash_table)
 {
-	GHashTableIter iterator;
-	char fingerprint[MAX_FINGERPRINT];
-	struct value current_val;
-
-	PGresult *res;
-
 	/* iterate through hash table, updating database as required */
 	g_hash_table_foreach(hash_table, update_record, (gpointer) db_conn);
 }

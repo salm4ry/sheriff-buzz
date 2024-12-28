@@ -5,7 +5,6 @@
 #include "packet_hash.h"
 
 #define NUM_PORTS 65536
-#define MAX_QUERY 128
 #define MAX_PACKETS 1024
 
 /*

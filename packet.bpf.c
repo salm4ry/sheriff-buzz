@@ -43,7 +43,7 @@ SEC("xdp")
 int hello_packet(struct xdp_md *ctx)
 {
 	__u8 protocol_number;
-	__u64 *packet_entry;
+	/* __u64 *packet_entry; */
 	__u64 timestamp = bpf_ktime_get_ns();
 
 	struct rb_event *e;

@@ -36,12 +36,13 @@ struct key {
  * first: timestamp of first packet received
  * latest: timestamp of latest packet received
  * count: number of packets received
+ * logged: whether this entry has been logged in the database
  */
 struct value {
 	time_t first;
 	time_t latest;
 	int count;
-	/* TODO flag to show whether alert has been logged */
+	bool logged;
 };
 
 /* create string fingerprint from key struct */
@@ -158,14 +159,19 @@ int log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *ke
 {
 	PGresult *db_res;
 	int err;
-
 	char query[MAX_QUERY];
+	char ip_str[MAX_IP];
+
+	/* alert already in database */
+	if (value->logged) {
+		return 0;
+	}
+
 	char *delete_command = "DELETE FROM log WHERE fingerprint = '%s'";
 	char *insert_command = "INSERT INTO log (fingerprint, dst_port, alert_type, src_ip, packet_count, first, latest) "
 				   		   "VALUES (%s, %d, %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld))";
 
 	long src_ip = ntohl(key->src_ip);
-	char ip_str[MAX_IP];
 
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
@@ -188,6 +194,9 @@ int log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *ke
 	}
 
 	PQclear(db_res);
+
+	/* mark hash table entry as logged */
+	value->logged = true;
 	return err;
 }
 
@@ -228,7 +237,12 @@ void update_record(gpointer key, gpointer value, gpointer user_data)
 
 	int db_count;
 	int table_count = val->count;
-	int rows, cols;
+	/* int rows; */
+
+	/* only consider entries logged in database */
+	if (!val->logged) {
+		return;
+	}
 
 	sprintf(lookup_query, lookup_cmd, fingerprint);
 	printf("%s\n", lookup_query);
@@ -241,12 +255,12 @@ void update_record(gpointer key, gpointer value, gpointer user_data)
 
 	/* compare database and hash table timestamps
 	 * only one tuple (record) and field (latest) */
+	/*
 	rows = PQntuples(res);
-	/* TODO replace query with flag in hash table value to avoid first lookup */
 	if (rows == 0) {
-		/* no database entry */
 		return;
 	}
+	*/
 
 	db_count = atoi(PQgetvalue(res, 0, 0));
 	PQclear(res);

@@ -243,25 +243,18 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	/* look up hash table entry */
 	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
 	if (res) {
-		/* entry already exists */
-		/* update count and timestamp */
+		/* entry already exists: update count and timestamp */
 		struct value *current_val = (struct value*) res;
 		new_val.first = current_val->first;
 		new_val.latest = ktime_to_real(e->timestamp);
 		new_val.count = current_val->count + 1;
-
-		/* overwrite existing entry */
-		g_hash_table_replace(packet_table,
-				g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
+		new_val.logged = false;
 	} else {
-		/* create new entry */
+		/* set up new entry */
 		new_val.first = ktime_to_real(e->timestamp);
 		new_val.latest = new_val.first;
 		new_val.count = 1;
-
-		/* insert into hash table */
-		g_hash_table_insert(packet_table,
-				g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
+		new_val.logged = false;
 	}
 
 	/* detect flag-based scans */
@@ -284,6 +277,10 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		log_alert(db_conn, fingerprint, NULL_SCAN, &current_packet, &new_val);
 	}
 
+	/* insert/replace entry */
+	g_hash_table_replace(packet_table,
+			g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
+
 	if (current_packet.dst_port != 22) {
 		char **port_fingerprints = gen_port_fingerprints(current_packet.src_ip, current_packet.flags);
 		free_port_fingerprints(port_fingerprints);
@@ -302,9 +299,10 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
 	struct value *current_val = (struct value*) res;
 	if (current_packet.dst_port != 22) {
-		printf("%s -> {%ld, %ld, %d}\n",
+		printf("%s -> {%ld, %ld, %d, %d}\n",
 				fingerprint,
-				current_val->first, current_val->latest, current_val->count);
+				current_val->first, current_val->latest, current_val->count,
+				current_val->logged);
 	}
 
 	/* TODO replace with time/packet-based updates */

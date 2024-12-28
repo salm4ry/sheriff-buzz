@@ -1,4 +1,5 @@
 #include <linux/stddef.h>
+#include <linux/tcp.h>
 #include <linux/types.h>
 #include <stdbool.h>
 
@@ -55,29 +56,30 @@ static bool is_basic_scan(struct connection *conn, int *common_ports, int num_po
 }
 
 /* detect nmap -sF: FIN only */
-static bool is_fin_scan(struct key *packet)
+static bool is_fin_scan(struct tcphdr *tcph)
 {
 	/* check if FIN enabled */
-	if (!packet->flags[FIN]) {
+	if (!get_tcp_flag(tcph, TCP_FLAG_FIN)) {
 		return false;
 	}
 
 	/* iterate through flag enum */
 	for (int i = SYN; i <= CWR; i++) {
-		if (packet->flags[i]) {
+		if (get_tcp_flag(tcph, i)) {
 			return false;
 		}
 	}
+
 	return true;
 }
 
 /* detect nmap -sX: FIN + PSH + URG */
-static int is_xmas_scan(struct key *packet) {
-	return (packet->flags[FIN] && packet->flags[PSH] && packet->flags[URG]);
+static int is_xmas_scan(struct tcphdr *tcph) {
+	return (get_tcp_flag(tcph, FIN) && get_tcp_flag(tcph, PSH) && get_tcp_flag(tcph, URG));
 }
 
 /* no flags set */
-static int is_null_scan(struct key *packet) {
+static int is_null_scan(struct tcphdr *tcph) {
 	/* check we actually have received packets
 	 * TODO change the 1 to list of legitimate ports to receive traffic from */
 	/*
@@ -87,7 +89,7 @@ static int is_null_scan(struct key *packet) {
 	*/
 
 	for (int i = FIN; i <= CWR; i++) {
-		if (packet->flags[i]) {
+		if (get_tcp_flag(tcph, i)) {
 			return false;
 		}
 	}

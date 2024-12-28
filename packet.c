@@ -162,10 +162,10 @@ int *get_port_list(char *filename, int num_ports) {
 }
 
 /* get list of ports a given IP (and flag combination) has sent packets to */
-bool *get_ports_scanned(long src_ip, bool flags[NUM_FLAGS])
+bool *get_ports_scanned(long src_ip)
 {
 	bool *ports_scanned = malloc(NUM_PORTS * sizeof(bool));
-	char **fingerprints = gen_port_fingerprints(src_ip, flags);
+	char **fingerprints = gen_port_fingerprints(src_ip);
 	gboolean res;
 
 	for (int i = 0; i < NUM_PORTS; i++) {
@@ -204,7 +204,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	current_packet.dst_port = get_dst_port(&e->tcph);
 
 	/* TCP flags */
-	/* TODO: change to single value instead of bool array */
+	/*
 	current_packet.flags[FIN] = get_tcp_flag(&e->tcph, TCP_FLAG_FIN);
 	current_packet.flags[SYN] = get_tcp_flag(&e->tcph, TCP_FLAG_SYN);
 	current_packet.flags[RST] = get_tcp_flag(&e->tcph, TCP_FLAG_RST);
@@ -213,6 +213,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	current_packet.flags[URG] = get_tcp_flag(&e->tcph, TCP_FLAG_URG);
 	current_packet.flags[ECE] = get_tcp_flag(&e->tcph, TCP_FLAG_ECE);
 	current_packet.flags[CWR] = get_tcp_flag(&e->tcph, TCP_FLAG_CWR);
+	*/
 
 	/*
     db_res = edit_connection(db_conn, &current_conn);
@@ -257,20 +258,20 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	}
 
 	/* detect flag-based scans */
-	if (is_xmas_scan(&current_packet)) {
+	if (is_xmas_scan(&e->tcph)) {
 		printf("nmap Xmas scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
 
 		log_alert(db_conn, fingerprint, XMAS_SCAN, &current_packet, &new_val);
 	}
 
-	if (is_fin_scan(&current_packet)) {
+	if (is_fin_scan(&e->tcph)) {
 		printf("nmap FIN scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
 		log_alert(db_conn, fingerprint, FIN_SCAN, &current_packet, &new_val);
 	}
 
-	if (is_null_scan(&current_packet)) {
+	if (is_null_scan(&e->tcph)) {
 		printf("nmap null scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
 		log_alert(db_conn, fingerprint, NULL_SCAN, &current_packet, &new_val);
@@ -281,15 +282,10 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 			g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
 
 	if (current_packet.dst_port != 22) {
-		char **port_fingerprints = gen_port_fingerprints(current_packet.src_ip, current_packet.flags);
+		char **port_fingerprints = gen_port_fingerprints(current_packet.src_ip);
 		free_port_fingerprints(port_fingerprints);
 
-		/* FIXME
-		char **flag_fingerprints = gen_flag_fingerprints(current_packet.src_ip, current_packet.dst_port);
-		free_flag_fingerprints(flag_fingerprints);
-		*/
-
-		bool *ports_scanned = get_ports_scanned(current_packet.src_ip, current_packet.flags);
+		bool *ports_scanned = get_ports_scanned(current_packet.src_ip);
 		printf("number of ports scanned: %d\n", count_ports_scanned(ports_scanned));
 		free(ports_scanned);
 	}
@@ -304,9 +300,11 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				current_val->logged);
 	}
 
-	/* TODO replace with time/packet-based updates */
-	if (current_packet.dst_port != 22)
+	/*
+	if (current_packet.dst_port != 22) {
 		update_db(db_conn, packet_table);
+	}
+	*/
 
 	return 0;
 }
@@ -359,6 +357,8 @@ int main(int argc, char *argv[])
 	 * key equal function = string equality
 	 */
 	packet_table = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+	printf("sizeof(key) = %d, sizeof(value) = %ld\n",
+			MAX_FINGERPRINT, sizeof(struct value));
 
 	/* extract common TCP ports from file */
 	common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS);

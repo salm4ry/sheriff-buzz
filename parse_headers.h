@@ -8,14 +8,14 @@
 #define NUM_PORTS 65536
 
 enum flag_indices {
-	FIN,
-	SYN,
-	RST,
-	PSH,
-	ACK,
-	URG,
-	ECE,
-	CWR,
+	FIN = TCP_FLAG_FIN,
+	SYN = TCP_FLAG_SYN,
+	RST = TCP_FLAG_RST,
+	PSH = TCP_FLAG_PSH,
+	ACK = TCP_FLAG_ACK,
+	URG = TCP_FLAG_URG,
+	ECE = TCP_FLAG_ECE,
+	CWR = TCP_FLAG_CWR,
 };
 
 /* get IP packet source address */

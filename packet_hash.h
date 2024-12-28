@@ -2,9 +2,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 #include <stdbool.h>
 #include <time.h>
+/* #include <math.h> */
 
 #include <bpf/libbpf.h>
 #include <glib-2.0/glib.h>
@@ -13,8 +13,8 @@
 #include "parse_headers.h"
 
 /* maximum fingerprint string length */
-#define MAX_FINGERPRINT 23
-#define MAX_QUERY 256
+#define MAX_FINGERPRINT 13
+#define MAX_QUERY 512
 #define MAX_IP 16
 
 /**
@@ -27,7 +27,7 @@
 struct key {
 	long src_ip;
 	int dst_port;
-	bool flags[NUM_FLAGS];
+	/* bool flags[NUM_FLAGS]; */
 };
 
 /**
@@ -36,12 +36,14 @@ struct key {
  * first: timestamp of first packet received
  * latest: timestamp of latest packet received
  * count: number of packets received
+ * should_be_logged: TODO
  * logged: whether this entry has been logged in the database
  */
 struct value {
 	time_t first;
 	time_t latest;
 	int count;
+	bool should_be_logged;
 	bool logged;
 };
 
@@ -49,23 +51,26 @@ struct value {
 void get_fingerprint(struct key *key, char *buf)
 {
 	/* extract flags into string form */
+	/*
 	char flags[NUM_FLAGS+1];
 	for (int i = 0; i < NUM_FLAGS; i++) {
 		flags[i] = key->flags[i] ? '1' : '0';
 	}
 	flags[NUM_FLAGS] = '\0';
+	*/
 
 	/* zero-padded so fingerprints are always of length MAX_FINGERPRINT */
-	snprintf(buf, MAX_FINGERPRINT+1, "%010ld%05d%s", key->src_ip, key->dst_port, flags);
+	/* snprintf(buf, MAX_FINGERPRINT+1, "%010ld%05d%s", key->src_ip, key->dst_port, flags); */
+	snprintf(buf, MAX_FINGERPRINT, "%08lx%04x", key->src_ip, key->dst_port);
 }
 
 /* generate port-based fingerprints for a given source IP and flag combination */
-char **gen_port_fingerprints(long src_ip, bool flags[NUM_FLAGS])
+char **gen_port_fingerprints(long src_ip)
 {
 	char **fingerprints = malloc(NUM_PORTS * sizeof(char *));
 	struct key current_key;
 	current_key.src_ip = src_ip;
-	memcpy(current_key.flags, flags, NUM_FLAGS);
+	/* memcpy(current_key.flags, flags, NUM_FLAGS); */
 
 	for (int i = 0; i < NUM_PORTS; i++) {
 		current_key.dst_port = i;
@@ -91,6 +96,7 @@ void free_port_fingerprints(char **fingerprints)
 	free(fingerprints);
 }
 
+/*
 void gen_bitstrings(char *bitstring, char **bitstrings, int *str_index, int n)
 {
 	if (n == 0) {
@@ -106,10 +112,10 @@ void gen_bitstrings(char *bitstring, char **bitstrings, int *str_index, int n)
 	}
 }
 
-/* generate flag-based fingerprints for a given source IP and destination port */
+// generate flag-based fingerprints for a given source IP and destination port
 char **gen_flag_fingerprints(long src_ip, int dst_port)
 {
-	/* 2^NUM_FLAGS possible flag combinations */
+	// 2^NUM_FLAGS possible flag combinations
 	const int NUM_FINGERPRINTS = pow(2, NUM_FLAGS);
 
 	char **fingerprints = malloc(NUM_FINGERPRINTS * sizeof(char *));
@@ -153,6 +159,7 @@ void free_flag_fingerprints(char **fingerprints)
 	}
 	free(fingerprints);
 }
+*/
 
 /* log alert to database, replacing old record if necessary */
 int log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *key, struct value *value)

@@ -36,15 +36,15 @@ struct key {
  * first: timestamp of first packet received
  * latest: timestamp of latest packet received
  * count: number of packets received
- * should_be_logged: TODO
- * logged: whether this entry has been logged in the database
  */
 struct value {
 	time_t first;
 	time_t latest;
 	int count;
+	/*
 	bool should_be_logged;
 	bool logged;
+	*/
 };
 
 /* create string fingerprint from key struct */
@@ -170,11 +170,14 @@ int log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *ke
 	char ip_str[MAX_IP];
 
 	/* alert already in database */
+	/*
 	if (value->logged) {
 		return 0;
 	}
+	*/
 
 	/* char *delete_command = "DELETE FROM log WHERE fingerprint = '%s' AND alert_type = %d"; */
+	/* TODO increment count if this is the first log of this alert for a given program run */
 	char *insert_command = "INSERT INTO log (fingerprint, dst_port, alert_type, src_ip, packet_count, first, latest) "
 				   		   "VALUES ('%s', %d, %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
 						   "ON CONFLICT (fingerprint, alert_type) DO UPDATE "
@@ -210,7 +213,7 @@ int log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *ke
 	PQclear(db_res);
 
 	/* mark hash table entry as logged */
-	value->logged = true;
+	/* value->logged = true; */
 	return err;
 }
 
@@ -253,9 +256,11 @@ void update_record(gpointer key, gpointer value, gpointer user_data)
 	/* int rows; */
 
 	/* only consider entries logged in database */
+	/*
 	if (!val->logged) {
 		return;
 	}
+	*/
 
 	sprintf(lookup_query, lookup_cmd, fingerprint);
 	printf("%s\n", lookup_query);

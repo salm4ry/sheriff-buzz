@@ -274,13 +274,11 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		new_val.first = current_val->first;
 		new_val.latest = ktime_to_real(e->timestamp);
 		new_val.count = current_val->count + 1;
-		new_val.logged = false;
 	} else {
 		/* set up new entry */
 		new_val.first = ktime_to_real(e->timestamp);
 		new_val.latest = new_val.first;
 		new_val.count = 1;
-		new_val.logged = false;
 	}
 
 	/* detect flag-based scans */
@@ -333,10 +331,9 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	struct value *current_val = (struct value*) res;
 	if (current_packet.dst_port != 22) {
-		printf("%s -> {%ld, %ld, %d, %d}\n",
+		printf("%s -> {%ld, %ld, %d}\n",
 				fingerprint,
-				current_val->first, current_val->latest, current_val->count,
-				current_val->logged);
+				current_val->first, current_val->latest, current_val->count);
 	}
 
 	/*

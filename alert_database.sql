@@ -17,7 +17,7 @@ CREATE TABLE alert_type(
 
 CREATE TABLE log(
 	id SERIAL PRIMARY KEY,
-	fingerprint CHAR(23),
+	fingerprint CHAR(12),
 	dst_port INTEGER,
 	alert_type INTEGER,
 	src_ip INET,

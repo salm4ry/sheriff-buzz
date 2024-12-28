@@ -38,8 +38,12 @@ int *common_ports = NULL; /* store top 1000 TCP ports */
 const int NUM_COMMON_PORTS = 1000;
 const int MAX_ADDR_LEN = 16;
 
+bool exiting = false;
+
 pthread_rwlock_t hash_table_lock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_rwlock_t db_lock = PTHREAD_RWLOCK_INITIALIZER;
+pthread_rwlock_t exit_lock = PTHREAD_MUTEX_INITIALIZER;
+
 pthread_t *threads;
 int num_threads = 0;
 
@@ -48,13 +52,24 @@ void cleanup()
 	/* redirect cleanup-related errors to /dev/null */
 	freopen("/dev/null", "r", stderr);
 
+	if (exiting) {
+		return;
+	}
+
+	pthread_rwlock_wrlock(&exit_lock);
+	exiting = true;
+	pthread_rwlock_unlock(&exit_lock);
+
+	bpf_xdp_detach(ifindex, xdp_flags, NULL);
+	ring_buffer__free(rb);
+	g_hash_table_destroy(packet_table);
+	free(common_ports);
+
 	int res;
 
-	/* kill threads if they were created (they loop forever so have to be
-	 * killed) */
 	if (num_threads != 0) {
 		for (int i = 0; i < num_threads; i++) {
-			res = pthread_kill(threads[i], NULL);
+			res = pthread_kill(threads[i], SIGKILL);
 			if (res != 0) {
 				pr_err("pthread kill failed\n");
 			}
@@ -63,10 +78,6 @@ void cleanup()
 		free(threads);
 	}
 
-	bpf_xdp_detach(ifindex, xdp_flags, NULL);
-	ring_buffer__free(rb);
-	g_hash_table_destroy(packet_table);
-	free(common_ports);
 }
 
 /* TODO switch signal() to sigaction()
@@ -345,22 +356,20 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	return 0;
 }
 
-void thread_rb_work(void *arg)
+void thread_rb_work()
 {
-	int *num_threads = arg;
-
 	while (true) {
 		err = ring_buffer__poll(rb, 100);
 
 		/* EINTR = interrupted syscall */
 		if (err == -EINTR) {
 			err = 0;
-			cleanup();
+			return;
 		}
 
 		if (err < 0) {
 			pr_err("error polling ring buffer: %d\n", err);
-			cleanup();
+			return;
 		}
 	}
 }
@@ -369,7 +378,6 @@ int main(int argc, char *argv[])
 {
 	struct bpf_map *map = NULL;
 	int prog_fd, map_fd;
-	bool exiting = false;
 
 	/* TODO get number of threads from argument/environment variable */
 	int res;
@@ -476,15 +484,18 @@ int main(int argc, char *argv[])
 		/* EINTR = interrupted syscall */
 		if (err == -EINTR) {
 			err = 0;
-			goto cleanup;
+			cleanup();
+			break;
 		}
 
 		if (err < 0) {
 			pr_err("error polling ring buffer: %d\n", err);
-			goto cleanup;
+			cleanup();
+			break;
 		}
 	}
 
+	cleanup();
 	return 0;
 
 cleanup:

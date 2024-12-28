@@ -32,6 +32,8 @@ ALTER TABLE IF EXISTS log
 		ON UPDATE CASCADE
 		ON DELETE CASCADE;
 
+-- index for update conflict detection
+CREATE UNIQUE INDEX log_index ON log(fingerprint, alert_type);
 
 -- set up alert types
 -- flag-based scans

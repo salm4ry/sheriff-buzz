@@ -167,24 +167,31 @@ int log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *ke
 		return 0;
 	}
 
-	char *delete_command = "DELETE FROM log WHERE fingerprint = '%s'";
+	/* char *delete_command = "DELETE FROM log WHERE fingerprint = '%s' AND alert_type = %d"; */
 	char *insert_command = "INSERT INTO log (fingerprint, dst_port, alert_type, src_ip, packet_count, first, latest) "
-				   		   "VALUES (%s, %d, %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld))";
+				   		   "VALUES ('%s', %d, %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
+						   "ON CONFLICT (fingerprint, alert_type) DO UPDATE "
+						   "SET packet_count=%d, latest=to_timestamp(%ld)";
 
 	long src_ip = ntohl(key->src_ip);
 
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
 	/* remove old entries from log */
-	sprintf(query, delete_command, fingerprint);
+	/*
+	sprintf(query, delete_command, fingerprint, alert_type);
+	printf("%s\n", query);
 	db_res = PQexec(db_conn, query);
 	if (PQresultStatus(db_res) != PGRES_COMMAND_OK) {
 		fprintf(stderr, "postgres: %s\n", PQerrorMessage(db_conn));
 	}
 	PQclear(db_res);
+	*/
 
 	sprintf(query, insert_command, fingerprint, key->dst_port, alert_type,
-			ip_str, value->count, value->first, value->latest);
+			ip_str, value->count, value->first, value->latest,
+			value->count, value->latest);
+	printf("%s\n", query);
 
 	db_res = PQexec(db_conn, query);
 	err = (PQresultStatus(db_res) == PGRES_COMMAND_OK);

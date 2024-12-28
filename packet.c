@@ -1,11 +1,11 @@
 #include <stdio.h>
-#include <stdint.h>
 
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <pthread.h>
 
 #include <net/if.h>
 #include <netinet/in.h>
@@ -38,10 +38,30 @@ int *common_ports = NULL; /* store top 1000 TCP ports */
 const int NUM_COMMON_PORTS = 1000;
 const int MAX_ADDR_LEN = 16;
 
+pthread_rwlock_t hash_table_lock = PTHREAD_RWLOCK_INITIALIZER;
+pthread_rwlock_t db_lock = PTHREAD_RWLOCK_INITIALIZER;
+pthread_t *threads;
+int num_threads = 0;
+
 void cleanup()
 {
 	/* redirect cleanup-related errors to /dev/null */
 	freopen("/dev/null", "r", stderr);
+
+	int res;
+
+	/* kill threads if they were created (they loop forever so have to be
+	 * killed) */
+	if (num_threads != 0) {
+		for (int i = 0; i < num_threads; i++) {
+			res = pthread_kill(threads[i], NULL);
+			if (res != 0) {
+				pr_err("pthread kill failed\n");
+			}
+		}
+
+		free(threads);
+	}
 
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
 	ring_buffer__free(rb);
@@ -169,7 +189,9 @@ bool *get_ports_scanned(long src_ip)
 	gboolean res;
 
 	for (int i = 0; i < NUM_PORTS; i++) {
+		pthread_rwlock_rdlock(&hash_table_lock);
 		res = g_hash_table_contains(packet_table, (gconstpointer) fingerprints[i]);
+		pthread_rwlock_unlock(&hash_table_lock);
 		ports_scanned[i] = res;
 		/* printf("%s: port %d -> %b\n", fingerprints[i], i, ports_scanned[i]); */
 	}
@@ -240,8 +262,12 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	/* update hash table */
 	get_fingerprint(&current_packet, fingerprint);
+
 	/* look up hash table entry */
+	pthread_rwlock_rdlock(&hash_table_lock);
 	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
+	pthread_rwlock_unlock(&hash_table_lock);
+
 	if (res) {
 		/* entry already exists: update count and timestamp */
 		struct value *current_val = (struct value*) res;
@@ -262,24 +288,34 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		printf("nmap Xmas scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
 
+		pthread_rwlock_wrlock(&db_lock);
 		log_alert(db_conn, fingerprint, XMAS_SCAN, &current_packet, &new_val);
+		pthread_rwlock_wrlock(&db_lock);
 	}
 
 	if (is_fin_scan(&e->tcph)) {
 		printf("nmap FIN scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
+
+		pthread_rwlock_wrlock(&db_lock);
 		log_alert(db_conn, fingerprint, FIN_SCAN, &current_packet, &new_val);
+		pthread_rwlock_unlock(&db_lock);
 	}
 
 	if (is_null_scan(&e->tcph)) {
 		printf("nmap null scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
+
+		pthread_rwlock_wrlock(&db_lock);
 		log_alert(db_conn, fingerprint, NULL_SCAN, &current_packet, &new_val);
+		pthread_rwlock_unlock(&db_lock);
 	}
 
 	/* insert/replace entry */
+	pthread_rwlock_wrlock(&hash_table_lock);
 	g_hash_table_replace(packet_table,
 			g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
+	pthread_rwlock_wrlock(&hash_table_lock);
 
 	if (current_packet.dst_port != 22) {
 		char **port_fingerprints = gen_port_fingerprints(current_packet.src_ip);
@@ -291,7 +327,10 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	}
 
 	/* debug: print corresponding hash table entry */
+	pthread_rwlock_rdlock(&hash_table_lock);
 	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
+	pthread_rwlock_unlock(&hash_table_lock);
+
 	struct value *current_val = (struct value*) res;
 	if (current_packet.dst_port != 22) {
 		printf("%s -> {%ld, %ld, %d, %d}\n",
@@ -309,11 +348,34 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	return 0;
 }
 
+void thread_rb_work(void *arg)
+{
+	int *num_threads = arg;
+
+	while (true) {
+		err = ring_buffer__poll(rb, 100);
+
+		/* EINTR = interrupted syscall */
+		if (err == -EINTR) {
+			err = 0;
+			cleanup();
+		}
+
+		if (err < 0) {
+			pr_err("error polling ring buffer: %d\n", err);
+			cleanup();
+		}
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	struct bpf_map *map = NULL;
 	int prog_fd, map_fd;
 	bool exiting = false;
+
+	/* TODO get number of threads from argument/environment variable */
+	int res;
 
 	/* catch SIGINT (e.g. Ctrl+C, kill) */
 	if (signal(SIGINT, cleanup) == SIG_ERR) {
@@ -398,7 +460,19 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
-	/* poll the ring buffer every 2 seconds */
+	/* set up threads */
+	num_threads = 2;
+	threads = calloc(num_threads, sizeof(*threads));
+
+	for (int i = 0; i < num_threads; i++) {
+		res = pthread_create(&threads[i], NULL, (void *) thread_rb_work, NULL);
+		if (res != 0) {
+			pr_err("pthread create failed\n");
+			cleanup();
+		}
+	}
+
+	/* main thread also polls the ring buffer */
 	while (!exiting) {
 		err = ring_buffer__poll(rb, 100);
 
@@ -412,7 +486,6 @@ int main(int argc, char *argv[])
 			pr_err("error polling ring buffer: %d\n", err);
 			goto cleanup;
 		}
-		/* sleep(2); */
 	}
 
 	return 0;

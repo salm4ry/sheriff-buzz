@@ -273,6 +273,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	/* update hash table */
 	get_fingerprint(&current_packet, fingerprint);
+	if (current_packet.dst_port != 22)
+		printf("%d handling %s\n", gettid(), fingerprint);
 
 	/* look up hash table entry */
 	pthread_rwlock_rdlock(&hash_table_lock);
@@ -299,7 +301,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 		pthread_rwlock_wrlock(&db_lock);
 		log_alert(db_conn, fingerprint, XMAS_SCAN, &current_packet, &new_val);
-		pthread_rwlock_wrlock(&db_lock);
+		pthread_rwlock_unlock(&db_lock);
 	}
 
 	if (is_fin_scan(&e->tcph)) {
@@ -312,7 +314,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	}
 
 	if (is_null_scan(&e->tcph)) {
-		printf("nmap null scan detected from %s at %s (port %d)!\n",
+		printf("nmap NULL scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
 
 		pthread_rwlock_wrlock(&db_lock);

@@ -3,7 +3,7 @@
 #include <linux/types.h>
 #include <stdbool.h>
 
-#include "packet_hash.h"
+#include "packet_data.h"
 
 #define NUM_PORTS 65536
 #define MAX_PACKETS 1024

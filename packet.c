@@ -22,7 +22,7 @@
 #include "pr.h"
 #include "detect_scan.h"
 #include "time_conv.h"
-#include "log.h"
+#include "log_types.h"
 
 struct bpf_object *obj;
 uint32_t xdp_flags;
@@ -31,21 +31,17 @@ struct ring_buffer *rb = NULL;
 int err;
 
 GHashTable *packet_table;
+struct db_task_list task_list_head;
+pthread_mutex_t task_list_lock = PTHREAD_MUTEX_INITIALIZER;
 
 PGconn *db_conn;
+pthread_t db_worker;
 
 int *common_ports = NULL; /* store top 1000 TCP ports */
 const int NUM_COMMON_PORTS = 1000;
 const int MAX_ADDR_LEN = 16;
 
 bool exiting = false;
-
-pthread_rwlock_t hash_table_lock = PTHREAD_RWLOCK_INITIALIZER;
-pthread_rwlock_t db_lock = PTHREAD_RWLOCK_INITIALIZER;
-pthread_rwlock_t exit_lock = PTHREAD_MUTEX_INITIALIZER;
-
-pthread_t *threads;
-int num_threads = 0;
 
 void cleanup()
 {
@@ -56,28 +52,16 @@ void cleanup()
 		return;
 	}
 
-	pthread_rwlock_wrlock(&exit_lock);
 	exiting = true;
-	pthread_rwlock_unlock(&exit_lock);
+
 
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
 	ring_buffer__free(rb);
 	g_hash_table_destroy(packet_table);
 	free(common_ports);
 
-	int res;
-
-	if (num_threads != 0) {
-		for (int i = 0; i < num_threads; i++) {
-			res = pthread_kill(threads[i], SIGKILL);
-			if (res != 0) {
-				pr_err("pthread kill failed\n");
-			}
-		}
-
-		free(threads);
-	}
-
+	/* terminate database worker thread */
+	pthread_kill(db_worker, SIGKILL);
 }
 
 /* TODO switch signal() to sigaction()
@@ -200,9 +184,7 @@ bool *get_ports_scanned(long src_ip)
 	gboolean res;
 
 	for (int i = 0; i < NUM_PORTS; i++) {
-		pthread_rwlock_rdlock(&hash_table_lock);
 		res = g_hash_table_contains(packet_table, (gconstpointer) fingerprints[i]);
-		pthread_rwlock_unlock(&hash_table_lock);
 		ports_scanned[i] = res;
 		/* printf("%s: port %d -> %b\n", fingerprints[i], i, ports_scanned[i]); */
 	}
@@ -273,13 +255,9 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	/* update hash table */
 	get_fingerprint(&current_packet, fingerprint);
-	if (current_packet.dst_port != 22)
-		printf("%d handling %s\n", gettid(), fingerprint);
 
 	/* look up hash table entry */
-	pthread_rwlock_rdlock(&hash_table_lock);
 	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
-	pthread_rwlock_unlock(&hash_table_lock);
 
 	if (res) {
 		/* entry already exists: update count and timestamp */
@@ -299,34 +277,32 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		printf("nmap Xmas scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
 
-		pthread_rwlock_wrlock(&db_lock);
-		log_alert(db_conn, fingerprint, XMAS_SCAN, &current_packet, &new_val);
-		pthread_rwlock_unlock(&db_lock);
+		/* log_alert(db_conn, fingerprint, XMAS_SCAN, &current_packet, &new_val); */
+		add_work(&task_list_head, &task_list_lock,
+				 fingerprint, XMAS_SCAN, &current_packet, &new_val);
 	}
 
 	if (is_fin_scan(&e->tcph)) {
 		printf("nmap FIN scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
 
-		pthread_rwlock_wrlock(&db_lock);
-		log_alert(db_conn, fingerprint, FIN_SCAN, &current_packet, &new_val);
-		pthread_rwlock_unlock(&db_lock);
+		/* log_alert(db_conn, fingerprint, FIN_SCAN, &current_packet, &new_val); */
+		add_work(&task_list_head, &task_list_lock,
+				 fingerprint, FIN_SCAN, &current_packet, &new_val);
 	}
 
 	if (is_null_scan(&e->tcph)) {
 		printf("nmap NULL scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
 
-		pthread_rwlock_wrlock(&db_lock);
-		log_alert(db_conn, fingerprint, NULL_SCAN, &current_packet, &new_val);
-		pthread_rwlock_unlock(&db_lock);
+		/* log_alert(db_conn, fingerprint, NULL_SCAN, &current_packet, &new_val); */
+		add_work(&task_list_head, &task_list_lock,
+				 fingerprint, NULL_SCAN, &current_packet, &new_val);
 	}
 
 	/* insert/replace entry */
-	pthread_rwlock_wrlock(&hash_table_lock);
 	g_hash_table_replace(packet_table,
 			g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
-	pthread_rwlock_wrlock(&hash_table_lock);
 
 	if (current_packet.dst_port != 22) {
 		char **port_fingerprints = gen_port_fingerprints(current_packet.src_ip);
@@ -338,9 +314,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	}
 
 	/* debug: print corresponding hash table entry */
-	pthread_rwlock_rdlock(&hash_table_lock);
 	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
-	pthread_rwlock_unlock(&hash_table_lock);
 
 	struct value *current_val = (struct value*) res;
 	if (current_packet.dst_port != 22) {
@@ -349,31 +323,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				current_val->first, current_val->latest, current_val->count);
 	}
 
-	/*
-	if (current_packet.dst_port != 22) {
-		update_db(db_conn, packet_table);
-	}
-	*/
-
 	return 0;
-}
-
-void thread_rb_work()
-{
-	while (true) {
-		err = ring_buffer__poll(rb, 100);
-
-		/* EINTR = interrupted syscall */
-		if (err == -EINTR) {
-			err = 0;
-			return;
-		}
-
-		if (err < 0) {
-			pr_err("error polling ring buffer: %d\n", err);
-			return;
-		}
-	}
 }
 
 int main(int argc, char *argv[])
@@ -383,6 +333,8 @@ int main(int argc, char *argv[])
 
 	/* TODO get number of threads from argument/environment variable */
 	int res;
+
+	struct thread_args db_worker_args;
 
 	/* catch SIGINT (e.g. Ctrl+C, kill) */
 	if (signal(SIGINT, cleanup) == SIG_ERR) {
@@ -429,6 +381,8 @@ int main(int argc, char *argv[])
 	printf("sizeof(key) = %d, sizeof(value) = %ld\n",
 			MAX_FINGERPRINT, sizeof(struct value));
 
+	LIST_INIT(&task_list_head);
+
 	/* extract common TCP ports from file */
 	common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS);
 
@@ -467,19 +421,13 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
-	/* set up threads */
-	num_threads = 2;
-	threads = calloc(num_threads, sizeof(*threads));
+	/* create database worker thread */
+	db_worker_args.db_conn = db_conn;
+	db_worker_args.head = &task_list_head;
+	db_worker_args.lock = &task_list_lock;
+	res = pthread_create(&db_worker, NULL, (void *) thread_work, &db_worker_args);
 
-	for (int i = 0; i < num_threads; i++) {
-		res = pthread_create(&threads[i], NULL, (void *) thread_rb_work, NULL);
-		if (res != 0) {
-			pr_err("pthread create failed\n");
-			cleanup();
-		}
-	}
-
-	/* main thread also polls the ring buffer */
+	/* poll ring buffer */
 	while (!exiting) {
 		err = ring_buffer__poll(rb, 100);
 

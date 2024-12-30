@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <bits/pthreadtypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,12 +11,16 @@
 #include <glib-2.0/glib.h>
 #include <postgresql/libpq-fe.h>
 
+#include <sys/queue.h>
+
 #include "parse_headers.h"
 
 /* maximum fingerprint string length */
 #define MAX_FINGERPRINT 13
 #define MAX_QUERY 512
 #define MAX_IP 16
+
+#define MAX_DB_TASKS 20
 
 /**
  * Hash table key
@@ -46,6 +51,39 @@ struct value {
 	bool logged;
 	*/
 };
+
+struct db_task_list;
+
+/**
+ * Database work (linked list entry)
+ *
+ * fingerprint: hash table key
+ * alert type: type of alert to be logged
+ * key: key data from hash table fingerprint
+ * value: hash table value
+ */
+struct db_task {
+	char fingerprint[MAX_FINGERPRINT];
+	int alert_type;
+	struct key *key;
+	struct value *value;
+	LIST_ENTRY(db_task) entries;
+};
+
+LIST_HEAD(db_task_list, db_task);
+
+/**
+ * Arguments for database worker thread
+ *
+ * head: head of task linked list
+ * db_conn: database connection
+ */
+struct thread_args {
+	struct db_task_list *head;
+	pthread_mutex_t *lock;
+	PGconn *db_conn;
+};
+
 
 /* create string fingerprint from key struct */
 void get_fingerprint(struct key *key, char *buf)
@@ -204,9 +242,9 @@ int log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *ke
 	printf("%s\n", query);
 
 	db_res = PQexec(db_conn, query);
-	err = (PQresultStatus(db_res) == PGRES_COMMAND_OK);
+	err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
 
-	if (!err) {
+	if (err) {
 		fprintf(stderr, "postgres: %s\n", PQerrorMessage(db_conn));
 	}
 
@@ -301,4 +339,78 @@ void update_db(PGconn *db_conn, GHashTable *hash_table)
 {
 	/* iterate through hash table, updating database as required */
 	g_hash_table_foreach(hash_table, update_record, (gpointer) db_conn);
+}
+
+int list_size(struct db_task_list *head)
+{
+	struct db_task *current = NULL;
+	/* NOTE can use LIST_EMPTY() to check if list is empty */
+	int size = 0;
+
+	LIST_FOREACH(current, head, entries)
+		size++;
+
+	return size;
+}
+
+int list_full(struct db_task_list *head)
+{
+	return list_size(head) >= MAX_DB_TASKS;
+}
+
+/* log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *key, struct value *value) */
+int add_work(struct db_task_list *task_list_head, pthread_mutex_t *lock,
+			 char *fingerprint, int alert_type, struct key *key, struct value *value)
+{
+	struct db_task *new_task;
+
+	if (list_full(task_list_head)) {
+		return 1;
+	}
+
+	new_task = malloc(sizeof(struct db_task));
+
+	strncpy(new_task->fingerprint, fingerprint, MAX_FINGERPRINT);
+	new_task->alert_type = alert_type;
+	new_task->key = key;
+	new_task->value = value;
+
+	pthread_mutex_lock(lock);
+	LIST_INSERT_HEAD(task_list_head, new_task, entries);
+	pthread_mutex_unlock(lock);
+
+	return 0;
+}
+
+void thread_work(void *args)
+{
+	struct thread_args *ctx = args;
+	PGconn *db_conn = ctx->db_conn;
+	struct db_task_list *head = ctx->head;
+	pthread_mutex_t *lock = ctx->lock;
+
+	struct db_task *current, *next;
+
+	/* loop forever, waiting for work from task list */
+	while (true) {
+		pthread_mutex_lock(lock);
+		current = LIST_FIRST(head);
+		pthread_mutex_unlock(lock);
+
+		while (current) {
+			log_alert(db_conn,
+					current->fingerprint,
+					current->alert_type,
+					current->key,
+					current->value);
+
+			pthread_mutex_lock(lock);
+			next = LIST_NEXT(current, entries);
+			LIST_REMOVE(current, entries);
+			free(current);
+			pthread_mutex_unlock(lock);
+
+			current = next;
+		}
+	}
 }

@@ -10,37 +10,37 @@
 
 #include "packet.h"
 
-/*
-struct packet_key {
-	__u32 protocol;
-	__u32 src_ip;
-};
-
-struct packet_value {
-	__u64 count;
-};
-*/
-
 char LICENSE[] SEC("license") = "GPL";
 
-/*
-// hash map: protocol number -> packet count
+/* array of flagged IP addresses from which to block/redirect traffic */
 struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
-	__uint(max_entries, 10);
-	__type(key, struct packet_key);
-	__type(value, struct packet_value);
-} protocol_counts SEC(".maps");
-*/
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__type(key, __u32);
+	__type(value, __u32);  /* length of IPv4 address */
+	__uint(max_entries, 256);
+} flagged_ips SEC(".maps");
 
-/* ring buffer */
+/* kernel ring buffer
+ *
+ * send TCP headers from kernel -> user space
+ */
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
 	__uint(max_entries, 256 * 1024); /* 256 KB */
-} rb SEC(".maps");
+} kernel_rb SEC(".maps");
+
+/* user ring buffer
+ *
+ * send IPs to block/redirect from user -> kernel space
+ */
+struct {
+	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
+	__uint(max_entries, 256 * 1024);
+} user_rb SEC(".maps");
+
 
 SEC("xdp")
-int hello_packet(struct xdp_md *ctx)
+int process_packet(struct xdp_md *ctx)
 {
 	__u8 protocol_number;
 	/* __u64 *packet_entry; */
@@ -61,28 +61,8 @@ int hello_packet(struct xdp_md *ctx)
 		return result;
 
 	if (protocol_number == TCP_PNUM) {
-		/*
-		// update hash map key: protocol and source IP
-		current_key.src_ip = bpf_ntohl(ip_headers->saddr);
-
-		// initialise packet count (part of hash map value)
-		current_value.count = 0;
-
-		// update packet count
-		packet_entry = bpf_map_lookup_elem(&protocol_counts, &current_key);
-		if (packet_entry) {
-			// set count if protocol number is valid
-			current_value.count = *packet_entry;
-		}
-
-		// count current port
-		current_value.count++;
-
-		bpf_map_update_elem(&protocol_counts, &current_key, &current_value, 0);
-		*/
-
 		/* reserve ring buffer sample */
-		e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
+		e = bpf_ringbuf_reserve(&kernel_rb, sizeof(*e), 0);
 		if (!e) {
 			/* BPF ring buffer allocation failed */
 			return result;
@@ -91,7 +71,6 @@ int hello_packet(struct xdp_md *ctx)
 		/* fill out ring buffer sample */
 		e->iph = *ip_headers;
 		e->tcph = *tcp_headers;
-
 		e->timestamp = timestamp;
 
 		/* submit ring buffer event */

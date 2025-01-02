@@ -27,7 +27,9 @@
 struct bpf_object *obj;
 uint32_t xdp_flags;
 int ifindex;
-struct ring_buffer *rb = NULL;
+
+struct ring_buffer *kernel_rb = NULL;
+struct user_ring_buffer *user_rb = NULL;
 int err;
 
 GHashTable *packet_table;
@@ -42,6 +44,7 @@ const int NUM_COMMON_PORTS = 1000;
 const int MAX_ADDR_LEN = 16;
 
 bool exiting = false;
+bool use_db_thread = false;
 
 void cleanup()
 {
@@ -54,10 +57,13 @@ void cleanup()
 
 	exiting = true;
 
-
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
-	ring_buffer__free(rb);
+
+	ring_buffer__free(kernel_rb);
+	user_ring_buffer__free(user_rb);
+
 	g_hash_table_destroy(packet_table);
+
 	free(common_ports);
 
 	/* terminate database worker thread */
@@ -193,6 +199,15 @@ bool *get_ports_scanned(long src_ip)
 	return ports_scanned;
 }
 
+/* send flagged IP to BPF program with user ring buffer */
+static int send_flagged_ip(long src_ip)
+{
+	int err = 0;
+
+	/* TODO */
+	return err;
+}
+
 
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
@@ -277,27 +292,36 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		printf("nmap Xmas scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
 
-		/* log_alert(db_conn, fingerprint, XMAS_SCAN, &current_packet, &new_val); */
-		add_work(&task_queue_head, &task_list_lock,
-				 fingerprint, XMAS_SCAN, &current_packet, &new_val);
+		if (use_db_thread) {
+			add_work(&task_queue_head, &task_list_lock,
+					 fingerprint, XMAS_SCAN, &current_packet, &new_val);
+		} else {
+			log_alert(db_conn, fingerprint, XMAS_SCAN, &current_packet, &new_val);
+		}
 	}
 
 	if (is_fin_scan(&e->tcph)) {
 		printf("nmap FIN scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
 
-		/* log_alert(db_conn, fingerprint, FIN_SCAN, &current_packet, &new_val); */
-		add_work(&task_queue_head, &task_list_lock,
-				 fingerprint, FIN_SCAN, &current_packet, &new_val);
+		if (use_db_thread) {
+			add_work(&task_queue_head, &task_list_lock,
+					 fingerprint, FIN_SCAN, &current_packet, &new_val);
+		} else {
+			log_alert(db_conn, fingerprint, FIN_SCAN, &current_packet, &new_val);
+		}
 	}
 
 	if (is_null_scan(&e->tcph)) {
 		printf("nmap NULL scan detected from %s at %s (port %d)!\n",
 				src_addr, time_string, current_packet.dst_port);
 
-		/* log_alert(db_conn, fingerprint, NULL_SCAN, &current_packet, &new_val); */
-		add_work(&task_queue_head, &task_list_lock,
-				 fingerprint, NULL_SCAN, &current_packet, &new_val);
+		if (use_db_thread) {
+			add_work(&task_queue_head, &task_list_lock,
+					 fingerprint, NULL_SCAN, &current_packet, &new_val);
+		} else {
+			log_alert(db_conn, fingerprint, NULL_SCAN, &current_packet, &new_val);
+		}
 	}
 
 	/* insert/replace entry */
@@ -309,7 +333,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		free_port_fingerprints(port_fingerprints);
 
 		bool *ports_scanned = get_ports_scanned(current_packet.src_ip);
-		printf("number of ports scanned: %d\n", count_ports_scanned(ports_scanned));
+		printf("number of ports scanned by %s: %d\n", 
+				src_addr, count_ports_scanned(ports_scanned));
 		free(ports_scanned);
 	}
 
@@ -332,6 +357,8 @@ int main(int argc, char *argv[])
 	int prog_fd, map_fd;
 	int res;
 
+	char *thread_env;
+
 	struct thread_args db_worker_args;
 
 	/* catch SIGINT (e.g. Ctrl+C, kill) */
@@ -350,6 +377,17 @@ int main(int argc, char *argv[])
 		printf("usage: %s <interface name> [--skb-mode]\n", argv[0]);
 		return 0;
 	}
+
+	/* check if we're using the database worker thread */
+	thread_env = getenv("DB_THREAD");
+
+	if (thread_env) {
+		/* strncmp() returns 0 if strings are equal */
+		use_db_thread = strncmp(getenv("DB_THREAD"), "true", 5) == 0;
+	} else {
+		use_db_thread = true;
+	}
+	printf("use database worker thread: %d\n", use_db_thread);
 
 	prog_fd = load_bpf_obj("packet.bpf.o");
 	if (prog_fd <= 0) {
@@ -376,8 +414,6 @@ int main(int argc, char *argv[])
 	 * key equal function = string equality
 	 */
 	packet_table = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
-	printf("sizeof(key) = %d, sizeof(value) = %ld\n",
-			MAX_FINGERPRINT, sizeof(struct value));
 
 	TAILQ_INIT(&task_queue_head);
 
@@ -405,29 +441,49 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
-	map = bpf_object__find_map_by_name(obj, "rb");
+	/* find kernel ring buffer */
+	map = bpf_object__find_map_by_name(obj, "kernel_rb");
 	if (!map) {
-		pr_err("cannot find map by name: %s\n", "rb");
+		pr_err("cannot find map by name: %s\n", "kernel_rb");
 		goto cleanup;
 	}
 	map_fd = bpf_map__fd(map);
 
-	rb = ring_buffer__new(map_fd, handle_event, NULL, NULL);
-	if (!rb) {
+	/* set up kernel ring buffer */
+	kernel_rb = ring_buffer__new(map_fd, handle_event, NULL, NULL);
+	if (!kernel_rb) {
 		err = -1;
-		pr_err("failed to create ring buffer\n");
+		pr_err("failed to create kernel ring buffer\n");
+		goto cleanup;
+	}
+
+	/* find user ring buffer */
+	map = bpf_object__find_map_by_name(obj, "user_rb");
+	if (!map) {
+		pr_err("cannot find map by name: %s\n", "user_rb");
+		goto cleanup;
+	}
+	map_fd = bpf_map__fd(map);
+
+	/* set up user ring buffer */
+	user_rb = user_ring_buffer__new(map_fd, NULL);
+	if (!user_rb) {
+		err = -1;
+		pr_err("failed to create user ring buffer\n");
 		goto cleanup;
 	}
 
 	/* create database worker thread */
-	db_worker_args.db_conn = db_conn;
-	db_worker_args.head = &task_queue_head;
-	db_worker_args.lock = &task_list_lock;
-	res = pthread_create(&db_worker, NULL, (void *) thread_work, &db_worker_args);
+	if (use_db_thread) {
+		db_worker_args.db_conn = db_conn;
+		db_worker_args.head = &task_queue_head;
+		db_worker_args.lock = &task_list_lock;
+		res = pthread_create(&db_worker, NULL, (void *) thread_work, &db_worker_args);
+	}
 
 	/* poll ring buffer */
 	while (!exiting) {
-		err = ring_buffer__poll(rb, 100);
+		err = ring_buffer__poll(kernel_rb, 100);
 
 		/* EINTR = interrupted syscall */
 		if (err == -EINTR) {
@@ -451,7 +507,7 @@ cleanup:
 	freopen("/dev/null", "r", stderr);
 
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
-	ring_buffer__free(rb);
+	ring_buffer__free(kernel_rb);
 	free(common_ports);
 	g_hash_table_destroy(packet_table);
 	return err < 0 ? err : 0;

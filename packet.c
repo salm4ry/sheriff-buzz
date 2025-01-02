@@ -31,7 +31,7 @@ struct ring_buffer *rb = NULL;
 int err;
 
 GHashTable *packet_table;
-struct db_task_list task_list_head;
+struct db_task_queue task_queue_head;
 pthread_mutex_t task_list_lock = PTHREAD_MUTEX_INITIALIZER;
 
 PGconn *db_conn;
@@ -278,7 +278,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				src_addr, time_string, current_packet.dst_port);
 
 		/* log_alert(db_conn, fingerprint, XMAS_SCAN, &current_packet, &new_val); */
-		add_work(&task_list_head, &task_list_lock,
+		add_work(&task_queue_head, &task_list_lock,
 				 fingerprint, XMAS_SCAN, &current_packet, &new_val);
 	}
 
@@ -287,7 +287,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				src_addr, time_string, current_packet.dst_port);
 
 		/* log_alert(db_conn, fingerprint, FIN_SCAN, &current_packet, &new_val); */
-		add_work(&task_list_head, &task_list_lock,
+		add_work(&task_queue_head, &task_list_lock,
 				 fingerprint, FIN_SCAN, &current_packet, &new_val);
 	}
 
@@ -296,7 +296,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				src_addr, time_string, current_packet.dst_port);
 
 		/* log_alert(db_conn, fingerprint, NULL_SCAN, &current_packet, &new_val); */
-		add_work(&task_list_head, &task_list_lock,
+		add_work(&task_queue_head, &task_list_lock,
 				 fingerprint, NULL_SCAN, &current_packet, &new_val);
 	}
 
@@ -330,8 +330,6 @@ int main(int argc, char *argv[])
 {
 	struct bpf_map *map = NULL;
 	int prog_fd, map_fd;
-
-	/* TODO get number of threads from argument/environment variable */
 	int res;
 
 	struct thread_args db_worker_args;
@@ -381,7 +379,7 @@ int main(int argc, char *argv[])
 	printf("sizeof(key) = %d, sizeof(value) = %ld\n",
 			MAX_FINGERPRINT, sizeof(struct value));
 
-	LIST_INIT(&task_list_head);
+	TAILQ_INIT(&task_queue_head);
 
 	/* extract common TCP ports from file */
 	common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS);
@@ -423,7 +421,7 @@ int main(int argc, char *argv[])
 
 	/* create database worker thread */
 	db_worker_args.db_conn = db_conn;
-	db_worker_args.head = &task_list_head;
+	db_worker_args.head = &task_queue_head;
 	db_worker_args.lock = &task_list_lock;
 	res = pthread_create(&db_worker, NULL, (void *) thread_work, &db_worker_args);
 

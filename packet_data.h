@@ -52,7 +52,7 @@ struct value {
 	*/
 };
 
-struct db_task_list;
+struct db_task_queue;
 
 /**
  * Database work (linked list entry)
@@ -65,12 +65,12 @@ struct db_task_list;
 struct db_task {
 	char fingerprint[MAX_FINGERPRINT];
 	int alert_type;
-	struct key *key;
-	struct value *value;
-	LIST_ENTRY(db_task) entries;
+	struct key key;
+	struct value value;
+	TAILQ_ENTRY(db_task) entries;
 };
 
-LIST_HEAD(db_task_list, db_task);
+TAILQ_HEAD(db_task_queue, db_task);
 
 /**
  * Arguments for database worker thread
@@ -79,7 +79,7 @@ LIST_HEAD(db_task_list, db_task);
  * db_conn: database connection
  */
 struct thread_args {
-	struct db_task_list *head;
+	struct db_task_queue *head;
 	pthread_mutex_t *lock;
 	PGconn *db_conn;
 };
@@ -256,30 +256,30 @@ void update_db(PGconn *db_conn, GHashTable *hash_table)
 	g_hash_table_foreach(hash_table, update_record, (gpointer) db_conn);
 }
 
-int list_size(struct db_task_list *head)
+int queue_size(struct db_task_queue *head)
 {
 	struct db_task *current = NULL;
 	/* NOTE can use LIST_EMPTY() to check if list is empty */
 	int size = 0;
 
-	LIST_FOREACH(current, head, entries)
+	TAILQ_FOREACH(current, head, entries)
 		size++;
 
 	return size;
 }
 
-int list_full(struct db_task_list *head)
+int queue_full(struct db_task_queue *head)
 {
-	return list_size(head) >= MAX_DB_TASKS;
+	return queue_size(head) >= MAX_DB_TASKS;
 }
 
 /* log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *key, struct value *value) */
-int add_work(struct db_task_list *task_list_head, pthread_mutex_t *lock,
+int add_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 			 char *fingerprint, int alert_type, struct key *key, struct value *value)
 {
 	struct db_task *new_task;
 
-	if (list_full(task_list_head)) {
+	if (queue_full(task_queue_head)) {
 		return 1;
 	}
 
@@ -287,11 +287,11 @@ int add_work(struct db_task_list *task_list_head, pthread_mutex_t *lock,
 
 	strncpy(new_task->fingerprint, fingerprint, MAX_FINGERPRINT);
 	new_task->alert_type = alert_type;
-	new_task->key = key;
-	new_task->value = value;
+	memcpy(&new_task->key, key, sizeof(struct key));
+	memcpy(&new_task->value, value, sizeof(struct value));
 
 	pthread_mutex_lock(lock);
-	LIST_INSERT_HEAD(task_list_head, new_task, entries);
+	TAILQ_INSERT_TAIL(task_queue_head, new_task, entries);
 	pthread_mutex_unlock(lock);
 
 	return 0;
@@ -301,7 +301,7 @@ void thread_work(void *args)
 {
 	struct thread_args *ctx = args;
 	PGconn *db_conn = ctx->db_conn;
-	struct db_task_list *head = ctx->head;
+	struct db_task_queue *head = ctx->head;
 	pthread_mutex_t *lock = ctx->lock;
 
 	struct db_task *current, *next;
@@ -309,19 +309,19 @@ void thread_work(void *args)
 	/* loop forever, waiting for work from task list */
 	while (true) {
 		pthread_mutex_lock(lock);
-		current = LIST_FIRST(head);
+		current = TAILQ_FIRST(head);
 		pthread_mutex_unlock(lock);
 
 		while (current) {
 			log_alert(db_conn,
 					current->fingerprint,
 					current->alert_type,
-					current->key,
-					current->value);
+					&current->key,
+					&current->value);
 
 			pthread_mutex_lock(lock);
-			next = LIST_NEXT(current, entries);
-			LIST_REMOVE(current, entries);
+			next = TAILQ_NEXT(current, entries);
+			TAILQ_REMOVE(head, current, entries);
 			free(current);
 			pthread_mutex_unlock(lock);
 

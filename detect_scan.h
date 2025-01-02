@@ -80,14 +80,6 @@ static int is_xmas_scan(struct tcphdr *tcph) {
 
 /* no flags set */
 static int is_null_scan(struct tcphdr *tcph) {
-	/* check we actually have received packets
-	 * TODO change the 1 to list of legitimate ports to receive traffic from */
-	/*
-	if (conn->packet_count == 0 || count_ports_scanned(conn) == 1) {
-		return false;
-	}
-	*/
-
 	for (int i = FIN; i <= CWR; i++) {
 		if (get_tcp_flag(tcph, i)) {
 			return false;

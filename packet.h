@@ -103,3 +103,9 @@ static __always_inline struct tcphdr *get_tcp_headers(struct xdp_md *ctx) {
 fail:
 	return tcph;
 }
+
+/* get IP packet source address */
+static __u32 get_source_addr(struct iphdr *iph)
+{
+	return ntohl(iph->saddr);
+}

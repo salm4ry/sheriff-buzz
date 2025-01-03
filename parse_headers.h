@@ -18,11 +18,6 @@ enum flag_indices {
 	CWR = TCP_FLAG_CWR,
 };
 
-/* get IP packet source address */
-static __u32 get_source_addr(struct iphdr *iph)
-{
-	return ntohl(iph->saddr);
-}
 
 /* get flag value 0/1 from TCP headers
  * flag = TCP_FLAG_xxx (defined in <linux/tcp.h) */

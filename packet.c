@@ -24,7 +24,7 @@
 #include "time_conv.h"
 #include "log_types.h"
 
-struct bpf_object *obj;
+struct bpf_object *xdp_obj, *uretprobe_obj;
 uint32_t xdp_flags;
 int ifindex;
 
@@ -80,20 +80,22 @@ void handle_signal(int signum) {
 */
 
 
-int load_bpf_obj(const char *filename)
+int load_bpf_xdp(const char *filename)
 
 {
 	int prog_fd = -1;
 	int err;
+	struct bpf_program *prog;
+	struct bpf_link *uprobe_res;
 
-	obj = bpf_object__open_file(filename, NULL);
-	if (libbpf_get_error(obj)) {
+	xdp_obj = bpf_object__open_file(filename, NULL);
+	if (libbpf_get_error(xdp_obj)) {
 		pr_err("open object file failed: %s\n",
 				strerror(errno));
 		return -1;
 	}
 
-	struct bpf_program *prog = bpf_object__next_program(obj, NULL);
+	prog = bpf_object__find_program_by_name(xdp_obj, "process_packet");
 	if (prog == NULL) {
 		pr_err("find program in object failed: %s\n",
 				strerror(errno));
@@ -106,7 +108,7 @@ int load_bpf_obj(const char *filename)
 		return -1;
 	}
 
-	err = bpf_object__load(obj);
+	err = bpf_object__load(xdp_obj);
 	if (err) {
 		pr_err("load bpf object failed: %s\n", strerror(errno));
 		return -1;
@@ -119,6 +121,69 @@ int load_bpf_obj(const char *filename)
 	}
 
 	return prog_fd;
+}
+
+int load_and_attach_bpf_uretprobe(const char *filename, int flagged_ips_fd)
+{
+	int prog_fd = -1;
+	int err;
+	LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts);
+	struct bpf_program *prog;
+	struct bpf_map *flagged_ips;
+	struct bpf_link *uprobe_res;
+
+	uretprobe_obj = bpf_object__open_file(filename, NULL);
+	if (libbpf_get_error(uretprobe_obj)) {
+		pr_err("open object file failed: %s\n",
+				strerror(errno));
+		return -1;
+	}
+
+	prog = bpf_object__find_program_by_name(uretprobe_obj, "read_user_ringbuf");
+	if (prog == NULL) {
+		pr_err("find program in object failed: %s\n",
+				strerror(errno));
+		return -1;
+	}
+
+	flagged_ips = bpf_object__find_map_by_name(uretprobe_obj, "flagged_ips");
+	err = bpf_map__reuse_fd(flagged_ips, flagged_ips_fd);
+	if (err) {
+		pr_err("failed to reuse map fd: %s\n", strerror(errno));
+		return -1;
+	}
+
+	err = bpf_object__load(uretprobe_obj);
+	if (err) {
+		pr_err("load bpf object failed: %s\n", strerror(errno));
+		return -1;
+	}
+
+	prog_fd = bpf_program__fd(prog);
+	if (!prog_fd) {
+		pr_err("error loading bpf object file(%s) (%d): %s\n",
+				filename, err, strerror(-err));
+	}
+
+	/* name of function to attach to */
+	uprobe_opts.func_name = "submit_flagged_ip";
+	/* uretprobe = attach to function exit (we want to read the ring buffer
+	 * after we're done submitting) */
+	uprobe_opts.retprobe = true;
+
+	/* Attach BPF uprobe
+	 * prog: BPF program to attach
+	 * pid: 0 for self (own process)
+	 * binary_path: path to binary containing function symbol
+	 * func_offset: offset within binary (set to 0 since we provided function
+	 * 				name in uprobe_otps)
+	 * opts: options
+	 */
+	uprobe_res = bpf_program__attach_uprobe_opts(prog, 0, "/proc/self/exe", 0, &uprobe_opts);
+	/* TODO print information about uprobe attach? */
+
+	return prog_fd;
+
 }
 
 char *procnum_to_str(int protocol)
@@ -200,7 +265,7 @@ bool *get_ports_scanned(long src_ip)
 }
 
 /* submit flagged IP to BPF program with user ring buffer */
-static int submit_flagged_ip(long src_ip)
+__attribute__((noinline)) int submit_flagged_ip(long src_ip)
 {
 	int err = 0;
 	struct user_rb_event *e;
@@ -311,6 +376,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		}
 
 		/* NOTE currently testing submission of flagged IP after XMAS scan */
+		printf("flagging %s!\n", src_addr);
 		submit_flagged_ip(current_packet.src_ip);
 	}
 
@@ -368,7 +434,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 int main(int argc, char *argv[])
 {
 	struct bpf_map *map = NULL;
-	int prog_fd, map_fd;
+	int xdp_prog_fd, uretprobe_prog_fd;
+	int flagged_ips_fd, kernel_rb_fd, user_rb_fd;
 	int res;
 
 	char *thread_env;
@@ -403,9 +470,10 @@ int main(int argc, char *argv[])
 	}
 	printf("use database worker thread: %d\n", use_db_thread);
 
-	prog_fd = load_bpf_obj("packet.bpf.o");
-	if (prog_fd <= 0) {
-		pr_err("error loading file: %s\n", "packet.bpf.o");
+	xdp_prog_fd = load_bpf_xdp("packet.bpf.o");
+	if (xdp_prog_fd <= 0) {
+		pr_err("error loading XDP program from file: %s\n", "packet.bpf.o");
+		return -1;
 	}
 
 	ifindex = if_nametoindex(argv[1]);
@@ -419,24 +487,9 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	/* set up database */
-	db_conn = connect_db("root", "alerts");
-
-	/* create hash table
-	 *
-	 * hash function = djb hash
-	 * key equal function = string equality
-	 */
-	packet_table = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
-
-	TAILQ_INIT(&task_queue_head);
-
-	/* extract common TCP ports from file */
-	common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS);
-
-	err = bpf_xdp_attach(ifindex, prog_fd, xdp_flags, NULL);
+	err = bpf_xdp_attach(ifindex, xdp_prog_fd, xdp_flags, NULL);
 	if (err < 0) {
-		pr_err("error: ifindex  %d link set xdp fd failed %d: %s\n",
+		pr_err("error: ifindex %d link set xdp fd failed %d: %s\n",
 				ifindex, -err, strerror(-err));
 		switch (-err) {
 			case EBUSY:
@@ -455,16 +508,44 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
+	map = bpf_object__find_map_by_name(xdp_obj, "flagged_ips");
+	if (!map) {
+		pr_err("cannot find map by name %s\n", "flagged_ips");
+		goto cleanup;
+	}
+	flagged_ips_fd = bpf_map__fd(map);
+
+	uretprobe_prog_fd = load_and_attach_bpf_uretprobe("packet.bpf.o", flagged_ips_fd);
+	if (uretprobe_prog_fd <= 0) {
+		pr_err("error loading uretprobe program from file: %s\n", "packet.bpf.o");
+		return -1;
+	}
+
+	/* set up database */
+	db_conn = connect_db("root", "alerts");
+
+	/* create hash table
+	 *
+	 * hash function = djb hash
+	 * key equal function = string equality
+	 */
+	packet_table = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+
+	TAILQ_INIT(&task_queue_head);
+
+	/* extract common TCP ports from file */
+	common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS);
+
 	/* find kernel ring buffer */
-	map = bpf_object__find_map_by_name(obj, "kernel_rb");
+	map = bpf_object__find_map_by_name(xdp_obj, "kernel_rb");
 	if (!map) {
 		pr_err("cannot find map by name: %s\n", "kernel_rb");
 		goto cleanup;
 	}
-	map_fd = bpf_map__fd(map);
+	kernel_rb_fd = bpf_map__fd(map);
 
 	/* set up kernel ring buffer */
-	kernel_rb = ring_buffer__new(map_fd, handle_event, NULL, NULL);
+	kernel_rb = ring_buffer__new(kernel_rb_fd, handle_event, NULL, NULL);
 	if (!kernel_rb) {
 		err = -1;
 		pr_err("failed to create kernel ring buffer\n");
@@ -472,20 +553,23 @@ int main(int argc, char *argv[])
 	}
 
 	/* find user ring buffer */
-	map = bpf_object__find_map_by_name(obj, "user_rb");
+	map = bpf_object__find_map_by_name(uretprobe_obj, "user_rb");
 	if (!map) {
 		pr_err("cannot find map by name: %s\n", "user_rb");
 		goto cleanup;
 	}
-	map_fd = bpf_map__fd(map);
+	user_rb_fd = bpf_map__fd(map);
 
 	/* set up user ring buffer */
-	user_rb = user_ring_buffer__new(map_fd, NULL);
+	user_rb = user_ring_buffer__new(user_rb_fd, NULL);
 	if (!user_rb) {
 		err = -1;
 		pr_err("failed to create user ring buffer\n");
 		goto cleanup;
 	}
+
+	printf("kernel map fd: %d, user map fd: %d\n",
+			kernel_rb_fd, user_rb_fd);
 
 	/* create database worker thread */
 	if (use_db_thread) {
@@ -494,6 +578,8 @@ int main(int argc, char *argv[])
 		db_worker_args.lock = &task_list_lock;
 		res = pthread_create(&db_worker, NULL, (void *) thread_work, &db_worker_args);
 	}
+
+	printf("ready to go!\n");
 
 	/* poll ring buffer */
 	while (!exiting) {

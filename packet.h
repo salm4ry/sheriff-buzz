@@ -24,10 +24,17 @@
  * tcph: packet TCP headers
  * timestamp: time elapsed since system boot in nanoseconds
  */
-struct rb_event {
+struct kernel_rb_event {
 	struct iphdr iph;
 	struct tcphdr tcph;
 	unsigned long long timestamp; /* = u64 */
+};
+
+struct user_rb_event {
+	long src_ip;
+
+     /* TODO could block IP's traffic to e.g. specific ports by adding to
+      * this struct */
 };
 
 /* return the protocol byte for an IP packet, 0 for anything else

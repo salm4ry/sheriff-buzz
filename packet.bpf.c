@@ -46,7 +46,7 @@ int process_packet(struct xdp_md *ctx)
 	/* __u64 *packet_entry; */
 	__u64 timestamp = bpf_ktime_get_ns();
 
-	struct rb_event *e;
+	struct kernel_rb_event *e;
 
 	int result = XDP_PASS;  /* pass packet on to network stack */
 

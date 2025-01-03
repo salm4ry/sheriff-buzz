@@ -199,19 +199,30 @@ bool *get_ports_scanned(long src_ip)
 	return ports_scanned;
 }
 
-/* send flagged IP to BPF program with user ring buffer */
-static int send_flagged_ip(long src_ip)
+/* submit flagged IP to BPF program with user ring buffer */
+static int submit_flagged_ip(long src_ip)
 {
 	int err = 0;
+	struct user_rb_event *e;
 
-	/* TODO */
+	e = user_ring_buffer__reserve(user_rb, sizeof(*e));
+	if (!e) {
+		err = -errno;
+		return err;
+	}
+
+	/* fill out ring buffer sample */
+	e->src_ip = src_ip;
+
+	/* submit ring buffer event */
+	user_ring_buffer__submit(user_rb, e);
 	return err;
 }
 
 
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
-	struct rb_event *e = data;
+	struct kernel_rb_event *e = data;
     char src_addr[MAX_ADDR_LEN], time_string[32];
 
 	struct key current_packet;
@@ -298,6 +309,9 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		} else {
 			log_alert(db_conn, fingerprint, XMAS_SCAN, &current_packet, &new_val);
 		}
+
+		/* NOTE currently testing submission of flagged IP after XMAS scan */
+		submit_flagged_ip(current_packet.src_ip);
 	}
 
 	if (is_fin_scan(&e->tcph)) {

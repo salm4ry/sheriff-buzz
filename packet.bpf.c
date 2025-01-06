@@ -71,9 +71,7 @@ static long user_rb_callback(const struct bpf_dynptr *dynptr, void *ctx)
 SEC("uretprobe")
 int read_user_ringbuf()
 {
-	long num_samples;
-	num_samples = bpf_user_ringbuf_drain(&user_rb, &user_rb_callback, NULL, 0);
-
+	bpf_user_ringbuf_drain(&user_rb, &user_rb_callback, NULL, 0);
 	return 0;
 }
 
@@ -84,7 +82,6 @@ int process_packet(struct xdp_md *ctx)
 	/* __u64 *packet_entry; */
 	__u64 timestamp = bpf_ktime_get_ns();
 	__u32 src_addr;
-	__u8 *lookup_res;
 
 	struct kernel_rb_event *e;
 
@@ -102,7 +99,7 @@ int process_packet(struct xdp_md *ctx)
 
 	if (protocol_number == TCP_PNUM) {
 		src_addr = get_source_addr(ip_headers);
-		lookup_res = bpf_map_lookup_elem(&flagged_ips, &src_addr);
+		__u8 *lookup_res = bpf_map_lookup_elem(&flagged_ips, &src_addr);
 
 		/* lookup returns non-null => IP is flagged */
 		if (lookup_res != NULL) {

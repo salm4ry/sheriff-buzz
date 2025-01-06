@@ -28,11 +28,13 @@ static bool get_tcp_flag(struct tcphdr *tcph, __be32 flag)
 	return (flag_val == flag);
 }
 
-/* get source port ffrom TCP headers */
+/* get source port from TCP headers */
+/*
 static __u16 get_src_port(struct tcphdr *tcph)
 {
 	return ntohs(tcph->source);
 }
+*/
 
 /* get destination port from TCP headers */
 static __u16 get_dst_port(struct tcphdr *tcph)

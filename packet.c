@@ -22,7 +22,6 @@
 #include "pr.h"
 #include "detect_scan.h"
 #include "time_conv.h"
-#include "log_types.h"
 
 struct bpf_object *xdp_obj, *uretprobe_obj;
 uint32_t xdp_flags;
@@ -42,6 +41,7 @@ pthread_t db_worker;
 int *common_ports = NULL; /* store top 1000 TCP ports */
 const int NUM_COMMON_PORTS = 1000;
 const int MAX_ADDR_LEN = 16;
+const int BASIC_SCAN_THRESHOLD = 10;
 
 bool exiting = false;
 bool use_db_thread = false;
@@ -86,7 +86,6 @@ int load_bpf_xdp(const char *filename)
 	int prog_fd = -1;
 	int err;
 	struct bpf_program *prog;
-	struct bpf_link *uprobe_res;
 
 	xdp_obj = bpf_object__open_file(filename, NULL);
 	if (libbpf_get_error(xdp_obj)) {
@@ -180,7 +179,9 @@ int load_and_attach_bpf_uretprobe(const char *filename, int flagged_ips_fd)
 	 * opts: options
 	 */
 	uprobe_res = bpf_program__attach_uprobe_opts(prog, 0, "/proc/self/exe", 0, &uprobe_opts);
-	/* TODO print information about uprobe attach? */
+	if (!uprobe_res) {
+		pr_err("uprobe attach failed: %s\n", strerror(errno));
+	}
 
 	return prog_fd;
 
@@ -248,20 +249,43 @@ int *get_port_list(char *filename, int num_ports) {
 }
 
 /* get list of ports a given IP (and flag combination) has sent packets to */
-bool *get_ports_scanned(long src_ip)
+void ports_scanned(long src_ip, bool *ports_scanned)
 {
-	bool *ports_scanned = malloc(NUM_PORTS * sizeof(bool));
-	char **fingerprints = gen_port_fingerprints(src_ip);
+	char **fingerprint = ip_fingerprint(src_ip);
 	gboolean res;
 
 	for (int i = 0; i < NUM_PORTS; i++) {
-		res = g_hash_table_contains(packet_table, (gconstpointer) fingerprints[i]);
+		res = g_hash_table_contains(packet_table, (gconstpointer) fingerprint[i]);
 		ports_scanned[i] = res;
-		/* printf("%s: port %d -> %b\n", fingerprints[i], i, ports_scanned[i]); */
 	}
 
-	free_port_fingerprints(fingerprints);
-	return ports_scanned;
+	free_ip_fingerprint(fingerprint);
+}
+
+/* get information about packets a given IP has sent
+ *
+ * struct port_info contains information about ports the source IP has sent
+ * packets to and the total number of packets it has sent
+ */
+void port_info(long src_ip, struct port_info *info)
+{
+	char **fingerprint = ip_fingerprint(src_ip);
+	struct value *res;
+
+	info->total_packet_count = 0;
+
+	for (int i = 0; i < NUM_PORTS; i++) {
+		res = g_hash_table_lookup(packet_table, (gconstpointer) fingerprint[i]);
+
+		if (res != NULL) {
+			info->ports_scanned[i] = true;
+			info->total_packet_count++;
+		} else {
+			info->ports_scanned[i] = false;
+		}
+	}
+
+	free_ip_fingerprint(fingerprint);
 }
 
 /* submit flagged IP to BPF program with user ring buffer */
@@ -289,6 +313,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 {
 	struct kernel_rb_event *e = data;
     char src_addr[MAX_ADDR_LEN], time_string[32];
+	bool ports[NUM_PORTS];
+	struct port_info info;
 
 	struct key current_packet;
 	struct value new_val;
@@ -336,13 +362,12 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	*/
 
 	/*
-	if (is_basic_scan(&current_conn, common_ports, NUM_COMMON_PORTS)) {
-		printf("nmap (standard 1000 ports) detected from %s!\n", src_addr);
-	}
 	*/
 
 	ip_to_str(current_packet.src_ip, src_addr);
 	time_to_str(ktime_to_real(e->timestamp), time_string);
+	ports_scanned(current_packet.src_ip, ports);
+	port_info(current_packet.src_ip, &info);
 
 	/* update hash table */
 	get_fingerprint(&current_packet, fingerprint);
@@ -369,10 +394,11 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				src_addr, time_string, current_packet.dst_port);
 
 		if (use_db_thread) {
-			add_work(&task_queue_head, &task_list_lock,
-					 fingerprint, XMAS_SCAN, &current_packet, &new_val);
+			queue_work(&task_queue_head, &task_list_lock,
+					 fingerprint, XMAS_SCAN, &current_packet, &new_val, NULL);
 		} else {
-			log_alert(db_conn, fingerprint, XMAS_SCAN, &current_packet, &new_val);
+			log_alert(db_conn, fingerprint, XMAS_SCAN,
+					&current_packet, &new_val, NULL);
 		}
 
 		/* NOTE currently testing submission of flagged IP after XMAS scan */
@@ -385,10 +411,11 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				src_addr, time_string, current_packet.dst_port);
 
 		if (use_db_thread) {
-			add_work(&task_queue_head, &task_list_lock,
-					 fingerprint, FIN_SCAN, &current_packet, &new_val);
+			queue_work(&task_queue_head, &task_list_lock,
+					 fingerprint, FIN_SCAN, &current_packet, &new_val, NULL);
 		} else {
-			log_alert(db_conn, fingerprint, FIN_SCAN, &current_packet, &new_val);
+			log_alert(db_conn, fingerprint, FIN_SCAN,
+					&current_packet, &new_val, NULL);
 		}
 	}
 
@@ -397,10 +424,11 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				src_addr, time_string, current_packet.dst_port);
 
 		if (use_db_thread) {
-			add_work(&task_queue_head, &task_list_lock,
-					 fingerprint, NULL_SCAN, &current_packet, &new_val);
+			queue_work(&task_queue_head, &task_list_lock,
+					 fingerprint, NULL_SCAN, &current_packet, &new_val, NULL);
 		} else {
-			log_alert(db_conn, fingerprint, NULL_SCAN, &current_packet, &new_val);
+			log_alert(db_conn, fingerprint, NULL_SCAN,
+					&current_packet, &new_val, NULL);
 		}
 	}
 
@@ -408,17 +436,29 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	g_hash_table_replace(packet_table,
 			g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
 
+	/* NOTE avoids logging every time we send an SSH packet */
 	if (current_packet.dst_port != 22) {
-		char **port_fingerprints = gen_port_fingerprints(current_packet.src_ip);
-		free_port_fingerprints(port_fingerprints);
+		char **port_fingerprints = ip_fingerprint(current_packet.src_ip);
+		free_ip_fingerprint(port_fingerprints);
 
-		bool *ports_scanned = get_ports_scanned(current_packet.src_ip);
-		printf("number of ports scanned by %s: %d\n", 
-				src_addr, count_ports_scanned(ports_scanned));
-		free(ports_scanned);
+		printf("number of ports scanned by %s: %d\n",
+				src_addr, count_ports_scanned(ports));
+
+		if (is_basic_scan(ports, BASIC_SCAN_THRESHOLD)) {
+			printf("nmap (%d ports or more) detected from %s!\n",
+					BASIC_SCAN_THRESHOLD, src_addr);
+
+			if (use_db_thread) {
+				queue_work(&task_queue_head, &task_list_lock, NULL, BASIC_SCAN,
+						&current_packet, &new_val, &info);
+			} else {
+				log_alert(db_conn, NULL, BASIC_SCAN, &current_packet, &new_val,
+						&info);
+			}
+		}
 	}
 
-	/* debug: print corresponding hash table entry */
+	/* NOTE debug: print corresponding hash table entry */
 	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
 
 	struct value *current_val = (struct value*) res;
@@ -436,7 +476,7 @@ int main(int argc, char *argv[])
 	struct bpf_map *map = NULL;
 	int xdp_prog_fd, uretprobe_prog_fd;
 	int flagged_ips_fd, kernel_rb_fd, user_rb_fd;
-	int res;
+	int res = 0;
 
 	char *thread_env;
 
@@ -469,6 +509,7 @@ int main(int argc, char *argv[])
 		use_db_thread = true;
 	}
 	printf("use database worker thread: %d\n", use_db_thread);
+	printf("basic scan threshold: %d\n", BASIC_SCAN_THRESHOLD);
 
 	xdp_prog_fd = load_bpf_xdp("packet.bpf.o");
 	if (xdp_prog_fd <= 0) {
@@ -568,18 +609,20 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
-	printf("kernel map fd: %d, user map fd: %d\n",
-			kernel_rb_fd, user_rb_fd);
-
 	/* create database worker thread */
 	if (use_db_thread) {
 		db_worker_args.db_conn = db_conn;
 		db_worker_args.head = &task_queue_head;
 		db_worker_args.lock = &task_list_lock;
 		res = pthread_create(&db_worker, NULL, (void *) thread_work, &db_worker_args);
+		if (res != 0) {
+			pr_err("pthread_create failed\n");
+			cleanup();
+			return 1;
+		}
 	}
 
-	printf("ready to go!\n");
+	printf("ready\n");
 
 	/* poll ring buffer */
 	while (!exiting) {

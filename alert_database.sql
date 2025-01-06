@@ -18,10 +18,11 @@ CREATE TABLE alert_type(
 CREATE TABLE log(
 	id SERIAL PRIMARY KEY,
 	fingerprint CHAR(12),
-	dst_port INTEGER,
+	dst_port VARCHAR(11), -- either single port or lowest:highest depending on scan type
 	alert_type INTEGER,
 	src_ip INET,
 	packet_count INTEGER,
+	port_count INTEGER,   -- number of ports scanned- used for port-based alert
 	first TIMESTAMP,
 	latest TIMESTAMP);
 
@@ -33,12 +34,12 @@ ALTER TABLE IF EXISTS log
 		ON DELETE CASCADE;
 
 -- index for update conflict detection
-CREATE UNIQUE INDEX log_index ON log(fingerprint, alert_type);
+CREATE UNIQUE INDEX fingerprint_index ON log(fingerprint, alert_type);
+CREATE UNIQUE INDEX ip_index ON log(src_ip, alert_type);
 
 -- set up alert types
 -- flag-based scans
 INSERT INTO alert_type (description) VALUES('Xmas scan');
 INSERT INTO alert_type (description) VALUES('FIN scan');
 INSERT INTO alert_type (description) VALUES('NULL scan');
-
--- TODO more scan types
+INSERT INTO alert_type (description) VALUES('Basic port scan');

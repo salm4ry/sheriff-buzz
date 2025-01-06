@@ -13,12 +13,14 @@
 
 #include <sys/queue.h>
 
+#include "log_types.h"
 #include "parse_headers.h"
 
 /* maximum fingerprint string length */
 #define MAX_FINGERPRINT 13
 #define MAX_QUERY 512
 #define MAX_IP 16
+#define MAX_PORT_RANGE 12
 
 #define MAX_DB_TASKS 20
 
@@ -52,6 +54,11 @@ struct value {
 	*/
 };
 
+struct port_info {
+	bool ports_scanned[65536];
+	int total_packet_count;
+};
+
 struct db_task_queue;
 
 /**
@@ -67,6 +74,7 @@ struct db_task {
 	int alert_type;
 	struct key key;
 	struct value value;
+	struct port_info info;
 	TAILQ_ENTRY(db_task) entries;
 };
 
@@ -84,6 +92,42 @@ struct thread_args {
 	PGconn *db_conn;
 };
 
+static int min_port(bool *ports_scanned)
+{
+	for (int i = 0; i < NUM_PORTS; i++) {
+		if (ports_scanned[i]) {
+			return i;
+		}
+	}
+
+	/* no ports scanned */
+	return -1;
+}
+
+static int max_port(bool *ports_scanned)
+{
+	for (int i = NUM_PORTS - 1; i >= 0; i--) {
+		if (ports_scanned[i]) {
+			return i;
+		}
+	}
+
+	/* no ports scanned */
+	return -1;
+}
+
+static int count_ports_scanned(bool *ports_scanned)
+{
+	int port_count = 0;
+
+	for (int i = 0; i < NUM_PORTS; i++) {
+		if (ports_scanned[i]) {
+			port_count++;
+		}
+	}
+
+	return port_count;
+}
 
 /* create string fingerprint from key struct */
 void get_fingerprint(struct key *key, char *buf)
@@ -103,17 +147,17 @@ void get_fingerprint(struct key *key, char *buf)
 }
 
 /* generate port-based fingerprints for a given source IP and flag combination */
-char **gen_port_fingerprints(long src_ip)
+char **ip_fingerprint(long src_ip)
 {
-	char **fingerprints = malloc(NUM_PORTS * sizeof(char *));
+	char **fingerprint = malloc(NUM_PORTS * sizeof(char *));
 	struct key current_key;
 	current_key.src_ip = src_ip;
 	/* memcpy(current_key.flags, flags, NUM_FLAGS); */
 
 	for (int i = 0; i < NUM_PORTS; i++) {
 		current_key.dst_port = i;
-		fingerprints[i] = malloc((MAX_FINGERPRINT+1) * sizeof(char));
-		get_fingerprint(&current_key, fingerprints[i]);
+		fingerprint[i] = malloc((MAX_FINGERPRINT+1) * sizeof(char));
+		get_fingerprint(&current_key, fingerprint[i]);
 	}
 
 	/*
@@ -122,40 +166,77 @@ char **gen_port_fingerprints(long src_ip)
 	}
 	*/
 
-	return fingerprints;
+	return fingerprint;
 }
 
 /* free per-port IP fingerprints */
-void free_port_fingerprints(char **fingerprints)
+void free_ip_fingerprint(char **fingerprint)
 {
 	for (int i = 0; i < NUM_PORTS; i++) {
-		free(fingerprints[i]);
+		free(fingerprint[i]);
 	}
-	free(fingerprints);
+	free(fingerprint);
 }
 
 /* log alert to database, replacing old record if necessary */
-int log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *key, struct value *value)
+int log_alert(PGconn *db_conn, char *fingerprint, int alert_type,
+		struct key *key, struct value *value,
+		struct port_info *info)
 {
 	PGresult *db_res;
 	int err;
 	char query[MAX_QUERY];
 	char ip_str[MAX_IP];
-
-	char *insert_command = "INSERT INTO log (fingerprint, dst_port, alert_type, src_ip, packet_count, first, latest) "
-				   		   "VALUES ('%s', %d, %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
-						   "ON CONFLICT (fingerprint, alert_type) DO UPDATE "
-						   "SET packet_count=%d, latest=to_timestamp(%ld) "
-						   "WHERE %d >= log.packet_count AND to_timestamp(%ld) >= log.latest";
+	char *cmd;
 
 	long src_ip = ntohl(key->src_ip);
-
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
-	sprintf(query, insert_command, fingerprint, key->dst_port, alert_type,
-			ip_str, value->count, value->first, value->latest,
-			value->count, value->latest,  /* fields to update */
-			value->count, value->latest); /* only update if packet count/timestamp are same/newer */
+	switch (alert_type) {
+		case BASIC_SCAN:
+			/* port-based alert
+			 *
+			 * destination port is a string colon-delimited range
+			 * packet_count = total packet count from src_ip
+			 */
+			cmd = "INSERT INTO log (dst_port, alert_type, src_ip, port_count, first, latest) "
+				  "VALUES ('%s', %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
+				  "ON CONFLICT (src_ip, alert_type) DO UPDATE "
+				  "SET port_count=%d, dst_port='%s', latest=to_timestamp(%ld) "
+				  "WHERE to_timestamp(%ld) >= log.latest";
+
+			char port_range[MAX_PORT_RANGE];
+			int min = min_port(info->ports_scanned);
+			int max = max_port(info->ports_scanned);
+			int port_count = count_ports_scanned(info->ports_scanned);
+
+			printf("min: %d, max: %d\n", min, max);
+
+			snprintf(port_range, MAX_PORT_RANGE, "%d:%d", min, max);
+			snprintf(query, MAX_QUERY, cmd, port_range, alert_type, ip_str,
+					port_count, value->first, value->latest, /* fields to update */
+					port_count, port_range, value->latest, value->latest);
+			break;
+		default:
+			/* flag-based scan
+			 *
+			 * destination is a single port
+			 * packet_count = total packet count from src_ip to dst_port
+			 */
+			cmd = "INSERT INTO log (fingerprint, dst_port, alert_type, src_ip, packet_count, first, latest) "
+		   		  "VALUES ('%s', '%d', %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
+				  "ON CONFLICT (fingerprint, alert_type) DO UPDATE "
+				  "SET packet_count=%d, latest=to_timestamp(%ld) "
+				  "WHERE %d >= log.packet_count AND to_timestamp(%ld) >= log.latest";
+
+			snprintf(query, MAX_QUERY, cmd, fingerprint, key->dst_port, alert_type,
+					ip_str, value->count, value->first, value->latest,
+					value->count, value->latest,  /* fields to update */
+					value->count, value->latest); /* only update if packet count/timestamp are same/newer */
+					break;
+	}
+
+
 	printf("%s\n", query);
 
 	db_res = PQexec(db_conn, query);
@@ -274,8 +355,9 @@ int queue_full(struct db_task_queue *head)
 }
 
 /* log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *key, struct value *value) */
-int add_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
-			 char *fingerprint, int alert_type, struct key *key, struct value *value)
+int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
+			 char *fingerprint, int alert_type, struct key *key, struct value *value,
+			 struct port_info *info)
 {
 	struct db_task *new_task;
 
@@ -285,7 +367,14 @@ int add_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 
 	new_task = malloc(sizeof(struct db_task));
 
-	strncpy(new_task->fingerprint, fingerprint, MAX_FINGERPRINT);
+	if (alert_type == BASIC_SCAN) {
+		/* basic scan has port_info argument */
+		memcpy(&new_task->info, info, sizeof(struct port_info));
+	} else {
+		/* flag-based scans have fingerprint argument */
+		strncpy(new_task->fingerprint, fingerprint, MAX_FINGERPRINT);
+	}
+
 	new_task->alert_type = alert_type;
 	memcpy(&new_task->key, key, sizeof(struct key));
 	memcpy(&new_task->value, value, sizeof(struct value));
@@ -317,7 +406,8 @@ void thread_work(void *args)
 					current->fingerprint,
 					current->alert_type,
 					&current->key,
-					&current->value);
+					&current->value,
+					&current->info);
 
 			pthread_mutex_lock(lock);
 			next = TAILQ_NEXT(current, entries);

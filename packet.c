@@ -24,8 +24,6 @@
 #include "detect_scan.h"
 #include "time_conv.h"
 
-#define NANO_TO_MILLI .000001
-
 struct bpf_object *xdp_obj, *uretprobe_obj;
 uint32_t xdp_flags;
 int ifindex;
@@ -44,10 +42,14 @@ pthread_t db_worker;
 int *common_ports = NULL; /* store top 1000 TCP ports */
 const int NUM_COMMON_PORTS = 1000;
 const int MAX_ADDR_LEN = 16;
-const int BASIC_SCAN_THRESHOLD = 10;
+const int BASIC_SCAN_THRESHOLD = 1000;
 
 bool exiting = false;
 bool use_db_thread = false;
+
+#ifdef DEBUG
+long total_handle_time = 0.0;
+#endif
 
 FILE *LOG;
 
@@ -352,8 +354,9 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 
 #ifdef DEBUG
-	/* : measure start time */
-	struct timespec start_time, end_time;
+	/* measure start time */
+	struct timespec start_time, end_time, delta;
+
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 #endif
 
@@ -468,10 +471,14 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 #ifdef DEBUG
 	/* measure end time */
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
+	delta = diff(&start_time, &end_time);
+	total_handle_time += delta.tv_sec + delta.tv_nsec;
+
 	if (current_packet.dst_port != 22) {
-		log_debug("time taken: %.3f ms\n", 
-				(end_time.tv_nsec - start_time.tv_nsec) * NANO_TO_MILLI);
+		log_debug("time taken: %ld ns\n", delta.tv_nsec);
+		log_debug("total handle_event time: %ld ns\n", total_handle_time);
 	}
+
 #endif
 
 /*

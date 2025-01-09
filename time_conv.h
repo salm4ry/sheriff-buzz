@@ -5,6 +5,7 @@
 #include <sys/sysinfo.h>
 
 #define NANO .000000001
+#define REV_NANO 1000000000
 
 /* get system uptime */
 long get_uptime()
@@ -40,4 +41,21 @@ void time_to_str(time_t time, char *time_string, int size, char *format)
 	struct tm *tm;
 	tm = localtime(&time);
 	strftime(time_string, size, format, tm);
+}
+
+struct timespec diff(struct timespec *start, struct timespec *end)
+{
+	/* tv_nsec describes nanoseconds within the current second */
+	struct timespec res;
+
+	if ((end->tv_nsec - start->tv_nsec) < 0) {
+		/* -1: go back into previous second */
+		res.tv_sec = end->tv_sec - start->tv_sec - 1;
+		res.tv_nsec = REV_NANO + end->tv_nsec - start->tv_nsec;
+	} else {
+		res.tv_sec = end->tv_sec - start->tv_sec;
+		res.tv_nsec = end->tv_nsec - start->tv_nsec;
+	}
+
+	return res;
 }

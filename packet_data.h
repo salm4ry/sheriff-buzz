@@ -62,7 +62,7 @@ struct port_info {
 struct db_task_queue;
 
 /**
- * Database work (linked list entry)
+ * Database work queue entry
  *
  * fingerprint: hash table key
  * alert type: type of alert to be logged
@@ -86,10 +86,23 @@ TAILQ_HEAD(db_task_queue, db_task);
  * head: head of task linked list
  * db_conn: database connection
  */
-struct thread_args {
+struct db_thread_args {
 	struct db_task_queue *head;
 	pthread_mutex_t *lock;
 	PGconn *db_conn;
+};
+
+/**
+ * Detection work queue entry
+ *
+ * tcph: current packet TCP headers
+ * ports: list of ports packet source IP has sent packets to
+ * TODO add more if handling other protocols
+ *
+ */
+struct detection_task {
+	struct tcphdr tcph;
+	bool ports[NUM_PORTS];
 };
 
 static int min_port(bool *ports_scanned)
@@ -142,7 +155,6 @@ void get_fingerprint(struct key *key, char *buf)
 	*/
 
 	/* zero-padded so fingerprints are always of length MAX_FINGERPRINT */
-	/* snprintf(buf, MAX_FINGERPRINT+1, "%010ld%05d%s", key->src_ip, key->dst_port, flags); */
 	snprintf(buf, MAX_FINGERPRINT, "%08lx%04x", key->src_ip, key->dst_port);
 }
 
@@ -159,12 +171,6 @@ char **ip_fingerprint(long src_ip)
 		fingerprint[i] = malloc((MAX_FINGERPRINT+1) * sizeof(char));
 		get_fingerprint(&current_key, fingerprint[i]);
 	}
-
-	/*
-	for (int i = 0; i < NUM_PORTS; i++) {
-		printf("fingerprint %d = %s\n", i, fingerprints[i]);
-	}
-	*/
 
 	return fingerprint;
 }
@@ -210,7 +216,9 @@ int log_alert(PGconn *db_conn, char *fingerprint, int alert_type,
 			int max = max_port(info->ports_scanned);
 			int port_count = count_ports_scanned(info->ports_scanned);
 
+#ifdef DEBUG
 			printf("min: %d, max: %d\n", min, max);
+#endif
 
 			snprintf(port_range, MAX_PORT_RANGE, "%d:%d", min, max);
 			snprintf(query, MAX_QUERY, cmd, port_range, alert_type, ip_str,
@@ -237,14 +245,18 @@ int log_alert(PGconn *db_conn, char *fingerprint, int alert_type,
 	}
 
 
+#ifdef DEBUG
 	printf("%s\n", query);
+#endif
 
 	db_res = PQexec(db_conn, query);
 	err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
 
+#ifdef DEBUG
 	if (err) {
 		fprintf(stderr, "postgres: %s\n", PQerrorMessage(db_conn));
 	}
+#endif
 
 	PQclear(db_res);
 
@@ -260,8 +272,10 @@ static PGconn *connect_db(char *user, char *dbname)
 	sprintf(query, "user=%s dbname=%s", user, dbname);
 	PGconn *conn = PQconnectdb(query);
 	if (PQstatus(conn) == CONNECTION_BAD) {
+#ifdef DEBUG
 		fprintf(stderr, "connection to database failed: %s\n",
 				PQerrorMessage(conn));
+#endif
 		PQfinish(conn);
 		/* return NULL on error */
 		return NULL;
@@ -297,7 +311,10 @@ void update_record(gpointer key, gpointer value, gpointer user_data)
 	*/
 
 	sprintf(lookup_query, lookup_cmd, fingerprint);
+
+#ifdef DEBUG
 	printf("%s\n", lookup_query);
+#endif
 
 	res = PQexec(db_conn, lookup_query);
 	if (PQresultStatus(res) != PGRES_TUPLES_OK) {
@@ -318,7 +335,10 @@ void update_record(gpointer key, gpointer value, gpointer user_data)
 	PQclear(res);
 	if (table_count > db_count) {
 		sprintf(update_query, update_cmd, val->count, val->latest, fingerprint);
+
+#ifdef DEBUG
 		printf("%s\n", update_query);
+#endif
 
 		res = PQexec(db_conn, update_query);
 		if (PQresultStatus(res) != PGRES_COMMAND_OK) {
@@ -327,7 +347,9 @@ void update_record(gpointer key, gpointer value, gpointer user_data)
 		}
 		PQclear(res);
 	} else {
+#ifdef DEBUG
 		printf("no update required for %s\n", fingerprint);
+#endif
 	}
 }
 
@@ -388,7 +410,7 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 
 void thread_work(void *args)
 {
-	struct thread_args *ctx = args;
+	struct db_thread_args *ctx = args;
 	PGconn *db_conn = ctx->db_conn;
 	struct db_task_queue *head = ctx->head;
 	pthread_mutex_t *lock = ctx->lock;

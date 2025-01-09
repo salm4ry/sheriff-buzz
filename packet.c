@@ -1,7 +1,9 @@
+#include <bits/time.h>
 #include <stdio.h>
 
 #include <errno.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <signal.h>
@@ -48,9 +50,6 @@ bool use_db_thread = false;
 
 void cleanup()
 {
-	/* redirect cleanup-related errors to /dev/null */
-	freopen("/dev/null", "r", stderr);
-
 	if (exiting) {
 		return;
 	}
@@ -89,34 +88,45 @@ int load_bpf_xdp(const char *filename)
 
 	xdp_obj = bpf_object__open_file(filename, NULL);
 	if (libbpf_get_error(xdp_obj)) {
+#ifdef DEBUG
 		pr_err("open object file failed: %s\n",
 				strerror(errno));
+#endif
 		return -1;
 	}
 
 	prog = bpf_object__find_program_by_name(xdp_obj, "process_packet");
 	if (prog == NULL) {
+#ifdef DEBUG
 		pr_err("find program in object failed: %s\n",
 				strerror(errno));
+#endif
 		return -1;
 	}
 
 	/* set to XDP */
 	if (bpf_program__set_type(prog, BPF_PROG_TYPE_XDP) < 0) {
+#ifdef DEBUG
 		pr_err("set bpf type to xdp failed: %s\n", strerror(errno));
+#endif
 		return -1;
 	}
 
 	err = bpf_object__load(xdp_obj);
 	if (err) {
+#ifdef DEBUG
 		pr_err("load bpf object failed: %s\n", strerror(errno));
+#endif
 		return -1;
 	}
 
 	prog_fd = bpf_program__fd(prog);
 	if (!prog_fd) {
-		pr_err("error loading bpf object file(%s) (%d): %s\n",
+#ifdef DEBUG
+		pr_err("error loading bpf object file (%s) (%d): %s\n",
 				filename, err, strerror(-err));
+#endif
+		return -1;
 	}
 
 	return prog_fd;
@@ -133,36 +143,46 @@ int load_and_attach_bpf_uretprobe(const char *filename, int flagged_ips_fd)
 
 	uretprobe_obj = bpf_object__open_file(filename, NULL);
 	if (libbpf_get_error(uretprobe_obj)) {
+#ifdef DEBUG
 		pr_err("open object file failed: %s\n",
 				strerror(errno));
+#endif
 		return -1;
 	}
 
 	prog = bpf_object__find_program_by_name(uretprobe_obj, "read_user_ringbuf");
 	if (prog == NULL) {
+#ifdef DEBUG
 		pr_err("find program in object failed: %s\n",
 				strerror(errno));
+#endif
 		return -1;
 	}
 
 	flagged_ips = bpf_object__find_map_by_name(uretprobe_obj, "flagged_ips");
 	err = bpf_map__reuse_fd(flagged_ips, flagged_ips_fd);
 	if (err) {
+#ifdef DEBUG
 		pr_err("failed to reuse map fd: %s\n", strerror(errno));
+#endif
 		return -1;
 	}
 
 	err = bpf_object__load(uretprobe_obj);
 	if (err) {
+#ifdef DEBUG
 		pr_err("load bpf object failed: %s\n", strerror(errno));
+#endif
 		return -1;
 	}
 
 	prog_fd = bpf_program__fd(prog);
+#ifdef DEBUG
 	if (!prog_fd) {
 		pr_err("error loading bpf object file(%s) (%d): %s\n",
 				filename, err, strerror(-err));
 	}
+#endif
 
 	/* name of function to attach to */
 	uprobe_opts.func_name = "submit_flagged_ip";
@@ -179,9 +199,11 @@ int load_and_attach_bpf_uretprobe(const char *filename, int flagged_ips_fd)
 	 * opts: options
 	 */
 	uprobe_res = bpf_program__attach_uprobe_opts(prog, 0, "/proc/self/exe", 0, &uprobe_opts);
+#ifdef DEBUG
 	if (!uprobe_res) {
 		pr_err("uprobe attach failed: %s\n", strerror(errno));
 	}
+#endif
 
 	return prog_fd;
 
@@ -239,7 +261,9 @@ int *get_port_list(char *filename, int num_ports) {
 		}
 		free(buffer);
 	} else {
+#ifdef DEBUG
 		pr_err("error opening file %s\n", filename);
+#endif
 		exit(1);
 	}
 
@@ -321,48 +345,19 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	char fingerprint[MAX_FINGERPRINT];
 	gpointer res;
 
-	/*
-    struct connection current_conn;
-    struct packet current_packet;
-    int db_res;
-	*/
+	struct timespec start_time, end_time;
+
+#ifdef DEBUG
+	/* : measure start time */
+	clock_gettime(CLOCK_MONOTONIC, &start_time);
+#endif
 
 	/* extract data from IP and TCP headers */
-
 	/* source IP address */
 	current_packet.src_ip = get_source_addr(&e->iph);
 
 	/* destination TCP port */
 	current_packet.dst_port = get_dst_port(&e->tcph);
-
-	/* TCP flags */
-	/*
-	current_packet.flags[FIN] = get_tcp_flag(&e->tcph, TCP_FLAG_FIN);
-	current_packet.flags[SYN] = get_tcp_flag(&e->tcph, TCP_FLAG_SYN);
-	current_packet.flags[RST] = get_tcp_flag(&e->tcph, TCP_FLAG_RST);
-	current_packet.flags[PSH] = get_tcp_flag(&e->tcph, TCP_FLAG_PSH);
-	current_packet.flags[ACK] = get_tcp_flag(&e->tcph, TCP_FLAG_ACK);
-	current_packet.flags[URG] = get_tcp_flag(&e->tcph, TCP_FLAG_URG);
-	current_packet.flags[ECE] = get_tcp_flag(&e->tcph, TCP_FLAG_ECE);
-	current_packet.flags[CWR] = get_tcp_flag(&e->tcph, TCP_FLAG_CWR);
-	*/
-
-	/*
-    db_res = edit_connection(db_conn, &current_conn);
-    if (db_res) {
-        cleanup();
-        exit(1);
-    }
-    db_res = add_packet(db_conn, &current_conn, &current_packet);
-    if (db_res) {
-        printf("adding packet failed\n");
-        cleanup();
-        exit(1);
-    }
-	*/
-
-	/*
-	*/
 
 	ip_to_str(current_packet.src_ip, src_addr);
 	time_to_str(ktime_to_real(e->timestamp), time_string);
@@ -390,8 +385,10 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	/* detect flag-based scans */
 	if (is_xmas_scan(&e->tcph)) {
-		printf("nmap Xmas scan detected from %s at %s (port %d)!\n",
-				src_addr, time_string, current_packet.dst_port);
+#ifdef DEBUG
+		printf("nmap Xmas scan detected from %s (port %d)!\n",
+				src_addr, current_packet.dst_port);
+#endif
 
 		if (use_db_thread) {
 			queue_work(&task_queue_head, &task_list_lock,
@@ -402,13 +399,17 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		}
 
 		/* NOTE currently testing submission of flagged IP after XMAS scan */
+#ifdef DEBUG
 		printf("flagging %s!\n", src_addr);
+#endif
 		submit_flagged_ip(current_packet.src_ip);
 	}
 
 	if (is_fin_scan(&e->tcph)) {
-		printf("nmap FIN scan detected from %s at %s (port %d)!\n",
-				src_addr, time_string, current_packet.dst_port);
+#ifdef DEBUG
+		printf("nmap FIN scan detected from %s (port %d)!\n",
+				src_addr, current_packet.dst_port);
+#endif
 
 		if (use_db_thread) {
 			queue_work(&task_queue_head, &task_list_lock,
@@ -420,8 +421,10 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	}
 
 	if (is_null_scan(&e->tcph)) {
-		printf("nmap NULL scan detected from %s at %s (port %d)!\n",
-				src_addr, time_string, current_packet.dst_port);
+#ifdef DEBUG
+		printf("nmap NULL scan detected from %s (port %d)!\n",
+				src_addr, current_packet.dst_port);
+#endif
 
 		if (use_db_thread) {
 			queue_work(&task_queue_head, &task_list_lock,
@@ -437,36 +440,50 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 			g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
 
 	/* NOTE avoids logging every time we send an SSH packet */
-	if (current_packet.dst_port != 22) {
-		char **port_fingerprints = ip_fingerprint(current_packet.src_ip);
-		free_ip_fingerprint(port_fingerprints);
+	char **port_fingerprints = ip_fingerprint(current_packet.src_ip);
+	free_ip_fingerprint(port_fingerprints);
 
-		printf("number of ports scanned by %s: %d\n",
-				src_addr, count_ports_scanned(ports));
+#ifdef DEBUG
+		printf("current port %d, number of ports scanned by %s: %d\n",
+				current_packet.dst_port, src_addr, count_ports_scanned(ports));
+#endif
 
-		if (is_basic_scan(ports, BASIC_SCAN_THRESHOLD)) {
-			printf("nmap (%d ports or more) detected from %s!\n",
-					BASIC_SCAN_THRESHOLD, src_addr);
+	if (is_basic_scan(ports, BASIC_SCAN_THRESHOLD)) {
+#ifdef DEBUG
+		printf("nmap (%d ports or more) detected from %s!\n",
+				BASIC_SCAN_THRESHOLD, src_addr);
+#endif
 
-			if (use_db_thread) {
-				queue_work(&task_queue_head, &task_list_lock, NULL, BASIC_SCAN,
-						&current_packet, &new_val, &info);
-			} else {
-				log_alert(db_conn, NULL, BASIC_SCAN, &current_packet, &new_val,
-						&info);
-			}
+		if (use_db_thread) {
+			queue_work(&task_queue_head, &task_list_lock, NULL, BASIC_SCAN,
+					&current_packet, &new_val, &info);
+		} else {
+			log_alert(db_conn, NULL, BASIC_SCAN, &current_packet, &new_val,
+					&info);
 		}
 	}
 
-	/* NOTE debug: print corresponding hash table entry */
+#ifdef DEBUG
+	/* measure end time */
+	clock_gettime(CLOCK_MONOTONIC, &end_time);
+	if (current_packet.dst_port != 22) {
+		printf("time taken: %.3f ms\n", (end_time.tv_nsec - start_time.tv_nsec)/pow(10,6));
+	}
+#endif
+
+#ifdef DEBUG
+	/* print corresponding hash table entry */
 	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
 
 	struct value *current_val = (struct value*) res;
+
+	/* don't print SSH-related entries */
 	if (current_packet.dst_port != 22) {
 		printf("%s -> {%ld, %ld, %d}\n",
 				fingerprint,
 				current_val->first, current_val->latest, current_val->count);
 	}
+#endif
 
 	return 0;
 }
@@ -480,23 +497,29 @@ int main(int argc, char *argv[])
 
 	char *thread_env;
 
-	struct thread_args db_worker_args;
+	struct db_thread_args db_worker_args;
 
 	/* catch SIGINT (e.g. Ctrl+C, kill) */
 	if (signal(SIGINT, cleanup) == SIG_ERR) {
+#ifdef DEBUG
 		pr_err("error setting up SIGINT handler\n");
+#endif
 		return 1;
 	}
 
 	if (signal(SIGTERM, cleanup) == SIG_ERR) {
+#ifdef DEBUG
 		pr_err("error setting up SIGTERM handler\n");
+#endif
 		return 1;
 	}
 
 	/* check we have the second argument */
 	if (argc < 2) {
+#ifdef DEBUG
 		printf("usage: %s <interface name> [--skb-mode]\n", argv[0]);
-		return 0;
+#endif
+		return -1;
 	}
 
 	/* check if we're using the database worker thread */
@@ -508,12 +531,17 @@ int main(int argc, char *argv[])
 	} else {
 		use_db_thread = true;
 	}
+
+#ifdef DEBUG
 	printf("use database worker thread: %d\n", use_db_thread);
 	printf("basic scan threshold: %d\n", BASIC_SCAN_THRESHOLD);
+#endif
 
 	xdp_prog_fd = load_bpf_xdp("packet.bpf.o");
 	if (xdp_prog_fd <= 0) {
+#ifdef DEBUG
 		pr_err("error loading XDP program from file: %s\n", "packet.bpf.o");
+#endif
 		return -1;
 	}
 
@@ -530,18 +558,24 @@ int main(int argc, char *argv[])
 
 	err = bpf_xdp_attach(ifindex, xdp_prog_fd, xdp_flags, NULL);
 	if (err < 0) {
+#ifdef DEBUG
 		pr_err("error: ifindex %d link set xdp fd failed %d: %s\n",
 				ifindex, -err, strerror(-err));
+#endif
 		switch (-err) {
 			case EBUSY:
 			case EEXIST:
+#ifdef DEBUG
 				pr_err("XDP already loaded on device %s\n",
 						argv[1]);
+#endif
 				break;
 			case ENOMEM:
 			case EOPNOTSUPP:
+#ifdef DEBUG
 				pr_err("native XDP not supported on device %s, try --skb-mode\n",
 						argv[1]);
+#endif
 				break;
 			default:
 				break;
@@ -551,15 +585,21 @@ int main(int argc, char *argv[])
 
 	map = bpf_object__find_map_by_name(xdp_obj, "flagged_ips");
 	if (!map) {
+#ifdef DEBUG
 		pr_err("cannot find map by name %s\n", "flagged_ips");
+#endif
+		err = -1;
 		goto cleanup;
 	}
 	flagged_ips_fd = bpf_map__fd(map);
 
 	uretprobe_prog_fd = load_and_attach_bpf_uretprobe("packet.bpf.o", flagged_ips_fd);
 	if (uretprobe_prog_fd <= 0) {
+#ifdef DEBUG
 		pr_err("error loading uretprobe program from file: %s\n", "packet.bpf.o");
-		return -1;
+#endif
+		err = -1;
+		goto cleanup;
 	}
 
 	/* set up database */
@@ -580,7 +620,9 @@ int main(int argc, char *argv[])
 	/* find kernel ring buffer */
 	map = bpf_object__find_map_by_name(xdp_obj, "kernel_rb");
 	if (!map) {
+#ifdef DEBUG
 		pr_err("cannot find map by name: %s\n", "kernel_rb");
+#endif
 		goto cleanup;
 	}
 	kernel_rb_fd = bpf_map__fd(map);
@@ -589,14 +631,18 @@ int main(int argc, char *argv[])
 	kernel_rb = ring_buffer__new(kernel_rb_fd, handle_event, NULL, NULL);
 	if (!kernel_rb) {
 		err = -1;
+#ifdef DEBUG
 		pr_err("failed to create kernel ring buffer\n");
+#endif
 		goto cleanup;
 	}
 
 	/* find user ring buffer */
 	map = bpf_object__find_map_by_name(uretprobe_obj, "user_rb");
 	if (!map) {
+#ifdef DEBUG
 		pr_err("cannot find map by name: %s\n", "user_rb");
+#endif
 		goto cleanup;
 	}
 	user_rb_fd = bpf_map__fd(map);
@@ -605,7 +651,9 @@ int main(int argc, char *argv[])
 	user_rb = user_ring_buffer__new(user_rb_fd, NULL);
 	if (!user_rb) {
 		err = -1;
+#ifdef DEBUG
 		pr_err("failed to create user ring buffer\n");
+#endif
 		goto cleanup;
 	}
 
@@ -616,13 +664,17 @@ int main(int argc, char *argv[])
 		db_worker_args.lock = &task_list_lock;
 		res = pthread_create(&db_worker, NULL, (void *) thread_work, &db_worker_args);
 		if (res != 0) {
+#ifdef DEBUG
 			pr_err("pthread_create failed\n");
+#endif
 			cleanup();
 			return 1;
 		}
 	}
 
+#ifdef DEBUG
 	printf("ready\n");
+#endif
 
 	/* poll ring buffer */
 	while (!exiting) {
@@ -636,7 +688,9 @@ int main(int argc, char *argv[])
 		}
 
 		if (err < 0) {
+#ifdef DEBUG
 			pr_err("error polling ring buffer: %d\n", err);
+#endif
 			cleanup();
 			break;
 		}

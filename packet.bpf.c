@@ -1,3 +1,4 @@
+#include <bpf/libbpf_legacy.h>
 #include <linux/bpf.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>
@@ -88,20 +89,17 @@ int process_packet(struct xdp_md *ctx)
 	if (!ip_headers)
 		return result;
 
-	struct tcphdr *tcp_headers = get_tcp_headers(ctx);
-	if (!tcp_headers)
-		return result;
-
-	if (protocol_number == TCP_PNUM) {
-		src_addr = get_source_addr(ip_headers);
-		__u8 *lookup_res = bpf_map_lookup_elem(&flagged_ips, &src_addr);
-
+	src_addr = get_source_addr(ip_headers);
+	if (bpf_map_lookup_elem(&flagged_ips, &src_addr)) {
 		/* lookup returns non-null => IP is flagged */
-		if (lookup_res != NULL) {
-			/* TODO redirect */
-			/* drop for now */
-			result = XDP_DROP;
-		} else {
+		/* TODO option to redirect instead of block */
+		result = XDP_DROP;
+	} else {
+		struct tcphdr *tcp_headers = get_tcp_headers(ctx);
+		if (!tcp_headers)
+			return result;
+
+		if (protocol_number == TCP_PNUM) {
 			/* reserve ring buffer sample */
 			e = bpf_ringbuf_reserve(&kernel_rb, sizeof(*e), 0);
 			if (!e) {

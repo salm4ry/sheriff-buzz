@@ -1,4 +1,3 @@
-#include <bits/time.h>
 #include <stdio.h>
 
 #include <errno.h>
@@ -47,6 +46,8 @@ const int BASIC_SCAN_THRESHOLD = 10;
 
 bool exiting = false;
 bool use_db_thread = false;
+
+FILE *log_file;
 
 void cleanup()
 {
@@ -336,6 +337,7 @@ __attribute__((noinline)) int submit_flagged_ip(long src_ip)
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
 	struct kernel_rb_event *e = data;
+	time_t timestamp;
     char src_addr[MAX_ADDR_LEN], time_string[32];
 	bool ports[NUM_PORTS];
 	struct port_info info;
@@ -345,12 +347,15 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	char fingerprint[MAX_FINGERPRINT];
 	gpointer res;
 
-	struct timespec start_time, end_time;
 
 #ifdef DEBUG
 	/* : measure start time */
+	struct timespec start_time, end_time;
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 #endif
+
+	/* packet timestamp */
+	timestamp = time(NULL);
 
 	/* extract data from IP and TCP headers */
 	/* source IP address */
@@ -360,7 +365,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	current_packet.dst_port = get_dst_port(&e->tcph);
 
 	ip_to_str(current_packet.src_ip, src_addr);
-	time_to_str(ktime_to_real(e->timestamp), time_string);
+	time_to_str(timestamp, time_string, 32, "%H:%M:%S");
 	ports_scanned(current_packet.src_ip, ports);
 	port_info(current_packet.src_ip, &info);
 
@@ -374,11 +379,11 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		/* entry already exists: update count and timestamp */
 		struct value *current_val = (struct value*) res;
 		new_val.first = current_val->first;
-		new_val.latest = ktime_to_real(e->timestamp);
+		new_val.latest = timestamp;
 		new_val.count = current_val->count + 1;
 	} else {
 		/* set up new entry */
-		new_val.first = ktime_to_real(e->timestamp);
+		new_val.first = timestamp;
 		new_val.latest = new_val.first;
 		new_val.count = 1;
 	}
@@ -498,6 +503,13 @@ int main(int argc, char *argv[])
 	char *thread_env;
 
 	struct db_thread_args db_worker_args;
+
+	/* TODO set up log file */
+	/* TODO get filename from config */
+	char *log_filename = malloc(20 * sizeof(char));
+	time_to_str(time(NULL), log_filename, 20, "%Y-%m-%d_%H-%M-%S");
+	/* log_file = fopen("log", "a"); */
+	free(log_filename);
 
 	/* catch SIGINT (e.g. Ctrl+C, kill) */
 	if (signal(SIGINT, cleanup) == SIG_ERR) {

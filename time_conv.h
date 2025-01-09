@@ -1,9 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <math.h>
 #include <time.h>
 #include <sys/sysinfo.h>
+
+#define NANO .000000001
 
 /* get system uptime */
 long get_uptime()
@@ -27,16 +28,16 @@ time_t get_boot_time()
 }
 
 /* calculate real time from nanoseconds since boot */
-time_t ktime_to_real(unsigned long long ktime)
+inline time_t ktime_to_real(unsigned long long ktime)
 {
+	unsigned long long ktime_seconds = ktime * NANO;
 	time_t boot_time = get_boot_time();
-	unsigned long long ktime_seconds = ktime / pow(10,9);
 	return (time_t) (boot_time + ktime_seconds);
 }
 
-void time_to_str(time_t time, char *timestamp)
+void time_to_str(time_t time, char *time_string, int size, char *format)
 {
 	struct tm *tm;
 	tm = localtime(&time);
-	strftime(timestamp, sizeof(timestamp), "%H:%M", tm);
+	strftime(time_string, size, format, tm);
 }

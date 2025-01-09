@@ -27,7 +27,6 @@
 struct kernel_rb_event {
 	struct iphdr iph;
 	struct tcphdr tcph;
-	unsigned long long timestamp; /* = u64 */
 };
 
 struct user_rb_event {

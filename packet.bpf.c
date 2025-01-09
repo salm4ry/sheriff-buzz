@@ -80,7 +80,6 @@ int process_packet(struct xdp_md *ctx)
 {
 	__u8 protocol_number;
 	/* __u64 *packet_entry; */
-	__u64 timestamp = bpf_ktime_get_ns();
 	__u32 src_addr;
 
 	struct kernel_rb_event *e;
@@ -103,7 +102,7 @@ int process_packet(struct xdp_md *ctx)
 
 		/* lookup returns non-null => IP is flagged */
 		if (lookup_res != NULL) {
-			/* FIXME redirect to honeypot */
+			/* TODO redirect */
 			/* drop for now */
 			result = XDP_DROP;
 		} else {
@@ -117,7 +116,6 @@ int process_packet(struct xdp_md *ctx)
 			/* fill out ring buffer sample */
 			e->iph = *ip_headers;
 			e->tcph = *tcp_headers;
-			e->timestamp = timestamp;
 
 			/* submit ring buffer event */
 			bpf_ringbuf_submit(e, 0);

@@ -1,6 +1,6 @@
 ############################################################
-# ebpf example makefile
-# source: https://github.com/w180112/ebpf_example
+# eBPF makefile
+# adapted from: https://github.com/w180112/ebpf_example
 ############################################################
 
 ######################################
@@ -18,7 +18,8 @@ GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 
 CC = clang
 INCLUDE += -I/usr/include/x86_64-linux-gnu
-CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g
+CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g -DDEBUG  # NOTE debug mode
+# CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g
 
 USR_TARGET = packet
 USR_SRC = packet.c

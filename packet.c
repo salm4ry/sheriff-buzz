@@ -94,44 +94,34 @@ int load_bpf_xdp(const char *filename)
 
 	xdp_obj = bpf_object__open_file(filename, NULL);
 	if (libbpf_get_error(xdp_obj)) {
-#ifdef DEBUG
-		pr_err("open object file failed: %s\n",
+		log_error("open object file failed: %s\n",
 				strerror(errno));
-#endif
 		return -1;
 	}
 
 	prog = bpf_object__find_program_by_name(xdp_obj, "process_packet");
 	if (prog == NULL) {
-#ifdef DEBUG
-		pr_err("find program in object failed: %s\n",
+		log_error("find program in object failed: %s\n",
 				strerror(errno));
-#endif
 		return -1;
 	}
 
 	/* set to XDP */
 	if (bpf_program__set_type(prog, BPF_PROG_TYPE_XDP) < 0) {
-#ifdef DEBUG
-		pr_err("set bpf type to xdp failed: %s\n", strerror(errno));
-#endif
+		log_error("set bpf type to xdp failed: %s\n", strerror(errno));
 		return -1;
 	}
 
 	err = bpf_object__load(xdp_obj);
 	if (err) {
-#ifdef DEBUG
-		pr_err("load bpf object failed: %s\n", strerror(errno));
-#endif
+		log_error("load bpf object failed: %s\n", strerror(errno));
 		return -1;
 	}
 
 	prog_fd = bpf_program__fd(prog);
 	if (!prog_fd) {
-#ifdef DEBUG
-		pr_err("error loading bpf object file (%s) (%d): %s\n",
+		log_error("error loading bpf object file (%s) (%d): %s\n",
 				filename, err, strerror(-err));
-#endif
 		return -1;
 	}
 
@@ -145,50 +135,39 @@ int load_and_attach_bpf_uretprobe(const char *filename, int flagged_ips_fd)
 	LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts);
 	struct bpf_program *prog;
 	struct bpf_map *flagged_ips;
-	struct bpf_link *uprobe_res;
 
 	uretprobe_obj = bpf_object__open_file(filename, NULL);
 	if (libbpf_get_error(uretprobe_obj)) {
-#ifdef DEBUG
-		pr_err("open object file failed: %s\n",
+		log_error("open object file failed: %s\n",
 				strerror(errno));
-#endif
 		return -1;
 	}
 
 	prog = bpf_object__find_program_by_name(uretprobe_obj, "read_user_ringbuf");
 	if (prog == NULL) {
-#ifdef DEBUG
-		pr_err("find program in object failed: %s\n",
+		log_error("find program in object failed: %s\n",
 				strerror(errno));
-#endif
 		return -1;
 	}
 
 	flagged_ips = bpf_object__find_map_by_name(uretprobe_obj, "flagged_ips");
 	err = bpf_map__reuse_fd(flagged_ips, flagged_ips_fd);
 	if (err) {
-#ifdef DEBUG
-		pr_err("failed to reuse map fd: %s\n", strerror(errno));
-#endif
+		log_error("failed to reuse map fd: %s\n", strerror(errno));
 		return -1;
 	}
 
 	err = bpf_object__load(uretprobe_obj);
 	if (err) {
-#ifdef DEBUG
-		pr_err("load bpf object failed: %s\n", strerror(errno));
-#endif
+		log_error("load bpf object failed: %s\n", strerror(errno));
 		return -1;
 	}
 
 	prog_fd = bpf_program__fd(prog);
-#ifdef DEBUG
 	if (!prog_fd) {
-		pr_err("error loading bpf object file(%s) (%d): %s\n",
+		log_error("error loading bpf object file(%s) (%d): %s\n",
 				filename, err, strerror(-err));
 	}
-#endif
 
 	/* name of function to attach to */
 	uprobe_opts.func_name = "submit_flagged_ip";
@@ -204,12 +183,10 @@ int load_and_attach_bpf_uretprobe(const char *filename, int flagged_ips_fd)
 	 * 				name in uprobe_otps)
 	 * opts: options
 	 */
-	uprobe_res = bpf_program__attach_uprobe_opts(prog, 0, "/proc/self/exe", 0, &uprobe_opts);
-#ifdef DEBUG
-	if (!uprobe_res) {
-		pr_err("uprobe attach failed: %s\n", strerror(errno));
+	if (!bpf_program__attach_uprobe_opts(prog, 0, 
+				"/proc/self/exe", 0, &uprobe_opts)) {
+		log_error("uprobe attach failed: %s\n", strerror(errno));
 	}
-#endif
 
 	return prog_fd;
 
@@ -267,9 +244,7 @@ int *get_port_list(char *filename, int num_ports) {
 		}
 		free(buffer);
 	} else {
-#ifdef DEBUG
-		pr_err("error opening file %s\n", filename);
-#endif
+		log_error("error opening file %s\n", filename);
 		exit(1);
 	}
 
@@ -396,10 +371,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	/* detect flag-based scans */
 	if (is_xmas_scan(&e->tcph)) {
-#ifdef DEBUG
 		log_alert("nmap Xmas scan detected from %s (port %d)!\n",
 				src_addr, current_packet.dst_port);
-#endif
 
 		if (use_db_thread) {
 			queue_work(&task_queue_head, &task_list_lock,
@@ -410,17 +383,13 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		}
 
 		/* NOTE currently testing submission of flagged IP after XMAS scan */
-#ifdef DEBUG
 		log_alert("flagging %s\n", src_addr);
-#endif
 		submit_flagged_ip(current_packet.src_ip);
 	}
 
 	if (is_fin_scan(&e->tcph)) {
-#ifdef DEBUG
 		log_alert("nmap FIN scan detected from %s (port %d)!\n",
 				src_addr, current_packet.dst_port);
-#endif
 
 		if (use_db_thread) {
 			queue_work(&task_queue_head, &task_list_lock,
@@ -432,10 +401,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	}
 
 	if (is_null_scan(&e->tcph)) {
-#ifdef DEBUG
 		log_alert("nmap NULL scan detected from %s (port %d)!\n",
 				src_addr, current_packet.dst_port);
-#endif
 
 		if (use_db_thread) {
 			queue_work(&task_queue_head, &task_list_lock,
@@ -519,30 +486,24 @@ int main(int argc, char *argv[])
 	free(log_filename);
 
 	if (!LOG) {
-		fprintf(stderr, "%s\n", strerror(errno));
+		pr_err("%s\n", strerror(errno));
 		return -1;
 	}
 
 	/* catch SIGINT (e.g. Ctrl+C, kill) */
 	if (signal(SIGINT, cleanup) == SIG_ERR) {
-#ifdef DEBUG
 		log_error("error setting up SIGINT handler\n");
-#endif
 		return 1;
 	}
 
 	if (signal(SIGTERM, cleanup) == SIG_ERR) {
-#ifdef DEBUG
 		log_error("error setting up SIGTERM handler\n");
-#endif
 		return 1;
 	}
 
 	/* check we have the second argument */
 	if (argc < 2) {
-#ifdef DEBUG
 		log_error("usage: %s <interface name> [--skb-mode]\n", argv[0]);
-#endif
 		return -1;
 	}
 
@@ -563,9 +524,7 @@ int main(int argc, char *argv[])
 
 	xdp_prog_fd = load_bpf_xdp("packet.bpf.o");
 	if (xdp_prog_fd <= 0) {
-#ifdef DEBUG
 		log_error("error loading XDP program from file: %s\n", "packet.bpf.o");
-#endif
 		return -1;
 	}
 
@@ -582,24 +541,18 @@ int main(int argc, char *argv[])
 
 	err = bpf_xdp_attach(ifindex, xdp_prog_fd, xdp_flags, NULL);
 	if (err < 0) {
-#ifdef DEBUG
 		log_error("XDP attach on %s failed %d: %s\n",
 				argv[1], -err, strerror(-err));
-#endif
 		switch (-err) {
 			case EBUSY:
 			case EEXIST:
-#ifdef DEBUG
 				log_error("XDP already loaded on device %s\n",
 						argv[1]);
-#endif
 				break;
 			case ENOMEM:
 			case EOPNOTSUPP:
-#ifdef DEBUG
 				log_error("native XDP not supported on device %s, try --skb-mode\n",
 						argv[1]);
-#endif
 				break;
 			default:
 				break;
@@ -609,9 +562,7 @@ int main(int argc, char *argv[])
 
 	map = bpf_object__find_map_by_name(xdp_obj, "flagged_ips");
 	if (!map) {
-#ifdef DEBUG
 		log_error("cannot find map by name %s\n", "flagged_ips");
-#endif
 		err = -1;
 		goto cleanup;
 	}
@@ -619,9 +570,7 @@ int main(int argc, char *argv[])
 
 	uretprobe_prog_fd = load_and_attach_bpf_uretprobe("packet.bpf.o", flagged_ips_fd);
 	if (uretprobe_prog_fd <= 0) {
-#ifdef DEBUG
 		log_error("error loading uretprobe program from file: %s\n", "packet.bpf.o");
-#endif
 		err = -1;
 		goto cleanup;
 	}
@@ -644,9 +593,7 @@ int main(int argc, char *argv[])
 	/* find kernel ring buffer */
 	map = bpf_object__find_map_by_name(xdp_obj, "kernel_rb");
 	if (!map) {
-#ifdef DEBUG
 		log_error("cannot find map by name: %s\n", "kernel_rb");
-#endif
 		goto cleanup;
 	}
 	kernel_rb_fd = bpf_map__fd(map);
@@ -655,18 +602,14 @@ int main(int argc, char *argv[])
 	kernel_rb = ring_buffer__new(kernel_rb_fd, handle_event, NULL, NULL);
 	if (!kernel_rb) {
 		err = -1;
-#ifdef DEBUG
 		log_error("failed to create kernel ring buffer\n");
-#endif
 		goto cleanup;
 	}
 
 	/* find user ring buffer */
 	map = bpf_object__find_map_by_name(uretprobe_obj, "user_rb");
 	if (!map) {
-#ifdef DEBUG
 		log_error("cannot find map by name: %s\n", "user_rb");
-#endif
 		goto cleanup;
 	}
 	user_rb_fd = bpf_map__fd(map);
@@ -675,9 +618,7 @@ int main(int argc, char *argv[])
 	user_rb = user_ring_buffer__new(user_rb_fd, NULL);
 	if (!user_rb) {
 		err = -1;
-#ifdef DEBUG
 		log_error("failed to create user ring buffer\n");
-#endif
 		goto cleanup;
 	}
 
@@ -688,9 +629,7 @@ int main(int argc, char *argv[])
 		db_worker_args.lock = &task_list_lock;
 		res = pthread_create(&db_worker, NULL, (void *) thread_work, &db_worker_args);
 		if (res != 0) {
-#ifdef DEBUG
 			log_error("pthread_create failed\n");
-#endif
 			cleanup();
 			return 1;
 		}
@@ -708,9 +647,7 @@ int main(int argc, char *argv[])
 		}
 
 		if (err < 0) {
-#ifdef DEBUG
 			log_error("error polling ring buffer: %d\n", err);
-#endif
 			cleanup();
 			break;
 		}

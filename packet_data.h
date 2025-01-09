@@ -237,12 +237,9 @@ int db_alert(PGconn *db_conn, char *fingerprint, int alert_type,
 
 	db_res = PQexec(db_conn, query);
 	err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
-
-#ifdef DEBUG
 	if (err) {
 		log_error("postgres: %s\n", PQerrorMessage(db_conn));
 	}
-#endif
 
 	PQclear(db_res);
 
@@ -258,9 +255,8 @@ static PGconn *connect_db(char *user, char *dbname)
 	sprintf(query, "user=%s dbname=%s", user, dbname);
 	PGconn *conn = PQconnectdb(query);
 	if (PQstatus(conn) == CONNECTION_BAD) {
-#ifdef DEBUG
 		log_error("connection to database failed: %s\n", PQerrorMessage(conn));
-#endif
+
 		PQfinish(conn);
 		/* return NULL on error */
 		return NULL;
@@ -361,7 +357,14 @@ int queue_full(struct db_task_queue *head)
 	return queue_size(head) >= MAX_DB_TASKS;
 }
 
-/* log_alert(PGconn *db_conn, char *fingerprint, int alert_type, struct key *key, struct value *value) */
+/**
+ * Queue database work
+ *
+ * provide data such that the database worker can carry out:
+ *
+ * db_alert(PGconn *db_conn, char *fingerprint, int alert_type, 
+ * 		struct key *key, struct value *value) 
+ */
 int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 			 char *fingerprint, int alert_type, struct key *key, struct value *value,
 			 struct port_info *info)

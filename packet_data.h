@@ -1,5 +1,3 @@
-#include <arpa/inet.h>
-#include <bits/pthreadtypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,13 +5,14 @@
 #include <time.h>
 /* #include <math.h> */
 
+#include <arpa/inet.h>
 #include <bpf/libbpf.h>
 #include <glib-2.0/glib.h>
 #include <postgresql/libpq-fe.h>
 
 #include <sys/queue.h>
 
-#include "log_types.h"
+#include "log.h"
 #include "parse_headers.h"
 
 /* maximum fingerprint string length */
@@ -60,6 +59,7 @@ struct port_info {
 };
 
 struct db_task_queue;
+FILE *LOG;
 
 /**
  * Database work queue entry
@@ -145,15 +145,6 @@ static int count_ports_scanned(bool *ports_scanned)
 /* create string fingerprint from key struct */
 void get_fingerprint(struct key *key, char *buf)
 {
-	/* extract flags into string form */
-	/*
-	char flags[NUM_FLAGS+1];
-	for (int i = 0; i < NUM_FLAGS; i++) {
-		flags[i] = key->flags[i] ? '1' : '0';
-	}
-	flags[NUM_FLAGS] = '\0';
-	*/
-
 	/* zero-padded so fingerprints are always of length MAX_FINGERPRINT */
 	snprintf(buf, MAX_FINGERPRINT, "%08lx%04x", key->src_ip, key->dst_port);
 }
@@ -164,7 +155,6 @@ char **ip_fingerprint(long src_ip)
 	char **fingerprint = malloc(NUM_PORTS * sizeof(char *));
 	struct key current_key;
 	current_key.src_ip = src_ip;
-	/* memcpy(current_key.flags, flags, NUM_FLAGS); */
 
 	for (int i = 0; i < NUM_PORTS; i++) {
 		current_key.dst_port = i;
@@ -185,7 +175,7 @@ void free_ip_fingerprint(char **fingerprint)
 }
 
 /* log alert to database, replacing old record if necessary */
-int log_alert(PGconn *db_conn, char *fingerprint, int alert_type,
+int db_alert(PGconn *db_conn, char *fingerprint, int alert_type,
 		struct key *key, struct value *value,
 		struct port_info *info)
 {
@@ -216,10 +206,6 @@ int log_alert(PGconn *db_conn, char *fingerprint, int alert_type,
 			int max = max_port(info->ports_scanned);
 			int port_count = count_ports_scanned(info->ports_scanned);
 
-#ifdef DEBUG
-			printf("min: %d, max: %d\n", min, max);
-#endif
-
 			snprintf(port_range, MAX_PORT_RANGE, "%d:%d", min, max);
 			snprintf(query, MAX_QUERY, cmd, port_range, alert_type, ip_str,
 					port_count, value->first, value->latest, /* fields to update */
@@ -246,7 +232,7 @@ int log_alert(PGconn *db_conn, char *fingerprint, int alert_type,
 
 
 #ifdef DEBUG
-	printf("%s\n", query);
+	log_debug("%s\n", query);
 #endif
 
 	db_res = PQexec(db_conn, query);
@@ -254,7 +240,7 @@ int log_alert(PGconn *db_conn, char *fingerprint, int alert_type,
 
 #ifdef DEBUG
 	if (err) {
-		fprintf(stderr, "postgres: %s\n", PQerrorMessage(db_conn));
+		log_error("postgres: %s\n", PQerrorMessage(db_conn));
 	}
 #endif
 
@@ -273,8 +259,7 @@ static PGconn *connect_db(char *user, char *dbname)
 	PGconn *conn = PQconnectdb(query);
 	if (PQstatus(conn) == CONNECTION_BAD) {
 #ifdef DEBUG
-		fprintf(stderr, "connection to database failed: %s\n",
-				PQerrorMessage(conn));
+		log_error("connection to database failed: %s\n", PQerrorMessage(conn));
 #endif
 		PQfinish(conn);
 		/* return NULL on error */
@@ -424,7 +409,7 @@ void thread_work(void *args)
 		pthread_mutex_unlock(lock);
 
 		while (current) {
-			log_alert(db_conn,
+			db_alert(db_conn,
 					current->fingerprint,
 					current->alert_type,
 					&current->key,

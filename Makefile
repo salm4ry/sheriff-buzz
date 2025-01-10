@@ -12,14 +12,17 @@ ARCH=$(shell uname -m | sed 's/x86_//;s/i[3-6]86/32/')
 VER=$(shell lsb_release -sr)
 INTERFACE=enp10s0  # TODO find automated way of getting interface (differs between VM and container)
 
-# NOTE need pkgconf installed
+# NOTE: need pkgconf installed
 GLIB_CFLAGS = $(shell pkg-config --cflags glib-2.0)
 GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 
 CC = clang
 INCLUDE += -I/usr/include/x86_64-linux-gnu
-# CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g -DDEBUG  # NOTE debug mode
-CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g
+
+# include debug logging
+CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g -DDEBUG
+# no debug logging
+# CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g
 
 USR_TARGET = packet
 USR_SRC = packet.c
@@ -52,7 +55,6 @@ $(KRN_TARGET):
 
 $(USR_TARGET): $(USR_OBJ)
 	$(CC) $(CFLAGS) $(USR_OBJ) -o $(USR_TARGET) -lbpf -lelf -lpq -lz $(GLIB_LIBS)
-	# -lelf -lz libbpf/src/libbpf.a
 
 ######################################
 # Unload

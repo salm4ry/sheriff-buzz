@@ -94,15 +94,13 @@ int load_bpf_xdp(const char *filename)
 
 	xdp_obj = bpf_object__open_file(filename, NULL);
 	if (libbpf_get_error(xdp_obj)) {
-		log_error("open object file failed: %s\n",
-				strerror(errno));
+		log_error("open object file failed: %s\n", strerror(errno));
 		return -1;
 	}
 
 	prog = bpf_object__find_program_by_name(xdp_obj, "process_packet");
 	if (prog == NULL) {
-		log_error("find program in object failed: %s\n",
-				strerror(errno));
+		log_error("find program in object failed: %s\n", strerror(errno));
 		return -1;
 	}
 
@@ -120,8 +118,8 @@ int load_bpf_xdp(const char *filename)
 
 	prog_fd = bpf_program__fd(prog);
 	if (!prog_fd) {
-		log_error("error loading bpf object file (%s) (%d): %s\n",
-				filename, err, strerror(-err));
+		log_error("error loading bpf object file (%s)- %d: %s\n",
+				filename, errno, strerror(errno));
 		return -1;
 	}
 
@@ -138,15 +136,13 @@ int load_and_attach_bpf_uretprobe(const char *filename, int flagged_ips_fd)
 
 	uretprobe_obj = bpf_object__open_file(filename, NULL);
 	if (libbpf_get_error(uretprobe_obj)) {
-		log_error("open object file failed: %s\n",
-				strerror(errno));
+		log_error("open object file failed: %s\n", strerror(errno));
 		return -1;
 	}
 
 	prog = bpf_object__find_program_by_name(uretprobe_obj, "read_user_ringbuf");
 	if (prog == NULL) {
-		log_error("find program in object failed: %s\n",
-				strerror(errno));
+		log_error(msg, "find program in object failed: %s\n", strerror(errno));
 		return -1;
 	}
 
@@ -382,6 +378,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 					&current_packet, &new_val, NULL);
 		}
 
+		/* TODO thresholding */
 		/* NOTE currently testing submission of flagged IP after XMAS scan */
 		log_alert("flagging %s\n", src_addr);
 		submit_flagged_ip(current_packet.src_ip);
@@ -422,10 +419,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	free_ip_fingerprint(port_fingerprints);
 
 	if (is_basic_scan(ports, BASIC_SCAN_THRESHOLD)) {
-#ifdef DEBUG
-		log_debug("nmap (%d ports or more) detected from %s!\n",
+		log_alert("nmap (%d ports or more) detected from %s!\n",
 				BASIC_SCAN_THRESHOLD, src_addr);
-#endif
 
 		if (use_db_thread) {
 			queue_work(&task_queue_head, &task_list_lock, NULL, BASIC_SCAN,
@@ -546,8 +541,7 @@ int main(int argc, char *argv[])
 		switch (-err) {
 			case EBUSY:
 			case EEXIST:
-				log_error("XDP already loaded on device %s\n",
-						argv[1]);
+				log_error("XDP already loaded on device %s\n", argv[1]);
 				break;
 			case ENOMEM:
 			case EOPNOTSUPP:

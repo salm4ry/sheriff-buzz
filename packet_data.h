@@ -197,9 +197,9 @@ int db_alert(PGconn *db_conn, char *fingerprint, int alert_type,
 			 */
 			cmd = "INSERT INTO log (dst_port, alert_type, src_ip, port_count, first, latest) "
 				  "VALUES ('%s', %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
-				  "ON CONFLICT (src_ip, fingerprint, alert_type) DO UPDATE "
-				  "SET port_count=%d, dst_port='%s', latest=to_timestamp(%ld) "
-				  "WHERE to_timestamp(%ld) >= log.latest";
+				  "ON CONFLICT (src_ip, alert_type) WHERE fingerprint IS NULL "
+				  "DO UPDATE SET port_count=%d, dst_port='%s', latest=to_timestamp(%ld) "
+				  "WHERE %d > log.port_count AND to_timestamp(%ld) > log.latest";
 
 			char port_range[MAX_PORT_RANGE];
 			int min = min_port(info->ports_scanned);
@@ -209,7 +209,8 @@ int db_alert(PGconn *db_conn, char *fingerprint, int alert_type,
 			snprintf(port_range, MAX_PORT_RANGE, "%d:%d", min, max);
 			snprintf(query, MAX_QUERY, cmd, port_range, alert_type, ip_str,
 					port_count, value->first, value->latest, /* fields to update */
-					port_count, port_range, value->latest, value->latest);
+					port_count, port_range, value->latest,
+					port_count, value->latest);
 			break;
 		default:
 			/* flag-based scan
@@ -219,9 +220,9 @@ int db_alert(PGconn *db_conn, char *fingerprint, int alert_type,
 			 */
 			cmd = "INSERT INTO log (fingerprint, dst_port, alert_type, src_ip, packet_count, first, latest) "
 		   		  "VALUES ('%s', '%d', %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
-				  "ON CONFLICT (src_ip, fingerprint, alert_type) DO UPDATE "
-				  "SET packet_count=%d, latest=to_timestamp(%ld) "
-				  "WHERE %d >= log.packet_count AND to_timestamp(%ld) >= log.latest";
+				  "ON CONFLICT (src_ip, fingerprint, alert_type) WHERE fingerprint IS NOT NULL "
+				  "DO UPDATE SET packet_count=%d, latest=to_timestamp(%ld) "
+				  "WHERE %d > log.packet_count AND to_timestamp(%ld) > log.latest";
 
 			snprintf(query, MAX_QUERY, cmd, fingerprint, key->dst_port, alert_type,
 					ip_str, value->count, value->first, value->latest,

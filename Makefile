@@ -32,18 +32,7 @@ KRN_SRC = packet.bpf.c
 
 USR_OBJ = $(USR_SRC:.c=.o)
 
-# SUBDIR = libbpf/src
-
-# BUILDSUBDIR = $(SUBDIR:%=build-%)
-# CLEANSUBDIR = $(SUBDIR:%=clean-%)
-
-# all: $(BUILDSUBDIR) $(KRN_TARGET) $(USR_TARGET)
 all: $(KRN_TARGET) $(USR_TARGET)
-
-# $(BUILDSUBDIR):
-#	${MAKE} -C $(@:build-%=%)
-
-# .PHONY: $(BUILDSUBDIR)
 
 ######################################
 # Compile & Link
@@ -54,7 +43,7 @@ $(KRN_TARGET):
 	$(CC) $(CFLAGS) -target bpf -c $(KRN_SRC) -o $(KRN_TARGET)
 
 $(USR_TARGET): $(USR_OBJ)
-	$(CC) $(CFLAGS) $(USR_OBJ) -o $(USR_TARGET) -lbpf -lelf -lpq -lz $(GLIB_LIBS)
+	$(CC) $(CFLAGS) $(USR_OBJ) -o $(USR_TARGET) -lbpf -lelf -lpq -lz -lcjson $(GLIB_LIBS)
 
 ######################################
 # Unload
@@ -74,8 +63,6 @@ run:
 ######################################
 # Clean 
 ######################################
-clean: $(CLEANSUBDIR)
+.PHONY: clean
+clean:
 	rm -f $(USR_TARGET) *.o
-
-$(CLEANSUBDIR):
-	$(MAKE) -C  $(@:clean-%=%) clean

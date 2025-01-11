@@ -1,8 +1,10 @@
+#include <cjson/cJSON.h>
 #include <stdio.h>
 
 #include <errno.h>
 #include <string.h>
 #include <time.h>
+
 #include <unistd.h>
 #include <stdlib.h>
 #include <signal.h>
@@ -19,10 +21,12 @@
 #include <glib.h>
 #include <postgresql/libpq-fe.h>
 
-#include "packet.h"
-#include "pr.h"
-#include "detect_scan.h"
-#include "time_conv.h"
+#include "include/packet.h"
+#include "include/pr.h"
+#include "include/detect_scan.h"
+#include "include/time_conv.h"
+#include "include/parse_config.h"
+#include "include/log.h"
 
 struct bpf_object *xdp_obj, *uretprobe_obj;
 uint32_t xdp_flags;
@@ -47,11 +51,13 @@ const int BASIC_SCAN_THRESHOLD = 1000;
 bool exiting = false;
 bool use_db_thread = false;
 
-#ifdef DEBUG
+/* #ifdef DEBUG */
 long total_handle_time = 0.0;
-#endif
+/* #endif */
 
 FILE *LOG;
+
+cJSON *config;
 
 void cleanup()
 {
@@ -69,6 +75,7 @@ void cleanup()
 	g_hash_table_destroy(packet_table);
 
 	free(common_ports);
+	cJSON_Delete(config);
 	fclose(LOG);
 
 	/* terminate database worker thread */
@@ -324,12 +331,11 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	gpointer res;
 
 
-#ifdef DEBUG
+/* #ifdef DEBUG */
 	/* measure start time */
 	struct timespec start_time, end_time, delta;
-
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
-#endif
+/* #endif */
 
 	/* packet timestamp */
 	timestamp = time(NULL);
@@ -430,18 +436,20 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 					&info);
 		}
 	}
-#ifdef DEBUG
+/* #ifdef DEBUG */
 	/* measure end time */
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
 	delta = diff(&start_time, &end_time);
 	total_handle_time += delta.tv_sec + delta.tv_nsec;
 
 	if (current_packet.dst_port != 22) {
+#ifdef DEBUG
 		log_debug("time taken: %ld ns\n", delta.tv_nsec);
+#endif
 		log_debug("total handle_event time: %ld ns\n", total_handle_time);
 	}
 
-#endif
+/* #endif */
 
 /*
 #ifdef DEBUG
@@ -472,6 +480,17 @@ int main(int argc, char *argv[])
 	char *thread_env;
 
 	struct db_thread_args db_worker_args;
+
+	const char *BPF_FILENAME = "packet.bpf.o";
+	const char *CONFIG_FILENAME = "config.json";
+
+	/* get config options */
+	config = get_config(CONFIG_FILENAME);
+	if (!config) {
+		/* TODO set defaults */
+	} else {
+		/* TODO apply config options */
+	}
 
 	/* TODO get filename from config */
 	char *log_filename = malloc(24 * sizeof(char));
@@ -517,9 +536,9 @@ int main(int argc, char *argv[])
 	log_debug("basic scan threshold: %d\n", BASIC_SCAN_THRESHOLD);
 #endif
 
-	xdp_prog_fd = load_bpf_xdp("packet.bpf.o");
+	xdp_prog_fd = load_bpf_xdp(BPF_FILENAME);
 	if (xdp_prog_fd <= 0) {
-		log_error("error loading XDP program from file: %s\n", "packet.bpf.o");
+		log_error("error loading XDP program from file: %s\n", BPF_FILENAME);
 		return -1;
 	}
 
@@ -562,9 +581,9 @@ int main(int argc, char *argv[])
 	}
 	flagged_ips_fd = bpf_map__fd(map);
 
-	uretprobe_prog_fd = load_and_attach_bpf_uretprobe("packet.bpf.o", flagged_ips_fd);
+	uretprobe_prog_fd = load_and_attach_bpf_uretprobe(BPF_FILENAME, flagged_ips_fd);
 	if (uretprobe_prog_fd <= 0) {
-		log_error("error loading uretprobe program from file: %s\n", "packet.bpf.o");
+		log_error("error loading uretprobe program from file: %s\n", BPF_FILENAME);
 		err = -1;
 		goto cleanup;
 	}
@@ -583,6 +602,7 @@ int main(int argc, char *argv[])
 
 	/* extract common TCP ports from file */
 	common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS);
+
 
 	/* find kernel ring buffer */
 	map = bpf_object__find_map_by_name(xdp_obj, "kernel_rb");

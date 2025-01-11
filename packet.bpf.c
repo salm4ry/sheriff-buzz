@@ -9,7 +9,7 @@
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_endian.h>
 
-#include "packet.h"
+#include "include/packet.h"
 
 char LICENSE[] SEC("license") = "GPL";
 

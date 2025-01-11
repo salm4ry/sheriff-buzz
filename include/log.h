@@ -21,8 +21,11 @@
 { \
 	char *msg = malloc(MAX_LOG_MSG * sizeof(char)); \
 	make_msg(msg, fmt, ##__VA_ARGS__); \
+	fputs(msg, LOG); \
+	/*
 	fwrite(msg, sizeof(char), strlen(msg), LOG); \
 	fflush(LOG); \
+	*/ \
 	free(msg); \
 }
 
@@ -30,8 +33,11 @@
 { \
 	char *msg = malloc(MAX_LOG_MSG * sizeof(char)); \
 	make_msg(msg, fmt, ##__VA_ARGS__); \
+	fputs(msg, LOG); \
+	/*
 	fwrite(msg, sizeof(char), strlen(msg), LOG); \
 	fflush(LOG); \
+	*/ \
 	free(msg); \
 }
 
@@ -39,14 +45,10 @@
 { \
 	char *msg = malloc(MAX_LOG_MSG * sizeof(char)); \
 	make_msg(msg, fmt, ##__VA_ARGS__); \
+	fputs(msg, LOG); \
+	/*
 	fwrite(msg, sizeof(char), strlen(msg), LOG); \
 	fflush(LOG); \
+	*/ \
 	free(msg); \
 }
-
-enum alert_type {
-	XMAS_SCAN = 1,
-	FIN_SCAN = 2,
-	NULL_SCAN = 3,
-	BASIC_SCAN = 4
-};

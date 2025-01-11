@@ -13,6 +13,7 @@
 #include <sys/queue.h>
 
 #include "log.h"
+#include "alert_types.h"
 #include "parse_headers.h"
 
 /* maximum fingerprint string length */

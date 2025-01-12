@@ -20,15 +20,17 @@ CC = clang
 INCLUDE += -I/usr/include/x86_64-linux-gnu
 
 # include debug logging
-CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g -DDEBUG
+# CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g -DDEBUG
 # no debug logging
-# CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g
+CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g
+
+SRC_DIR = ./src
 
 USR_TARGET = packet
-USR_SRC = packet.c
+USR_SRC = $(SRC_DIR)/packet.c
 
-KRN_TARGET = packet.bpf.o
-KRN_SRC = packet.bpf.c
+KRN_TARGET = $(SRC_DIR)/packet.bpf.o
+KRN_SRC = $(SRC_DIR)/packet.bpf.c
 
 USR_OBJ = $(USR_SRC:.c=.o)
 
@@ -65,4 +67,5 @@ run:
 ######################################
 .PHONY: clean
 clean:
-	rm -f $(USR_TARGET) *.o
+	rm -f $(USR_TARGET)
+	cd $(SRC_DIR) && rm -f *.o

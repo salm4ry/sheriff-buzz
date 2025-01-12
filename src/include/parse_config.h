@@ -3,7 +3,9 @@
 #include <string.h>
 #include <cjson/cJSON.h>
 
-#include "pr.h"
+#include "log.h"
+
+FILE *LOG;
 
 /**
  * Extract and parse config from JSON file
@@ -41,7 +43,7 @@ cJSON *get_config(const char *filename)
 		if (!obj) {
 			error = cJSON_GetErrorPtr();
 			if (error) {
-				pr_err("cjson: %s\n", error);
+				log_error("cjson: %s\n", error);
 			}
 			cJSON_Delete(obj);
 			return NULL;

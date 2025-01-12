@@ -125,7 +125,7 @@ int load_bpf_xdp(const char *filename)
 
 	prog_fd = bpf_program__fd(prog);
 	if (!prog_fd) {
-		log_error("error loading bpf object file (%s)- %d: %s\n",
+		log_error("failed to load bpf object file (%s)- %d: %s\n",
 				filename, errno, strerror(errno));
 		return -1;
 	}
@@ -168,7 +168,7 @@ int load_and_attach_bpf_uretprobe(const char *filename, int flagged_ips_fd)
 
 	prog_fd = bpf_program__fd(prog);
 	if (!prog_fd) {
-		log_error("error loading bpf object file(%s) (%d): %s\n",
+		log_error("failed to load bpf object file(%s) (%d): %s\n",
 				filename, err, strerror(-err));
 	}
 
@@ -247,7 +247,7 @@ int *get_port_list(char *filename, int num_ports) {
 		}
 		free(buffer);
 	} else {
-		log_error("error opening file %s\n", filename);
+		log_error("failed to open file %s\n", filename);
 		exit(1);
 	}
 
@@ -481,18 +481,9 @@ int main(int argc, char *argv[])
 
 	struct db_thread_args db_worker_args;
 
-	const char *BPF_FILENAME = "packet.bpf.o";
+	const char *BPF_FILENAME = "src/packet.bpf.o";
 	const char *CONFIG_FILENAME = "config.json";
 
-	/* get config options */
-	config = get_config(CONFIG_FILENAME);
-	if (!config) {
-		/* TODO set defaults */
-	} else {
-		/* TODO apply config options */
-	}
-
-	/* TODO get filename from config */
 	char *log_filename = malloc(24 * sizeof(char));
 	time_to_str(time(NULL), log_filename, 24, "log/%Y-%m-%d_%H-%M-%S");
 
@@ -504,14 +495,23 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	/* get config options */
+	config = get_config(CONFIG_FILENAME);
+	if (!config) {
+		/* TODO set defaults */
+		log_debug("no config file found at %s\n", CONFIG_FILENAME);
+	} else {
+		/* TODO apply config options */
+	}
+
 	/* catch SIGINT (e.g. Ctrl+C, kill) */
 	if (signal(SIGINT, cleanup) == SIG_ERR) {
-		log_error("error setting up SIGINT handler\n");
+		log_error("%s", "failed to set up SIGINT handler\n");
 		return 1;
 	}
 
 	if (signal(SIGTERM, cleanup) == SIG_ERR) {
-		log_error("error setting up SIGTERM handler\n");
+		log_error("%s", "failed to set up SIGTERM handler\n");
 		return 1;
 	}
 
@@ -538,7 +538,7 @@ int main(int argc, char *argv[])
 
 	xdp_prog_fd = load_bpf_xdp(BPF_FILENAME);
 	if (xdp_prog_fd <= 0) {
-		log_error("error loading XDP program from file: %s\n", BPF_FILENAME);
+		log_error("failed to load XDP program from file: %s\n", BPF_FILENAME);
 		return -1;
 	}
 
@@ -583,7 +583,7 @@ int main(int argc, char *argv[])
 
 	uretprobe_prog_fd = load_and_attach_bpf_uretprobe(BPF_FILENAME, flagged_ips_fd);
 	if (uretprobe_prog_fd <= 0) {
-		log_error("error loading uretprobe program from file: %s\n", BPF_FILENAME);
+		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 		err = -1;
 		goto cleanup;
 	}
@@ -616,7 +616,7 @@ int main(int argc, char *argv[])
 	kernel_rb = ring_buffer__new(kernel_rb_fd, handle_event, NULL, NULL);
 	if (!kernel_rb) {
 		err = -1;
-		log_error("failed to create kernel ring buffer\n");
+		log_error("%s", "failed to create kernel ring buffer\n");
 		goto cleanup;
 	}
 
@@ -632,7 +632,7 @@ int main(int argc, char *argv[])
 	user_rb = user_ring_buffer__new(user_rb_fd, NULL);
 	if (!user_rb) {
 		err = -1;
-		log_error("failed to create user ring buffer\n");
+		log_error("%s", "failed to create user ring buffer\n");
 		goto cleanup;
 	}
 
@@ -643,7 +643,7 @@ int main(int argc, char *argv[])
 		db_worker_args.lock = &task_list_lock;
 		res = pthread_create(&db_worker, NULL, (void *) thread_work, &db_worker_args);
 		if (res != 0) {
-			log_error("pthread_create failed\n");
+			log_error("%s", "pthread_create failed\n");
 			cleanup();
 			return 1;
 		}
@@ -661,7 +661,7 @@ int main(int argc, char *argv[])
 		}
 
 		if (err < 0) {
-			log_error("error polling ring buffer: %d\n", err);
+			log_error("ring buffer polling failed: %d\n", err);
 			cleanup();
 			break;
 		}

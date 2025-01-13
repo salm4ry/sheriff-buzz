@@ -32,8 +32,8 @@ struct bpf_object *xdp_obj, *uretprobe_obj;
 uint32_t xdp_flags;
 int ifindex;
 
-struct ring_buffer *kernel_rb = NULL;
-struct user_ring_buffer *user_rb = NULL;
+struct ring_buffer *xdp_rb = NULL;
+struct user_ring_buffer *flagged_rb = NULL;
 int err;
 
 GHashTable *packet_table;
@@ -70,12 +70,12 @@ void cleanup()
 
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
 
-	if (user_rb) {
-		user_ring_buffer__free(user_rb);
+	if (flagged_rb) {
+		user_ring_buffer__free(flagged_rb);
 	}
 
-	if (kernel_rb) {
-		ring_buffer__free(kernel_rb);
+	if (xdp_rb) {
+		ring_buffer__free(xdp_rb);
 	}
 
 	if (common_ports) {
@@ -313,9 +313,9 @@ void port_info(long src_ip, struct port_info *info)
 __attribute__((noinline)) int submit_flagged_ip(long src_ip)
 {
 	int err = 0;
-	struct user_rb_event *e;
+	struct flagged_rb_event *e;
 
-	e = user_ring_buffer__reserve(user_rb, sizeof(*e));
+	e = user_ring_buffer__reserve(flagged_rb, sizeof(*e));
 	if (!e) {
 		err = -errno;
 		return err;
@@ -325,14 +325,14 @@ __attribute__((noinline)) int submit_flagged_ip(long src_ip)
 	e->src_ip = src_ip;
 
 	/* submit ring buffer event */
-	user_ring_buffer__submit(user_rb, e);
+	user_ring_buffer__submit(flagged_rb, e);
 	return err;
 }
 
 
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
-	struct kernel_rb_event *e = data;
+	struct xdp_rb_event *e = data;
 	time_t timestamp;
     char src_addr[MAX_ADDR_LEN], time_string[32];
 	bool ports[NUM_PORTS];
@@ -384,6 +384,11 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		new_val.count = 1;
 	}
 
+	/* TODO flagging thresholding with current_config.flag_threshold */
+
+	/* TODO alert thresholding
+	 * with current_config->packet_threshold and current_config->port_threshold*/
+
 	/* detect flag-based scans */
 	if (is_xmas_scan(&e->tcph)) {
 		log_alert("nmap Xmas scan detected from %s (port %d)!\n",
@@ -397,7 +402,6 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 					&current_packet, &new_val, NULL);
 		}
 
-		/* TODO thresholding */
 		/* NOTE currently testing submission of flagged IP after XMAS scan */
 		log_alert("flagging %s\n", src_addr);
 		submit_flagged_ip(current_packet.src_ip);
@@ -487,7 +491,7 @@ int main(int argc, char *argv[])
 {
 	struct bpf_map *map = NULL;
 	int xdp_prog_fd, uretprobe_prog_fd;
-	int flagged_ips_fd, kernel_rb_fd, user_rb_fd;
+	int flagged_ips_fd, xdp_rb_fd, flagged_rb_fd;
 	int res = 0;
 
 	char *thread_env;
@@ -495,7 +499,7 @@ int main(int argc, char *argv[])
 	struct db_thread_args db_worker_args;
 
 	const char *BPF_FILENAME = "src/packet.bpf.o";
-	const char *CONFIG_FILENAME = "config.json";
+	const char *CONFIG_PATH = "config/config.json";
 
 	char *log_filename = malloc(24 * sizeof(char));
 	time_to_str(time(NULL), log_filename, 24, "log/%Y-%m-%d_%H-%M-%S");
@@ -512,12 +516,12 @@ int main(int argc, char *argv[])
 	set_default_config(&current_config);
 
 	/* get config options */
-	cJSON *config_json = get_config(CONFIG_FILENAME);
+	cJSON *config_json = get_config(CONFIG_PATH);
 	if (!config_json) {
-		/* TODO set defaults */
-		log_debug("no config file found at %s\n", CONFIG_FILENAME);
+		log_debug("no config file found at %s\n", CONFIG_PATH);
 	} else {
-		/* TODO apply config options */
+		/* apply initial config */
+		apply_config(config_json, &current_config);
 	}
 
 	/* catch SIGINT (e.g. Ctrl+C, kill) */
@@ -620,32 +624,32 @@ int main(int argc, char *argv[])
 	common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS);
 
 	/* find kernel ring buffer */
-	map = bpf_object__find_map_by_name(xdp_obj, "kernel_rb");
+	map = bpf_object__find_map_by_name(xdp_obj, "xdp_rb");
 	if (!map) {
-		log_error("cannot find map by name: %s\n", "kernel_rb");
+		log_error("cannot find map by name: %s\n", "xdp_rb");
 		goto cleanup;
 	}
-	kernel_rb_fd = bpf_map__fd(map);
+	xdp_rb_fd = bpf_map__fd(map);
 
 	/* set up kernel ring buffer */
-	kernel_rb = ring_buffer__new(kernel_rb_fd, handle_event, NULL, NULL);
-	if (!kernel_rb) {
+	xdp_rb = ring_buffer__new(xdp_rb_fd, handle_event, NULL, NULL);
+	if (!xdp_rb) {
 		err = -1;
 		log_error("%s\n", "failed to create kernel ring buffer");
 		goto cleanup;
 	}
 
 	/* find user ring buffer */
-	map = bpf_object__find_map_by_name(uretprobe_obj, "user_rb");
+	map = bpf_object__find_map_by_name(uretprobe_obj, "flagged_rb");
 	if (!map) {
-		log_error("cannot find map by name: %s\n", "user_rb");
+		log_error("cannot find map by name: %s\n", "flagged_rb");
 		goto cleanup;
 	}
-	user_rb_fd = bpf_map__fd(map);
+	flagged_rb_fd = bpf_map__fd(map);
 
 	/* set up user ring buffer */
-	user_rb = user_ring_buffer__new(user_rb_fd, NULL);
-	if (!user_rb) {
+	flagged_rb = user_ring_buffer__new(flagged_rb_fd, NULL);
+	if (!flagged_rb) {
 		err = -1;
 		log_error("%s\n", "failed to create user ring buffer");
 		goto cleanup;
@@ -683,7 +687,7 @@ int main(int argc, char *argv[])
 
 	/* poll ring buffer */
 	while (!exiting) {
-		err = ring_buffer__poll(kernel_rb, 100);
+		err = ring_buffer__poll(xdp_rb, 100);
 
 		/* EINTR = interrupted syscall */
 		if (err == -EINTR) {
@@ -708,8 +712,8 @@ cleanup:
 
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
 
-	if (kernel_rb) {
-		ring_buffer__free(kernel_rb);
+	if (xdp_rb) {
+		ring_buffer__free(xdp_rb);
 	}
 
 	if (common_ports) {

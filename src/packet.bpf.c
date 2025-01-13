@@ -21,6 +21,14 @@ struct {
 	__uint(max_entries, 256);
 } flagged_ips SEC(".maps");
 
+/* config (sent from user space */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__type(key, __u32);
+	__type(value, struct config_rb_event);
+	__uint(max_entries, 1); /* only one entry required: the current config */
+} config SEC(".maps");
+
 /* kernel ring buffer
  *
  * send TCP headers from kernel -> user space
@@ -28,7 +36,7 @@ struct {
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
 	__uint(max_entries, 256 * 1024); /* 256 KB */
-} kernel_rb SEC(".maps");
+} xdp_rb SEC(".maps");
 
 /* user ring buffer
  *
@@ -36,8 +44,17 @@ struct {
  */
 struct {
 	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
-	__uint(max_entries, 256 * 1024);
-} user_rb SEC(".maps");
+	__uint(max_entries, 256 * 1024); /* 256 KB */
+} flagged_rb SEC(".maps");
+
+/* config options
+ *
+ * sent from user space
+ */
+struct {
+	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
+	__uint(max_entries, 256 * 1024); /* 256 KB */
+} config_rb SEC(".maps");
 
 /*
  * User ring buffer callback
@@ -52,7 +69,7 @@ struct {
 static long user_rb_callback(const struct bpf_dynptr *dynptr, void *ctx)
 {
 	/* bpf_map__update_elem(&flagged_ips,  */
-	struct user_rb_event *sample;
+	struct flagged_rb_event *sample;
 	__u8 data = 1;
 
 	sample = bpf_dynptr_data(dynptr, 0, sizeof(*sample));
@@ -68,7 +85,7 @@ static long user_rb_callback(const struct bpf_dynptr *dynptr, void *ctx)
 SEC("uretprobe")
 int read_user_ringbuf()
 {
-	bpf_user_ringbuf_drain(&user_rb, &user_rb_callback, NULL, 0);
+	bpf_user_ringbuf_drain(&flagged_rb, &user_rb_callback, NULL, 0);
 	return 0;
 }
 
@@ -79,7 +96,7 @@ int process_packet(struct xdp_md *ctx)
 	/* __u64 *packet_entry; */
 	__u32 src_addr;
 
-	struct kernel_rb_event *e;
+	struct xdp_rb_event *e;
 
 	int result = XDP_PASS;  /* pass packet on to network stack */
 
@@ -101,7 +118,7 @@ int process_packet(struct xdp_md *ctx)
 
 		if (protocol_number == TCP_PNUM) {
 			/* reserve ring buffer sample */
-			e = bpf_ringbuf_reserve(&kernel_rb, sizeof(*e), 0);
+			e = bpf_ringbuf_reserve(&xdp_rb, sizeof(*e), 0);
 			if (!e) {
 				/* BPF ring buffer allocation failed */
 				return result;
@@ -118,3 +135,5 @@ int process_packet(struct xdp_md *ctx)
 
 	return result;
 }
+
+/* TODO second uretprobe and user ring buffer callback for config */

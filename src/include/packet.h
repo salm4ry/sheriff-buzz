@@ -18,22 +18,38 @@
 #define NUM_PORTS 65536
 
 /**
- * Ring buffer event
+ * XDP ring buffer event
  *
  * iph: packet IP headers
  * tcph: packet TCP headers
  * timestamp: time elapsed since system boot in nanoseconds
  */
-struct kernel_rb_event {
+struct xdp_rb_event {
 	struct iphdr iph;
 	struct tcphdr tcph;
 };
 
-struct user_rb_event {
+/**
+ * Flagged IP user ring buffer event
+ *
+ * src_ip: flagged source IP address
+ */
+struct flagged_rb_event {
 	long src_ip;
 
-     /* TODO could block IP's traffic to e.g. specific ports by adding to
+     /* NOTE could block IP's traffic to e.g. specific ports by adding to
       * this struct */
+};
+
+/**
+ * Config user ring buffer event
+ *
+ * block_src: true = block flagged IPs, false = redirect flagged IPs
+ * redirect_ip: IP address to redirect traffic from flagged IPs to
+ */
+struct config_rb_event {
+	bool block_src;
+	long redirect_ip;
 };
 
 /* return the protocol byte for an IP packet, 0 for anything else

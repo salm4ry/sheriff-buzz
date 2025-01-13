@@ -408,6 +408,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		}
 
 		/* TODO alert: check flagging threshold */
+		int alert_count = get_alert_count(db_conn, src_addr);
 
 		/* NOTE currently testing submission of flagged IP after XMAS scan */
 		/*

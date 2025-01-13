@@ -175,8 +175,43 @@ void free_ip_fingerprint(char **fingerprint)
 	free(fingerprint);
 }
 
+int get_alert_count(PGconn *conn, char *src_addr)
+{
+	int err, alert_count = 0, query_size;
+	PGresult *db_res;
+	char *cmd, *query;
+
+	/* set up query components */
+	cmd = "SELECT count(id) FROM log WHERE src_ip = '%s'";
+
+	/* build query */
+	query_size = strlen(cmd) + MAX_IP;
+	query = malloc(query_size * sizeof(char));
+	snprintf(query, query_size, cmd, src_addr);
+
+#ifdef DEBUG
+	log_debug("%s\n", query);
+#endif
+
+	db_res = PQexec(conn, query);
+	err = (PQresultStatus(db_res) != PGRES_TUPLES_OK);
+	if (err) {
+		log_error("postgres: %s\n", PQerrorMessage(conn));
+	} else {
+#ifdef DEBUG
+		log_debug("%s alert count = %s\n", src_addr, PQgetvalue(db_res, 0, 0));
+#endif
+		/* TODO convert to int and return */
+	}
+
+	PQclear(db_res);
+
+
+	return alert_count;
+}
+
 /* log alert to database, replacing old record if necessary */
-int db_alert(PGconn *db_conn, char *fingerprint, int alert_type,
+int db_alert(PGconn *conn, char *fingerprint, int alert_type,
 		struct key *key, struct value *value,
 		struct port_info *info)
 {
@@ -237,10 +272,10 @@ int db_alert(PGconn *db_conn, char *fingerprint, int alert_type,
 	log_debug("%s\n", query);
 #endif
 
-	db_res = PQexec(db_conn, query);
+	db_res = PQexec(conn, query);
 	err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
 	if (err) {
-		log_error("postgres: %s\n", PQerrorMessage(db_conn));
+		log_error("postgres: %s\n", PQerrorMessage(conn));
 	}
 
 	PQclear(db_res);

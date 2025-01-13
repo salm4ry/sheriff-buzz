@@ -38,10 +38,11 @@ int err;
 
 GHashTable *packet_table;
 struct db_task_queue task_queue_head;
-pthread_mutex_t task_list_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t task_queue_lock = PTHREAD_MUTEX_INITIALIZER;
 
 PGconn *db_conn;
 pthread_t db_worker;
+pthread_mutex_t db_lock = PTHREAD_MUTEX_INITIALIZER;
 
 struct config current_config;
 pthread_rwlock_t config_lock = PTHREAD_RWLOCK_INITIALIZER;
@@ -88,7 +89,7 @@ void cleanup()
 
 	fclose(LOG);
 
-	/* terminate database worker thread */
+	/* terminate database and inotify worker threads */
 	pthread_kill(db_worker, SIGKILL);
 	pthread_kill(inotify_worker, SIGKILL);
 
@@ -330,6 +331,7 @@ __attribute__((noinline)) int submit_flagged_ip(long src_ip)
 }
 
 
+/* called for each packet sent through the ring buffer */
 static int handle_event(void *ctx, void *data, size_t data_sz)
 {
 	struct xdp_rb_event *e = data;
@@ -342,6 +344,9 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	struct value new_val;
 	char fingerprint[MAX_FINGERPRINT];
 	gpointer res;
+
+	bool is_alert = false; /* did this packet cause an alert? */
+	int alert_count;       /* number of alerts from current source IP */
 
 
 /* #ifdef DEBUG */
@@ -395,26 +400,19 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		pthread_rwlock_unlock(&config_lock);
 
 		if (new_val.count >= packet_threshold) {
+			is_alert = true;
+
 			log_alert("nmap Xmas scan detected from %s (port %d)!\n",
 					src_addr, current_packet.dst_port);
 
 			if (use_db_thread) {
-				queue_work(&task_queue_head, &task_list_lock,
+				queue_work(&task_queue_head, &task_queue_lock,
 						 fingerprint, XMAS_SCAN, &current_packet, &new_val, NULL);
 			} else {
-				db_alert(db_conn, fingerprint, XMAS_SCAN,
+				db_alert(db_conn, &db_lock, fingerprint, XMAS_SCAN,
 						&current_packet, &new_val, NULL);
 			}
 		}
-
-		/* TODO alert: check flagging threshold */
-		int alert_count = get_alert_count(db_conn, src_addr);
-
-		/* NOTE currently testing submission of flagged IP after XMAS scan */
-		/*
-		log_alert("flagging %s\n", src_addr);
-		submit_flagged_ip(current_packet.src_ip);
-		*/
 	}
 
 	if (is_fin_scan(&e->tcph)) {
@@ -423,18 +421,18 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		pthread_rwlock_unlock(&config_lock);
 
 		if (new_val.count >= packet_threshold) {
+			is_alert = true;
+
 			log_alert("nmap FIN scan detected from %s (port %d)!\n",
 					src_addr, current_packet.dst_port);
 
 			if (use_db_thread) {
-				queue_work(&task_queue_head, &task_list_lock,
+				queue_work(&task_queue_head, &task_queue_lock,
 						 fingerprint, FIN_SCAN, &current_packet, &new_val, NULL);
 			} else {
-				db_alert(db_conn, fingerprint, FIN_SCAN,
+				db_alert(db_conn, &db_lock, fingerprint, FIN_SCAN,
 						&current_packet, &new_val, NULL);
 			}
-
-			/* TODO alert: check flagging threshold */
 		}
 
 	}
@@ -445,18 +443,18 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		pthread_rwlock_unlock(&config_lock);
 
 		if (new_val.count >= packet_threshold) {
+			is_alert = true;
+
 			log_alert("nmap NULL scan detected from %s (port %d)!\n",
 					src_addr, current_packet.dst_port);
 
 			if (use_db_thread) {
-				queue_work(&task_queue_head, &task_list_lock,
+				queue_work(&task_queue_head, &task_queue_lock,
 						 fingerprint, NULL_SCAN, &current_packet, &new_val, NULL);
 			} else {
-				db_alert(db_conn, fingerprint, NULL_SCAN,
+				db_alert(db_conn, &db_lock, fingerprint, NULL_SCAN,
 						&current_packet, &new_val, NULL);
 			}
-
-			/* TODO alert: check flagging threshold */
 		}
 	}
 
@@ -469,19 +467,37 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	pthread_rwlock_unlock(&config_lock);
 
 	if (is_basic_scan(ports, port_threshold)) {
+		is_alert = true;
 		log_alert("nmap (%d or more ports) detected from %s!\n",
 				port_threshold, src_addr);
 
 		if (use_db_thread) {
-			queue_work(&task_queue_head, &task_list_lock, NULL, BASIC_SCAN,
+			queue_work(&task_queue_head, &task_queue_lock, NULL, BASIC_SCAN,
 					&current_packet, &new_val, &info);
 		} else {
-			db_alert(db_conn, NULL, BASIC_SCAN, &current_packet, &new_val,
-					&info);
+			db_alert(db_conn, &db_lock,
+					NULL, BASIC_SCAN, &current_packet, &new_val, &info);
 		}
-
-		/* TODO alert: check flagging threshold */
 	}
+
+	if (is_alert) {
+		pthread_rwlock_rdlock(&config_lock);
+		int flag_threshold = current_config.flag_threshold;
+		pthread_rwlock_unlock(&config_lock);
+
+		/* check current number of alerts */
+		alert_count = get_alert_count(db_conn, &db_lock, src_addr);
+#ifdef DEBUG
+		log_debug("alert count: %d\n", alert_count);
+#endif
+
+		/* flag IP if config threshold reached */
+		if (alert_count >= flag_threshold) {
+			log_alert("flagging %s\n", src_addr);
+			submit_flagged_ip(current_packet.src_ip);
+		}
+	}
+
 /* #ifdef DEBUG */
 	/* measure end time */
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
@@ -563,6 +579,13 @@ int main(int argc, char *argv[])
 		log_error("%s\n", "failed to set up SIGTERM handler");
 		return 1;
 	}
+
+	/* TODO ???
+	if (signal(SIGKILL, cleanup) == SIG_ERR) {
+		log_error("%s\n", "failed to set up SIGKILL handler");
+		return 1;
+	}
+	*/
 
 	/* check we have the second argument */
 	if (argc < 2) {
@@ -689,8 +712,9 @@ int main(int argc, char *argv[])
 	 * function) */
 	if (use_db_thread) {
 		db_worker_args.db_conn = db_conn;
+		db_worker_args.db_lock = &db_lock;
 		db_worker_args.head = &task_queue_head;
-		db_worker_args.lock = &task_list_lock;
+		db_worker_args.task_queue_lock = &task_queue_lock;
 		res = pthread_create(&db_worker, NULL,
 				(void *) db_thread_work, &db_worker_args);
 		if (res != 0) {

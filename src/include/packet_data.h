@@ -89,7 +89,8 @@ TAILQ_HEAD(db_task_queue, db_task);
  */
 struct db_thread_args {
 	struct db_task_queue *head;
-	pthread_mutex_t *lock;
+	pthread_mutex_t *task_queue_lock;
+	pthread_mutex_t *db_lock;
 	PGconn *db_conn;
 };
 
@@ -175,7 +176,7 @@ void free_ip_fingerprint(char **fingerprint)
 	free(fingerprint);
 }
 
-int get_alert_count(PGconn *conn, char *src_addr)
+int get_alert_count(PGconn *conn, pthread_mutex_t *db_lock, char *src_addr)
 {
 	int err, alert_count = 0, query_size;
 	PGresult *db_res;
@@ -193,7 +194,10 @@ int get_alert_count(PGconn *conn, char *src_addr)
 	log_debug("%s\n", query);
 #endif
 
+	pthread_mutex_lock(db_lock);
 	db_res = PQexec(conn, query);
+	pthread_mutex_unlock(db_lock);
+
 	err = (PQresultStatus(db_res) != PGRES_TUPLES_OK);
 	if (err) {
 		log_error("postgres: %s\n", PQerrorMessage(conn));
@@ -201,7 +205,7 @@ int get_alert_count(PGconn *conn, char *src_addr)
 #ifdef DEBUG
 		log_debug("%s alert count = %s\n", src_addr, PQgetvalue(db_res, 0, 0));
 #endif
-		/* TODO convert to int and return */
+		alert_count = atoi(PQgetvalue(db_res, 0, 0));
 	}
 
 	PQclear(db_res);
@@ -211,8 +215,8 @@ int get_alert_count(PGconn *conn, char *src_addr)
 }
 
 /* log alert to database, replacing old record if necessary */
-int db_alert(PGconn *conn, char *fingerprint, int alert_type,
-		struct key *key, struct value *value,
+int db_alert(PGconn *conn, pthread_mutex_t *db_lock,
+		char *fingerprint, int alert_type, struct key *key, struct value *value,
 		struct port_info *info)
 {
 	PGresult *db_res;
@@ -272,7 +276,10 @@ int db_alert(PGconn *conn, char *fingerprint, int alert_type,
 	log_debug("%s\n", query);
 #endif
 
+	pthread_mutex_lock(db_lock);
 	db_res = PQexec(conn, query);
+	pthread_mutex_unlock(db_lock);
+
 	err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
 	if (err) {
 		log_error("postgres: %s\n", PQerrorMessage(conn));
@@ -363,29 +370,30 @@ void db_thread_work(void *args)
 	struct db_thread_args *ctx = args;
 	PGconn *db_conn = ctx->db_conn;
 	struct db_task_queue *head = ctx->head;
-	pthread_mutex_t *lock = ctx->lock;
+	pthread_mutex_t *task_queue_lock = ctx->task_queue_lock;
+	pthread_mutex_t *db_lock = ctx->db_lock;
 
 	struct db_task *current, *next;
 
 	/* loop forever, waiting for work from task list */
 	while (true) {
-		pthread_mutex_lock(lock);
+		pthread_mutex_lock(task_queue_lock);
 		current = TAILQ_FIRST(head);
-		pthread_mutex_unlock(lock);
+		pthread_mutex_unlock(task_queue_lock);
 
 		while (current) {
-			db_alert(db_conn,
+			db_alert(db_conn, db_lock,
 					current->fingerprint,
 					current->alert_type,
 					&current->key,
 					&current->value,
 					&current->info);
 
-			pthread_mutex_lock(lock);
+			pthread_mutex_lock(task_queue_lock);
 			next = TAILQ_NEXT(current, entries);
 			TAILQ_REMOVE(head, current, entries);
 			free(current);
-			pthread_mutex_unlock(lock);
+			pthread_mutex_unlock(task_queue_lock);
 
 			current = next;
 		}

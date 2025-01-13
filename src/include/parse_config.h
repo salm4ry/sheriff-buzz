@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <cjson/cJSON.h>
 
+#include <pthread.h>
 #include <errno.h>
 #include <unistd.h>
 #include <poll.h>
@@ -32,6 +33,11 @@ struct config {
 	bool block_src;
 };
 
+struct inotify_thread_args {
+	struct config *current_config;
+	pthread_rwlock_t *lock;
+};
+
 char config_path[CONFIG_PATH_LEN];
 
 /**
@@ -51,7 +57,7 @@ static char *str_lower(char *str)
  *
  * return parsed JSON object on success, NULL on error
  */
-static cJSON *get_config(const char *filename)
+static cJSON *json_config(const char *filename)
 {
 	FILE *config_file;
 	long file_size;
@@ -134,8 +140,7 @@ static long ip_json_value(cJSON *json_obj, const char *item_name)
  *
  * return 0/1 (false/true) on success, -1 on error
  */
-static int check_action(cJSON *json_obj, const char *item_name,
-		struct config *current_config)
+static int check_action(cJSON *json_obj, const char *item_name)
 {
 	int action = -1;
 	char *value = str_json_value(json_obj, item_name);
@@ -201,8 +206,9 @@ static int bool_json_value(cJSON *json_obj, const char *item_name)
 }
 */
 
-static void set_default_config(struct config *config)
+static void set_default_config(struct config *config, pthread_rwlock_t *lock)
 {
+	pthread_rwlock_wrlock(lock);
 	config->packet_threshold = 5;
 	config->port_threshold = 100;
 	config->flag_threshold = 3;
@@ -210,9 +216,11 @@ static void set_default_config(struct config *config)
 	/* block by default */
 	config->block_src = true;
 	config->redirect_ip = -1;
+	pthread_rwlock_unlock(lock);
 }
 
-static void apply_config(cJSON *config_json, struct config *current_config)
+static void apply_config(cJSON *config_json, struct config *current_config,
+		pthread_rwlock_t *lock)
 {
 	int packet_threshold, flag_threshold, block_src;
 	long port_threshold, redirect_ip;
@@ -226,20 +234,24 @@ static void apply_config(cJSON *config_json, struct config *current_config)
 			"flag_threshold", MAX_FLAG_THRESHOLD);
 
 	/* block or redirect flagged IP? */
-	block_src = check_action(config_json, "action", current_config);
+	block_src = check_action(config_json, "action");
 	redirect_ip = ip_json_value(config_json, "redirect_ip");
 
 	if (!block_src && redirect_ip != -1) {
 		/* redirect: check IP address and only apply if a valid IP is supplied */
+		pthread_rwlock_wrlock(lock);
 		current_config->block_src = false;
 		current_config->redirect_ip = redirect_ip;
+		pthread_rwlock_unlock(lock);
 #ifdef DEBUG
 		char ip_str[16];
 		inet_ntop(AF_INET, &redirect_ip, ip_str, 16);
 		log_debug("config: action = redirect to %s\n", ip_str);
 #endif
 	} else {
+		pthread_rwlock_wrlock(lock);
 		current_config->block_src = true;
+		pthread_rwlock_unlock(lock);
 #ifdef DEBUG
 		log_debug("config: %s\n", "action = block");
 #endif
@@ -247,19 +259,25 @@ static void apply_config(cJSON *config_json, struct config *current_config)
 
 	/* apply thresholds if valid */
 	if (packet_threshold != -1) {
+		pthread_rwlock_wrlock(lock);
 		current_config->packet_threshold = packet_threshold;
+		pthread_rwlock_unlock(lock);
 #ifdef DEBUG
 		log_debug("config: packet_threshold = %d\n", packet_threshold);
 #endif
 	}
 	if (port_threshold != -1) {
+		pthread_rwlock_wrlock(lock);
 		current_config->port_threshold = port_threshold;
+		pthread_rwlock_unlock(lock);
 #ifdef DEBUG
 		log_debug("config: port_threshold = %d\n", port_threshold);
 #endif
 	}
 	if (flag_threshold != -1) {
+		pthread_rwlock_wrlock(lock);
 		current_config->flag_threshold = flag_threshold;
+		pthread_rwlock_unlock(lock);
 #ifdef DEBUG
 		log_debug("config: flag_threshold = %d\n", flag_threshold);
 #endif
@@ -267,7 +285,7 @@ static void apply_config(cJSON *config_json, struct config *current_config)
 }
 
 static void handle_inotify_events(int fd, const char *target_filename,
-		struct config *current_config)
+		struct config *current_config, pthread_rwlock_t *lock)
 {
 	/* buffer used for reading from inotify fd should have same alignment as
 	 * struct inotify_event
@@ -302,11 +320,11 @@ static void handle_inotify_events(int fd, const char *target_filename,
 
 			/* we only care about the config file */
 			if (event->len && strcmp(event->name, target_filename) == 0) {
-				cJSON *config_json = get_config(config_path);
+				cJSON *config_json = json_config(config_path);
 				if (!config_json) {
 					log_error("%s\n", "invalid JSON");
 				} else {
-					apply_config(config_json, current_config);
+					apply_config(config_json, current_config, lock);
 					/* TODO submit to user ring buffer */
 					cJSON_Delete(config_json);
 				}
@@ -316,13 +334,16 @@ static void handle_inotify_events(int fd, const char *target_filename,
 	}
 }
 
-void inotify_thread_work(void *arg)
+void inotify_thread_work(void *args)
 {
+	struct inotify_thread_args *ctx = args;
+
 	int poll_num, inotify_fd, wd;
 	nfds_t nfds;
 	struct pollfd poll_fd;
 
-	struct config *current_config = (struct config *) arg;
+	struct config *current_config = ctx->current_config;
+	pthread_rwlock_t *lock = ctx->lock;
 
 	const char *CONFIG_FILENAME = "config.json"; /* 12 bytes */
 	const char *CONFIG_DIR = "config";           /* 7 bytes */
@@ -379,7 +400,8 @@ void inotify_thread_work(void *arg)
 		if (poll_num > 0) {
 			if (poll_fd.revents & POLLIN) {
 				/* inotify events available */
-				handle_inotify_events(inotify_fd, CONFIG_FILENAME, current_config);
+				handle_inotify_events(inotify_fd, CONFIG_FILENAME,
+						current_config, lock);
 			}
 		}
 	}

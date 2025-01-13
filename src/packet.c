@@ -44,12 +44,12 @@ PGconn *db_conn;
 pthread_t db_worker;
 
 struct config current_config;
+pthread_rwlock_t config_lock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_t inotify_worker;
 
 int *common_ports = NULL; /* store top 1000 TCP ports */
 const int NUM_COMMON_PORTS = 1000;
 const int MAX_ADDR_LEN = 16;
-const int BASIC_SCAN_THRESHOLD = 1000;
 
 bool exiting = false;
 bool use_db_thread = false;
@@ -384,66 +384,92 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		new_val.count = 1;
 	}
 
-	/* TODO flagging thresholding with current_config.flag_threshold */
-
-	/* TODO alert thresholding
-	 * with current_config->packet_threshold and current_config->port_threshold*/
+	/* insert/replace hash table entry */
+	g_hash_table_replace(packet_table,
+			g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
 
 	/* detect flag-based scans */
 	if (is_xmas_scan(&e->tcph)) {
-		log_alert("nmap Xmas scan detected from %s (port %d)!\n",
-				src_addr, current_packet.dst_port);
+		pthread_rwlock_rdlock(&config_lock);
+		int packet_threshold = current_config.packet_threshold;
+		pthread_rwlock_unlock(&config_lock);
 
-		if (use_db_thread) {
-			queue_work(&task_queue_head, &task_list_lock,
-					 fingerprint, XMAS_SCAN, &current_packet, &new_val, NULL);
-		} else {
-			db_alert(db_conn, fingerprint, XMAS_SCAN,
-					&current_packet, &new_val, NULL);
+		if (new_val.count >= packet_threshold) {
+			log_alert("nmap Xmas scan detected from %s (port %d)!\n",
+					src_addr, current_packet.dst_port);
+
+			if (use_db_thread) {
+				queue_work(&task_queue_head, &task_list_lock,
+						 fingerprint, XMAS_SCAN, &current_packet, &new_val, NULL);
+			} else {
+				db_alert(db_conn, fingerprint, XMAS_SCAN,
+						&current_packet, &new_val, NULL);
+			}
 		}
 
+		/* TODO alert: check flagging threshold */
+
 		/* NOTE currently testing submission of flagged IP after XMAS scan */
+		/*
 		log_alert("flagging %s\n", src_addr);
 		submit_flagged_ip(current_packet.src_ip);
+		*/
 	}
 
 	if (is_fin_scan(&e->tcph)) {
-		log_alert("nmap FIN scan detected from %s (port %d)!\n",
-				src_addr, current_packet.dst_port);
+		pthread_rwlock_rdlock(&config_lock);
+		int packet_threshold = current_config.packet_threshold;
+		pthread_rwlock_unlock(&config_lock);
 
-		if (use_db_thread) {
-			queue_work(&task_queue_head, &task_list_lock,
-					 fingerprint, FIN_SCAN, &current_packet, &new_val, NULL);
-		} else {
-			db_alert(db_conn, fingerprint, FIN_SCAN,
-					&current_packet, &new_val, NULL);
+		if (new_val.count >= packet_threshold) {
+			log_alert("nmap FIN scan detected from %s (port %d)!\n",
+					src_addr, current_packet.dst_port);
+
+			if (use_db_thread) {
+				queue_work(&task_queue_head, &task_list_lock,
+						 fingerprint, FIN_SCAN, &current_packet, &new_val, NULL);
+			} else {
+				db_alert(db_conn, fingerprint, FIN_SCAN,
+						&current_packet, &new_val, NULL);
+			}
+
+			/* TODO alert: check flagging threshold */
 		}
+
 	}
 
 	if (is_null_scan(&e->tcph)) {
-		log_alert("nmap NULL scan detected from %s (port %d)!\n",
-				src_addr, current_packet.dst_port);
+		pthread_rwlock_rdlock(&config_lock);
+		int packet_threshold = current_config.packet_threshold;
+		pthread_rwlock_unlock(&config_lock);
 
-		if (use_db_thread) {
-			queue_work(&task_queue_head, &task_list_lock,
-					 fingerprint, NULL_SCAN, &current_packet, &new_val, NULL);
-		} else {
-			db_alert(db_conn, fingerprint, NULL_SCAN,
-					&current_packet, &new_val, NULL);
+		if (new_val.count >= packet_threshold) {
+			log_alert("nmap NULL scan detected from %s (port %d)!\n",
+					src_addr, current_packet.dst_port);
+
+			if (use_db_thread) {
+				queue_work(&task_queue_head, &task_list_lock,
+						 fingerprint, NULL_SCAN, &current_packet, &new_val, NULL);
+			} else {
+				db_alert(db_conn, fingerprint, NULL_SCAN,
+						&current_packet, &new_val, NULL);
+			}
+
+			/* TODO alert: check flagging threshold */
 		}
 	}
-
-	/* insert/replace entry */
-	g_hash_table_replace(packet_table,
-			g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
 
 	/* NOTE avoids logging every time we send an SSH packet */
 	char **port_fingerprints = ip_fingerprint(current_packet.src_ip);
 	free_ip_fingerprint(port_fingerprints);
 
-	if (is_basic_scan(ports, BASIC_SCAN_THRESHOLD)) {
-		log_alert("nmap (%d ports or more) detected from %s!\n",
-				BASIC_SCAN_THRESHOLD, src_addr);
+	pthread_rwlock_rdlock(&config_lock);
+	long port_threshold = current_config.port_threshold;
+	pthread_rwlock_unlock(&config_lock);
+
+	if (is_basic_scan(ports, port_threshold)) {
+		log_alert("nmap (%d or more ports) detected from %s!\n",
+				port_threshold, src_addr);
 
 		if (use_db_thread) {
 			queue_work(&task_queue_head, &task_list_lock, NULL, BASIC_SCAN,
@@ -452,6 +478,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 			db_alert(db_conn, NULL, BASIC_SCAN, &current_packet, &new_val,
 					&info);
 		}
+
+		/* TODO alert: check flagging threshold */
 	}
 /* #ifdef DEBUG */
 	/* measure end time */
@@ -513,15 +541,15 @@ int main(int argc, char *argv[])
 	}
 
 	/* apply default config */
-	set_default_config(&current_config);
+	set_default_config(&current_config, &config_lock);
 
 	/* get config options */
-	cJSON *config_json = get_config(CONFIG_PATH);
+	cJSON *config_json = json_config(CONFIG_PATH);
 	if (!config_json) {
 		log_debug("no config file found at %s\n", CONFIG_PATH);
 	} else {
 		/* apply initial config */
-		apply_config(config_json, &current_config);
+		apply_config(config_json, &current_config, &config_lock);
 	}
 
 	/* catch SIGINT (e.g. Ctrl+C, kill) */
@@ -553,7 +581,6 @@ int main(int argc, char *argv[])
 
 #ifdef DEBUG
 	log_debug("use database worker thread: %d\n", use_db_thread);
-	log_debug("basic scan threshold: %d\n", BASIC_SCAN_THRESHOLD);
 #endif
 
 	xdp_prog_fd = load_bpf_xdp(BPF_FILENAME);
@@ -675,8 +702,12 @@ int main(int argc, char *argv[])
 	/* create config file worker thread
 	 *
 	 * (pass config structure as argument to work function) */
+	struct inotify_thread_args inotify_worker_args;
+	inotify_worker_args.current_config = &current_config;
+	inotify_worker_args.lock = &config_lock;
+
 	res = pthread_create(&inotify_worker, NULL,
-			(void *) inotify_thread_work, &current_config);
+			(void *) inotify_thread_work, &inotify_worker_args);
 	if (res != 0) {
 		log_error("%s\n", "config_worker pthread_create failed");
 		cleanup();

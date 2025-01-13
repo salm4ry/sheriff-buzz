@@ -43,6 +43,9 @@ pthread_mutex_t task_list_lock = PTHREAD_MUTEX_INITIALIZER;
 PGconn *db_conn;
 pthread_t db_worker;
 
+struct config current_config;
+pthread_t inotify_worker;
+
 int *common_ports = NULL; /* store top 1000 TCP ports */
 const int NUM_COMMON_PORTS = 1000;
 const int MAX_ADDR_LEN = 16;
@@ -57,8 +60,6 @@ long total_handle_time = 0.0;
 
 FILE *LOG;
 
-cJSON *config;
-
 void cleanup()
 {
 	if (exiting) {
@@ -69,17 +70,29 @@ void cleanup()
 
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
 
-	ring_buffer__free(kernel_rb);
-	user_ring_buffer__free(user_rb);
+	if (user_rb) {
+		user_ring_buffer__free(user_rb);
+	}
 
-	g_hash_table_destroy(packet_table);
+	if (kernel_rb) {
+		ring_buffer__free(kernel_rb);
+	}
 
-	free(common_ports);
-	cJSON_Delete(config);
+	if (common_ports) {
+		free(common_ports);
+	}
+
+	if (packet_table) {
+		g_hash_table_destroy(packet_table);
+	}
+
 	fclose(LOG);
 
 	/* terminate database worker thread */
 	pthread_kill(db_worker, SIGKILL);
+	pthread_kill(inotify_worker, SIGKILL);
+
+	exit(EXIT_SUCCESS);
 }
 
 /* TODO switch signal() to sigaction()
@@ -495,9 +508,12 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	/* apply default config */
+	set_default_config(&current_config);
+
 	/* get config options */
-	config = get_config(CONFIG_FILENAME);
-	if (!config) {
+	cJSON *config_json = get_config(CONFIG_FILENAME);
+	if (!config_json) {
 		/* TODO set defaults */
 		log_debug("no config file found at %s\n", CONFIG_FILENAME);
 	} else {
@@ -506,12 +522,12 @@ int main(int argc, char *argv[])
 
 	/* catch SIGINT (e.g. Ctrl+C, kill) */
 	if (signal(SIGINT, cleanup) == SIG_ERR) {
-		log_error("%s", "failed to set up SIGINT handler\n");
+		log_error("%s\n", "failed to set up SIGINT handler");
 		return 1;
 	}
 
 	if (signal(SIGTERM, cleanup) == SIG_ERR) {
-		log_error("%s", "failed to set up SIGTERM handler\n");
+		log_error("%s\n", "failed to set up SIGTERM handler");
 		return 1;
 	}
 
@@ -603,7 +619,6 @@ int main(int argc, char *argv[])
 	/* extract common TCP ports from file */
 	common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS);
 
-
 	/* find kernel ring buffer */
 	map = bpf_object__find_map_by_name(xdp_obj, "kernel_rb");
 	if (!map) {
@@ -616,7 +631,7 @@ int main(int argc, char *argv[])
 	kernel_rb = ring_buffer__new(kernel_rb_fd, handle_event, NULL, NULL);
 	if (!kernel_rb) {
 		err = -1;
-		log_error("%s", "failed to create kernel ring buffer\n");
+		log_error("%s\n", "failed to create kernel ring buffer");
 		goto cleanup;
 	}
 
@@ -632,22 +647,39 @@ int main(int argc, char *argv[])
 	user_rb = user_ring_buffer__new(user_rb_fd, NULL);
 	if (!user_rb) {
 		err = -1;
-		log_error("%s", "failed to create user ring buffer\n");
+		log_error("%s\n", "failed to create user ring buffer");
 		goto cleanup;
 	}
 
-	/* create database worker thread */
+	/* create database worker thread
+	 *
+	 * (pass database connection and task queue information as args to work
+	 * function) */
 	if (use_db_thread) {
 		db_worker_args.db_conn = db_conn;
 		db_worker_args.head = &task_queue_head;
 		db_worker_args.lock = &task_list_lock;
-		res = pthread_create(&db_worker, NULL, (void *) thread_work, &db_worker_args);
+		res = pthread_create(&db_worker, NULL,
+				(void *) db_thread_work, &db_worker_args);
 		if (res != 0) {
-			log_error("%s", "pthread_create failed\n");
+			log_error("%s\n", "db_worker pthread_create failed");
 			cleanup();
 			return 1;
 		}
 	}
+
+	/* create config file worker thread
+	 *
+	 * (pass config structure as argument to work function) */
+	res = pthread_create(&inotify_worker, NULL,
+			(void *) inotify_thread_work, &current_config);
+	if (res != 0) {
+		log_error("%s\n", "config_worker pthread_create failed");
+		cleanup();
+		return 1;
+	}
+
+	/* TODO config file ring buffer */
 
 	/* poll ring buffer */
 	while (!exiting) {
@@ -675,8 +707,18 @@ cleanup:
 	freopen("/dev/null", "r", stderr);
 
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
-	ring_buffer__free(kernel_rb);
-	free(common_ports);
-	g_hash_table_destroy(packet_table);
+
+	if (kernel_rb) {
+		ring_buffer__free(kernel_rb);
+	}
+
+	if (common_ports) {
+		free(common_ports);
+	}
+
+	if (packet_table) {
+		g_hash_table_destroy(packet_table);
+	}
+
 	return err < 0 ? err : 0;
 }

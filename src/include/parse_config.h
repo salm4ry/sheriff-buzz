@@ -7,13 +7,22 @@
 #include <arpa/inet.h>
 #include <cjson/cJSON.h>
 
+#include <errno.h>
+#include <unistd.h>
+#include <poll.h>
+#include <sys/inotify.h>
+
 #include "log.h"
 
 FILE *LOG;
 
+#define CONFIG_PATH_LEN 20 /* number of bytes for config file path */
+
 #define MAX_PACKET_THRESHOLD 1000
 #define MAX_PORT_THRESHOLD 65536
 #define MAX_FLAG_THRESHOLD 10
+
+#define MAX_EVENT 4096
 
 struct config {
 	int packet_threshold;
@@ -22,6 +31,8 @@ struct config {
 	long redirect_ip;
 	bool block_src;
 };
+
+char config_path[CONFIG_PATH_LEN];
 
 /**
  * Convert a string to lowercase
@@ -155,7 +166,7 @@ static int check_action(cJSON *json_obj, const char *item_name,
 static long threshold_json_value(
 		cJSON *json_obj, const char *item_name, const int MAX_THRESHOLD)
 {
-	long value;
+	long value = 0;
 	cJSON *item;
 
 	item = cJSON_GetObjectItemCaseSensitive(json_obj, item_name);
@@ -230,7 +241,7 @@ static void apply_config(cJSON *config_json, struct config *current_config)
 	} else {
 		current_config->block_src = true;
 #ifdef DEBUG
-		log_debug("config: %s", "action = block\n");
+		log_debug("config: %s\n", "action = block");
 #endif
 	}
 
@@ -238,19 +249,138 @@ static void apply_config(cJSON *config_json, struct config *current_config)
 	if (packet_threshold != -1) {
 		current_config->packet_threshold = packet_threshold;
 #ifdef DEBUG
-		log_debug("config: packet_threshold = %d", packet_threshold);
+		log_debug("config: packet_threshold = %d\n", packet_threshold);
 #endif
 	}
 	if (port_threshold != -1) {
 		current_config->port_threshold = port_threshold;
 #ifdef DEBUG
-		log_debug("config: port_threshold = %d", port_threshold);
+		log_debug("config: port_threshold = %d\n", port_threshold);
 #endif
 	}
 	if (flag_threshold != -1) {
 		current_config->flag_threshold = flag_threshold;
 #ifdef DEBUG
-		log_debug("config: flag_threshold = %d", flag_threshold);
+		log_debug("config: flag_threshold = %d\n", flag_threshold);
 #endif
+	}
+}
+
+static void handle_inotify_events(int fd, const char *target_filename,
+		struct config *current_config)
+{
+	/* buffer used for reading from inotify fd should have same alignment as
+	 * struct inotify_event
+	 *
+	 * (see inotify(7) for more details)
+	 */
+	char buf[MAX_EVENT]
+		__attribute__((aligned(__alignof__(struct inotify_event))));
+	const struct inotify_event *event;
+	size_t len;
+
+	/* loop while events can be read from fd */
+	while (1) {
+		/* read events */
+		len = read(fd, buf, sizeof(buf));
+		if (len == -1 && errno != EAGAIN) {
+			/* read failed */
+			log_error("read inotify fd failed: %s\n", strerror(errno));
+			break;
+		}
+
+		if (len <= 0) {
+			/* read() returns -1 && errno == EAGAIN => no events to read */
+			break;
+		}
+
+		/* loop over events
+		 * step forward by inotify_event size + event name each time */
+		for (char *ptr = buf; ptr < buf + len;
+				ptr += sizeof(struct inotify_event) + event->len) {
+			event = (const struct inotify_event *) ptr;
+
+			/* we only care about the config file */
+			if (event->len && strcmp(event->name, target_filename) == 0) {
+				cJSON *config_json = get_config(config_path);
+				if (!config_json) {
+					log_error("%s\n", "invalid JSON");
+				} else {
+					apply_config(config_json, current_config);
+					/* TODO submit to user ring buffer */
+					cJSON_Delete(config_json);
+				}
+			}
+		}
+
+	}
+}
+
+void inotify_thread_work(void *arg)
+{
+	int poll_num, inotify_fd, wd;
+	nfds_t nfds;
+	struct pollfd poll_fd;
+
+	struct config *current_config = (struct config *) arg;
+
+	const char *CONFIG_FILENAME = "config.json"; /* 12 bytes */
+	const char *CONFIG_DIR = "config";           /* 7 bytes */
+
+	/* set up config path */
+	snprintf(config_path, CONFIG_PATH_LEN, "%s/%s", CONFIG_DIR, CONFIG_FILENAME);
+#ifdef DEBUG
+	log_debug("config path: %s\n", config_path);
+#endif
+
+	/* create inotify file descriptor */
+	inotify_fd = inotify_init();
+	if (inotify_fd == -1) {
+		log_error("inotify_init: %s\n", strerror(errno));
+	}
+
+	/* watch for changes to files in the config directory
+	 * wd = watch file descriptor */
+	wd = inotify_add_watch(inotify_fd, CONFIG_DIR, IN_CLOSE_WRITE);
+	if (wd == -1) {
+		log_error("inotify: cannot watch '%s': %s\n",
+				CONFIG_DIR, strerror(errno));
+		return;
+	}
+
+	/* set up polling */
+	nfds = 1;
+	poll_fd.fd = inotify_fd;
+	poll_fd.events = POLLIN;
+
+	/* NOTE: main thread has already applied default and initial config at this
+	 * point */
+
+	/* wait for events and handle them when they occur */
+	while (1) {
+		/* poll_num = number of elements in our poll_fd with non zero revents
+		 * (real events)
+		 *
+		 * third argument to poll() = timeout
+		 *     -> -1 means block until an event occurs */
+		poll_num = poll(&poll_fd, nfds, -1);
+		if (poll_num == -1) {
+			if (errno != EINTR)
+				continue;
+
+			log_error("inotify poll: %s\n", strerror(errno));
+			return;
+		}
+
+		/*
+		 * events = types of events poller cares about
+		 * revents = types of events that actually happened
+		 */
+		if (poll_num > 0) {
+			if (poll_fd.revents & POLLIN) {
+				/* inotify events available */
+				handle_inotify_events(inotify_fd, CONFIG_FILENAME, current_config);
+			}
+		}
 	}
 }

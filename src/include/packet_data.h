@@ -398,7 +398,7 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 	return 0;
 }
 
-void thread_work(void *args)
+void db_thread_work(void *args)
 {
 	struct db_thread_args *ctx = args;
 	PGconn *db_conn = ctx->db_conn;

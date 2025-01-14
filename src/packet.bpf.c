@@ -56,7 +56,8 @@ struct {
 	__uint(max_entries, 256 * 1024); /* 256 KB */
 } config_rb SEC(".maps");
 
-/*
+
+/**
  * User ring buffer callback
  *
  * Add flagged IP sent from user space to BPF array map

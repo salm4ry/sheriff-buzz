@@ -67,7 +67,7 @@ struct {
  * return 1: skip the rest of the samples and return
  * other: not used- rejected by verifier
  */
-static long user_rb_callback(const struct bpf_dynptr *dynptr, void *ctx)
+static long user_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 {
 	/* bpf_map__update_elem(&flagged_ips,  */
 	struct flagged_rb_event *sample;
@@ -86,7 +86,7 @@ static long user_rb_callback(const struct bpf_dynptr *dynptr, void *ctx)
 SEC("uretprobe")
 int read_user_ringbuf()
 {
-	bpf_user_ringbuf_drain(&flagged_rb, &user_rb_callback, NULL, 0);
+	bpf_user_ringbuf_drain(&flagged_rb, user_rb_callback, NULL, 0);
 	return 0;
 }
 

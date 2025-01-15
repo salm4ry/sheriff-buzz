@@ -1,4 +1,11 @@
--- DROP DATABASE if exists alerts;
+/*
+Prerequisites:
+- postgres root user with peer authentication exists
+- root has the permission CREATEDB (can set using ALERT USER root CREATEDB;)
+
+Run from inside psql using \i alert_database.sql
+*/
+
 CREATE DATABASE alerts;
 
 -- ensure owner set to root

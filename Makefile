@@ -10,7 +10,7 @@
 OS=$(shell lsb_release -si)
 ARCH=$(shell uname -m | sed 's/x86_//;s/i[3-6]86/32/')
 VER=$(shell lsb_release -sr)
-INTERFACE=enp10s0  # TODO find automated way of getting interface (differs between VM and container)
+INTERFACE=$(shell ip route show default | awk '{ print $$5 }')
 
 # NOTE: need pkgconf installed
 GLIB_CFLAGS = $(shell pkg-config --cflags glib-2.0)
@@ -20,9 +20,9 @@ CC = clang
 INCLUDE += -I/usr/include/x86_64-linux-gnu
 
 # include debug logging
-# CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g -DDEBUG
+CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g -DDEBUG
 # no debug logging
-CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g
+# CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g
 
 SRC_DIR = ./src
 

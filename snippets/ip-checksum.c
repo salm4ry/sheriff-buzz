@@ -25,7 +25,7 @@ int calc_checksum(unsigned short *addr, unsigned int count)
 
 	/* pad and add left-over bytes if any */
 	if (count > 0) {
-		sum += ((*addr) & htons(0xFF00));
+		sum += * (unsigned char *) addr;
 	}
 
 	/* fold 32-bit sum to 16 bits */
@@ -45,12 +45,12 @@ int calc_checksum(unsigned short *addr, unsigned int count)
  */
 void ip_checksum(struct iphdr *iph)
 {
-	printf("original checksum = 0x%04x\n", iph->check);
+	printf("original checksum = 0x%04x\n", htons(iph->check));
 	iph->check = 0;
 
 	/* ihl = Internet Header Length */
 	iph->check = calc_checksum((unsigned short *)iph, iph->ihl<<2);
-	printf("calculated checksum = 0x%04x\n", iph->check);
+	printf("calculated checksum = 0x%04x\n", htons(iph->check));
 }
 
 /**

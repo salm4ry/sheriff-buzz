@@ -1,4 +1,3 @@
-#include <bpf/libbpf_legacy.h>
 #include <linux/bpf.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>
@@ -10,6 +9,7 @@
 #include <bpf/bpf_endian.h>
 
 #include "include/packet.h"
+#include "include/patch_header.h"
 
 char LICENSE[] SEC("license") = "GPL";
 
@@ -95,7 +95,7 @@ int process_packet(struct xdp_md *ctx)
 {
 	__u8 protocol_number;
 	/* __u64 *packet_entry; */
-	__u32 src_addr;
+	__u32 src_ip;
 
 	struct xdp_rb_event *e;
 
@@ -103,17 +103,21 @@ int process_packet(struct xdp_md *ctx)
 
 	protocol_number = lookup_protocol(ctx);
 
-	struct iphdr *ip_headers = get_ip_headers(ctx);
+	struct iphdr *ip_headers = parse_ip_headers(ctx);
 	if (!ip_headers)
 		return result;
 
-	src_addr = get_source_addr(ip_headers);
-	if (bpf_map_lookup_elem(&flagged_ips, &src_addr)) {
+	src_ip = src_addr(ip_headers);
+
+	/* TODO test IP checksum function */
+	ip_checksum(ip_headers);
+
+	if (bpf_map_lookup_elem(&flagged_ips, &src_ip)) {
 		/* lookup returns non-null => IP is flagged */
 		/* TODO option to redirect instead of block */
 		result = XDP_DROP;
 	} else {
-		struct tcphdr *tcp_headers = get_tcp_headers(ctx);
+		struct tcphdr *tcp_headers = parse_tcp_headers(ctx);
 		if (!tcp_headers)
 			return result;
 
@@ -126,8 +130,8 @@ int process_packet(struct xdp_md *ctx)
 			}
 
 			/* fill out ring buffer sample */
-			e->iph = *ip_headers;
-			e->tcph = *tcp_headers;
+			e->ip_header = *ip_headers;
+			e->tcp_header = *tcp_headers;
 
 			/* submit ring buffer event */
 			bpf_ringbuf_submit(e, 0);

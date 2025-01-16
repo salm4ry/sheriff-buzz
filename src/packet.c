@@ -336,7 +336,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 {
 	struct xdp_rb_event *e = data;
 	time_t timestamp;
-    char src_addr[MAX_ADDR_LEN], time_string[32];
+    char address[MAX_ADDR_LEN], time_string[32];
 	bool ports[NUM_PORTS];
 	struct port_info info;
 
@@ -360,12 +360,12 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	/* extract data from IP and TCP headers */
 	/* source IP address */
-	current_packet.src_ip = get_source_addr(&e->iph);
+	current_packet.src_ip = src_addr(&e->ip_header);
 
 	/* destination TCP port */
-	current_packet.dst_port = get_dst_port(&e->tcph);
+	current_packet.dst_port = get_dst_port(&e->tcp_header);
 
-	ip_to_str(current_packet.src_ip, src_addr);
+	ip_to_str(current_packet.src_ip, address);
 	time_to_str(timestamp, time_string, 32, "%H:%M:%S");
 	ports_scanned(current_packet.src_ip, ports);
 	port_info(current_packet.src_ip, &info);
@@ -394,7 +394,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 			g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
 
 	/* detect flag-based scans */
-	if (is_xmas_scan(&e->tcph)) {
+	if (is_xmas_scan(&e->tcp_header)) {
 		pthread_rwlock_rdlock(&config_lock);
 		int packet_threshold = current_config.packet_threshold;
 		pthread_rwlock_unlock(&config_lock);
@@ -403,7 +403,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 			is_alert = true;
 
 			log_alert("nmap Xmas scan detected from %s (port %d)!\n",
-					src_addr, current_packet.dst_port);
+					address, current_packet.dst_port);
 
 			if (use_db_thread) {
 				queue_work(&task_queue_head, &task_queue_lock,
@@ -415,7 +415,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		}
 	}
 
-	if (is_fin_scan(&e->tcph)) {
+	if (is_fin_scan(&e->tcp_header)) {
 		pthread_rwlock_rdlock(&config_lock);
 		int packet_threshold = current_config.packet_threshold;
 		pthread_rwlock_unlock(&config_lock);
@@ -424,7 +424,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 			is_alert = true;
 
 			log_alert("nmap FIN scan detected from %s (port %d)!\n",
-					src_addr, current_packet.dst_port);
+					address, current_packet.dst_port);
 
 			if (use_db_thread) {
 				queue_work(&task_queue_head, &task_queue_lock,
@@ -437,7 +437,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	}
 
-	if (is_null_scan(&e->tcph)) {
+	if (is_null_scan(&e->tcp_header)) {
 		pthread_rwlock_rdlock(&config_lock);
 		int packet_threshold = current_config.packet_threshold;
 		pthread_rwlock_unlock(&config_lock);
@@ -446,7 +446,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 			is_alert = true;
 
 			log_alert("nmap NULL scan detected from %s (port %d)!\n",
-					src_addr, current_packet.dst_port);
+					address, current_packet.dst_port);
 
 			if (use_db_thread) {
 				queue_work(&task_queue_head, &task_queue_lock,
@@ -469,7 +469,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	if (is_basic_scan(ports, port_threshold)) {
 		is_alert = true;
 		log_alert("nmap (%d or more ports) detected from %s!\n",
-				port_threshold, src_addr);
+				port_threshold, address);
 
 		if (use_db_thread) {
 			queue_work(&task_queue_head, &task_queue_lock, NULL, BASIC_SCAN,
@@ -486,14 +486,14 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		pthread_rwlock_unlock(&config_lock);
 
 		/* check current number of alerts */
-		alert_count = get_alert_count(db_conn, &db_lock, src_addr);
+		alert_count = get_alert_count(db_conn, &db_lock, address);
 #ifdef DEBUG
 		log_debug("alert count: %d\n", alert_count);
 #endif
 
 		/* flag IP if config threshold reached */
 		if (alert_count >= flag_threshold) {
-			log_alert("flagging %s\n", src_addr);
+			log_alert("flagging %s\n", address);
 			submit_flagged_ip(current_packet.src_ip);
 		}
 	}

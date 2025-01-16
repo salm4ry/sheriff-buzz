@@ -25,8 +25,8 @@
  * timestamp: time elapsed since system boot in nanoseconds
  */
 struct xdp_rb_event {
-	struct iphdr iph;
-	struct tcphdr tcph;
+	struct iphdr ip_header;
+	struct tcphdr tcp_header;
 };
 
 /**
@@ -77,9 +77,9 @@ static __always_inline __u8 lookup_protocol(struct xdp_md *ctx)
 	return protocol;
 }
 
-static __always_inline struct iphdr *get_ip_headers(struct xdp_md *ctx) {
-	struct ethhdr *eth = NULL;
-	struct iphdr *iph = NULL;
+static __always_inline struct iphdr *parse_ip_headers(struct xdp_md *ctx) {
+	struct ethhdr *eth_header = NULL;
+	struct iphdr *ip_header = NULL;
 
 	void *data = (void *) (long) ctx->data;
 	void *data_end = (void *) (long) ctx->data_end;
@@ -89,17 +89,17 @@ static __always_inline struct iphdr *get_ip_headers(struct xdp_md *ctx) {
 		goto fail;
 	}
 
-	eth = (struct ethhdr *) data;
+	eth_header = (struct ethhdr *) data;
 
-	if (bpf_ntohs(eth->h_proto) == ETH_P_IP) {
-		iph = (struct iphdr *) ((char *) data + sizeof(struct ethhdr));
+	if (bpf_ntohs(eth_header->h_proto) == ETH_P_IP) {
+		ip_header = (struct iphdr *) ((char *) data + sizeof(struct ethhdr));
 	}
 
 fail:
-	return iph;
+	return ip_header;
 }
 
-static __always_inline struct tcphdr *get_tcp_headers(struct xdp_md *ctx) {
+static __always_inline struct tcphdr *parse_tcp_headers(struct xdp_md *ctx) {
 	struct tcphdr *tcph = NULL;
 
 	void *data = (void *) (long) ctx->data;
@@ -120,7 +120,7 @@ fail:
 }
 
 /* get IP packet source address */
-static __u32 get_source_addr(struct iphdr *iph)
+static __u32 src_addr(struct iphdr *ip_header)
 {
-	return ntohl(iph->saddr);
+	return ntohl(ip_header->saddr);
 }

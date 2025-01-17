@@ -21,7 +21,7 @@ static __always_inline __u16 fold(__u64 sum)
  */
 void ip_checksum(struct iphdr *iph)
 {
-	bpf_printk("original checksum = 0x%04x\n", bpf_htons(iph->check));
+	/* bpf_printk("original checksum = 0x%04x\n", bpf_htons(iph->check)); */
 	iph->check = 0;
 
 	/*
@@ -39,7 +39,7 @@ void ip_checksum(struct iphdr *iph)
 
 	/* ihl = Internet Header Length */
 	/* iph->check = calc_checksum((__u16 *)iph, iph->ihl<<2); */
-	bpf_printk("calculated checksum = 0x%04x\n", bpf_htons(iph->check));
+	/* bpf_printk("calculated checksum = 0x%04x\n", bpf_htons(iph->check)); */
 }
 
 /**
@@ -51,6 +51,7 @@ void ip_checksum(struct iphdr *iph)
 static inline void change_dst_addr(struct iphdr *iph, __be32 dst_ip)
 {
 	iph->daddr = dst_ip;
+	/* bpf_printk("new destination address: %u", iph->daddr); */
 
 	/* set checksum to 0 before calculation */
 	iph->check = 0;

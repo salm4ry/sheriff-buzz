@@ -115,7 +115,13 @@ int process_packet(struct xdp_md *ctx)
 	if (bpf_map_lookup_elem(&flagged_ips, &src_ip)) {
 		/* lookup returns non-null => IP is flagged */
 		/* TODO option to redirect instead of block */
-		result = XDP_DROP;
+
+		/* NOTE: commented out for soft blocking */
+		/* result = XDP_DROP; */
+	} else if (src_ip == ntohl((__u32) 1128442048)) {
+		/* NOTE: testing with source IP of 1.2.3.4 */
+		bpf_printk("changing destination address");
+		change_dst_addr(ip_headers, 4265781440);
 	} else {
 		struct tcphdr *tcp_headers = parse_tcp_headers(ctx);
 		if (!tcp_headers)

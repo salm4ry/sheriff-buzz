@@ -109,9 +109,6 @@ int process_packet(struct xdp_md *ctx)
 
 	src_ip = src_addr(ip_headers);
 
-	/* TODO test IP checksum function */
-	ip_checksum(ip_headers);
-
 	if (bpf_map_lookup_elem(&flagged_ips, &src_ip)) {
 		/* lookup returns non-null => IP is flagged */
 		/* TODO option to redirect instead of block */
@@ -122,6 +119,9 @@ int process_packet(struct xdp_md *ctx)
 		/* NOTE: testing with source IP of 1.2.3.4 */
 		bpf_printk("changing destination address");
 		change_dst_addr(ip_headers, 4265781440);
+
+		/* XDP_TX = send packet back from the same interface it came from */
+		result = XDP_TX;
 	} else {
 		struct tcphdr *tcp_headers = parse_tcp_headers(ctx);
 		if (!tcp_headers)

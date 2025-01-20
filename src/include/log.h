@@ -7,6 +7,12 @@
 { \
 	char *msg = malloc(MAX_LOG_MSG * sizeof(char)); \
 	char *new_fmt = malloc(MAX_LOG_MSG * sizeof(char)); \
+	\
+	if (!msg || !new_fmt) { \
+		fprintf(stderr, "memory allocation failed: %s", strerror(errno)); \
+		exit(1); \
+	} \
+	\
 	strncpy(new_fmt, prefix, MAX_LOG_MSG); \
 	strncat(new_fmt, fmt, MAX_LOG_MSG - (strlen(new_fmt)+1)); \
 	make_msg(msg, new_fmt, ##__VA_ARGS__); \

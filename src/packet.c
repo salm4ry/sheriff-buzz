@@ -255,6 +255,13 @@ int *get_port_list(char *filename, int num_ports) {
 
 		/* allocate memory for final port list */
 		port_list = malloc(num_ports * sizeof(int));
+		if (!port_list) {
+			pr_err("memory allocation failed: %s\n", strerror(errno));
+			cleanup();
+			exit(1);
+		}
+
+
 		while (token) {
 			port_list[index++] = atoi(token);
 			token = strtok(NULL, delim);
@@ -547,6 +554,11 @@ int main(int argc, char *argv[])
 	const char *CONFIG_PATH = "config/config.json";
 
 	char *log_filename = malloc(24 * sizeof(char));
+	if (!log_filename) {
+		pr_err("memory allocation failed: %s\n:", strerror(errno));
+		return 1;
+	}
+
 	time_to_str(time(NULL), log_filename, 24, "log/%Y-%m-%d_%H-%M-%S");
 
 	LOG = fopen(log_filename, "a");

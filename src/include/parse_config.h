@@ -14,6 +14,7 @@
 #include <sys/inotify.h>
 
 #include "log.h"
+#include "pr.h"
 
 FILE *LOG;
 
@@ -104,6 +105,11 @@ static char *str_json_value(cJSON *json_obj, const char *item_name)
 	if (cJSON_IsString(item) && (item->valuestring)) {
 		/* +1 for null terminator */
 		value = (char *) malloc((strlen(item->valuestring)+1) * sizeof(char));
+		if (!value) {
+			pr_err("memory allocation failed: %s\n", strerror(errno));
+			exit(1);
+		}
+
 		strncpy(value, item->valuestring, strlen(item->valuestring)+1);
 	}
 

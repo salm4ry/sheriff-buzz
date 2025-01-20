@@ -13,6 +13,7 @@
 #include <sys/queue.h>
 
 #include "log.h"
+#include "pr.h"
 #include "alert_types.h"
 #include "parse_headers.h"
 
@@ -155,12 +156,23 @@ void get_fingerprint(struct key *key, char *buf)
 char **ip_fingerprint(long src_ip)
 {
 	char **fingerprint = malloc(NUM_PORTS * sizeof(char *));
+	if (!fingerprint) {
+		pr_err("memory allocation failed: %s\n", strerror(errno));
+		exit(1);
+	}
+
+
 	struct key current_key;
 	current_key.src_ip = src_ip;
 
 	for (int i = 0; i < NUM_PORTS; i++) {
 		current_key.dst_port = i;
 		fingerprint[i] = malloc((MAX_FINGERPRINT+1) * sizeof(char));
+		if (!fingerprint[i]) {
+			pr_err("memory allocation failed: %s\n", strerror(errno));
+			exit(1);
+		}
+
 		get_fingerprint(&current_key, fingerprint[i]);
 	}
 
@@ -188,6 +200,12 @@ int get_alert_count(PGconn *conn, pthread_mutex_t *db_lock, char *src_addr)
 	/* build query */
 	query_size = strlen(cmd) + MAX_IP;
 	query = malloc(query_size * sizeof(char));
+	if (!query) {
+		pr_err("memory allocation failed: %s\n", strerror(errno));
+		exit(1);
+	}
+
+
 	snprintf(query, query_size, cmd, src_addr);
 
 #ifdef DEBUG
@@ -345,6 +363,10 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 	}
 
 	new_task = malloc(sizeof(struct db_task));
+	if (!new_task) {
+		pr_err("memory allocation failed: %s\n", strerror(errno));
+		exit(1);
+	}
 
 	if (alert_type == BASIC_SCAN) {
 		/* basic scan has port_info argument */

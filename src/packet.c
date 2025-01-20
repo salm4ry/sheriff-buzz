@@ -1,4 +1,3 @@
-#include <cjson/cJSON.h>
 #include <stdio.h>
 
 #include <errno.h>
@@ -20,8 +19,10 @@
 
 #include <glib.h>
 #include <postgresql/libpq-fe.h>
+#include <cjson/cJSON.h>
 
 #include "include/packet.h"
+#include "include/bpf_load.h"
 #include "include/pr.h"
 #include "include/detect_scan.h"
 #include "include/time_conv.h"
@@ -145,68 +146,6 @@ int load_bpf_xdp(const char *filename)
 	}
 
 	return prog_fd;
-}
-
-int load_and_attach_bpf_uretprobe(const char *filename, int flagged_ips_fd)
-{
-	int prog_fd = -1;
-	int err;
-	LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts);
-	struct bpf_program *prog;
-	struct bpf_map *flagged_ips;
-
-	uretprobe_obj = bpf_object__open_file(filename, NULL);
-	if (libbpf_get_error(uretprobe_obj)) {
-		log_error("open object file failed: %s\n", strerror(errno));
-		return -1;
-	}
-
-	prog = bpf_object__find_program_by_name(uretprobe_obj, "read_flagged_rb");
-	if (prog == NULL) {
-		log_error(msg, "find program in object failed: %s\n", strerror(errno));
-		return -1;
-	}
-
-	flagged_ips = bpf_object__find_map_by_name(uretprobe_obj, "flagged_ips");
-	err = bpf_map__reuse_fd(flagged_ips, flagged_ips_fd);
-	if (err) {
-		log_error("failed to reuse map fd: %s\n", strerror(errno));
-		return -1;
-	}
-
-	err = bpf_object__load(uretprobe_obj);
-	if (err) {
-		log_error("load bpf object failed: %s\n", strerror(errno));
-		return -1;
-	}
-
-	prog_fd = bpf_program__fd(prog);
-	if (!prog_fd) {
-		log_error("failed to load bpf object file(%s) (%d): %s\n",
-				filename, err, strerror(-err));
-	}
-
-	/* name of function to attach to */
-	uprobe_opts.func_name = "submit_flagged_ip";
-	/* uretprobe = attach to function exit (we want to read the ring buffer
-	 * after we're done submitting) */
-	uprobe_opts.retprobe = true;
-
-	/* Attach BPF uprobe
-	 * prog: BPF program to attach
-	 * pid: 0 for self (own process)
-	 * binary_path: path to binary containing function symbol
-	 * func_offset: offset within binary (set to 0 since we provided function
-	 * 				name in uprobe_otps)
-	 * opts: options
-	 */
-	if (!bpf_program__attach_uprobe_opts(prog, 0, 
-				"/proc/self/exe", 0, &uprobe_opts)) {
-		log_error("uprobe attach failed: %s\n", strerror(errno));
-	}
-
-	return prog_fd;
-
 }
 
 char *procnum_to_str(int protocol)
@@ -542,7 +481,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 int main(int argc, char *argv[])
 {
 	struct bpf_map *map = NULL;
-	int xdp_prog_fd, uretprobe_prog_fd;
+
+    /* map file descriptors */
 	int flagged_ips_fd, xdp_rb_fd, flagged_rb_fd;
 	int res = 0;
 
@@ -619,11 +559,13 @@ int main(int argc, char *argv[])
 	log_debug("use database worker thread: %d\n", use_db_thread);
 #endif
 
+    /*
 	xdp_prog_fd = load_bpf_xdp(BPF_FILENAME);
 	if (xdp_prog_fd <= 0) {
 		log_error("failed to load XDP program from file: %s\n", BPF_FILENAME);
 		return -1;
 	}
+    */
 
 	ifindex = if_nametoindex(argv[1]);
 	xdp_flags = XDP_FLAGS_UPDATE_IF_NOEXIST;  /* from linux/if_link.h */
@@ -636,7 +578,8 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	err = bpf_xdp_attach(ifindex, xdp_prog_fd, xdp_flags, NULL);
+    /* load and attach XDP program */
+    err = load_and_attach_xdp(xdp_obj, BPF_FILENAME, ifindex, xdp_flags);
 	if (err < 0) {
 		log_error("XDP attach on %s failed %d: %s\n",
 				argv[1], -err, strerror(-err));
@@ -664,8 +607,8 @@ int main(int argc, char *argv[])
 	}
 	flagged_ips_fd = bpf_map__fd(map);
 
-	uretprobe_prog_fd = load_and_attach_bpf_uretprobe(BPF_FILENAME, flagged_ips_fd);
-	if (uretprobe_prog_fd <= 0) {
+	if (load_and_attach_bpf_uretprobe(uretprobe_obj,
+            BPF_FILENAME, flagged_ips_fd) <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 		err = -1;
 		goto cleanup;

@@ -1,3 +1,5 @@
+#include <errno.h>
+
 #define MAX_LOG_MSG 512
 
 #define make_msg(msg, fmt, ...) \

@@ -161,7 +161,7 @@ int load_and_attach_bpf_uretprobe(const char *filename, int flagged_ips_fd)
 		return -1;
 	}
 
-	prog = bpf_object__find_program_by_name(uretprobe_obj, "read_user_ringbuf");
+	prog = bpf_object__find_program_by_name(uretprobe_obj, "read_flagged_rb");
 	if (prog == NULL) {
 		log_error(msg, "find program in object failed: %s\n", strerror(errno));
 		return -1;

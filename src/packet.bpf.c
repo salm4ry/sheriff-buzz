@@ -25,7 +25,7 @@ struct {
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__type(key, __u32);
-	__type(value, struct config_rb_event);
+	__type(value, struct config_entry);
 	__uint(max_entries, 1); /* only one entry required: the current config */
 } config SEC(".maps");
 
@@ -67,7 +67,7 @@ struct {
  * return 1: skip the rest of the samples and return
  * other: not used- rejected by verifier
  */
-static long user_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
+static long flagged_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 {
 	/* bpf_map__update_elem(&flagged_ips,  */
 	struct flagged_rb_event *sample;
@@ -78,17 +78,42 @@ static long user_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 		return 0;
 	}
 
-	/* insert array entry */
+	/* insert hash map entry for new flagged IP */
 	bpf_map_update_elem(&flagged_ips, &sample->src_ip, &data, 0);
 	return 0;
 }
 
-SEC("uretprobe")
-int read_user_ringbuf()
+static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 {
-	bpf_user_ringbuf_drain(&flagged_rb, user_rb_callback, NULL, 0);
+	struct config_entry *sample;
+	__u32 index = 0; /* only one element in config map (index 0) */
+
+	sample = bpf_dynptr_data(dynptr, 0, sizeof(*sample));
+	if (!sample) {
+		return 0;
+	}
+
+	/* update config map entry */
+	bpf_map_update_elem(&config, &index, &sample, 0);
 	return 0;
 }
+
+SEC("uretprobe")
+int read_flagged_rb()
+{
+	bpf_user_ringbuf_drain(&flagged_rb, flagged_rb_callback, NULL, 0);
+	return 0;
+}
+
+SEC("uretprobe")
+int read_config_rb()
+{
+	bpf_user_ringbuf_drain(&config_rb, config_rb_callback, NULL, 0);
+	return 0;
+}
+
+
+/* TODO second uretprobe and user ring buffer callback for config */
 
 SEC("xdp")
 int process_packet(struct xdp_md *ctx)
@@ -98,6 +123,9 @@ int process_packet(struct xdp_md *ctx)
 	__u32 src_ip;
 
 	struct xdp_rb_event *e;
+
+	__u32 config_index = 0; /* index 0 */
+	struct config_entry *current_config;
 
 	int result = XDP_PASS;  /* pass packet on to network stack */
 
@@ -109,16 +137,41 @@ int process_packet(struct xdp_md *ctx)
 
 	src_ip = src_addr(ip_headers);
 
+	/* get config */
+	current_config = bpf_map_lookup_elem(&config, &config_index);
+
 	if (bpf_map_lookup_elem(&flagged_ips, &src_ip)) {
 		/* lookup returns non-null => IP is flagged */
 		/* TODO option to redirect instead of block */
 
 		/* NOTE: commented out for soft blocking */
 		/* result = XDP_DROP; */
+
+		/* if we have config loaded */
+		if (current_config) {
+			if (current_config->block_src) {
+				bpf_printk("action = block");
+				/*
+				result = XDP_DROP;
+				*/
+			} else {
+				bpf_printk("action = redirect");
+				/*
+				change_dst_addr(ip_headers, current_config->redirect_ip);
+				result = XDP_TX;
+				*/
+			}
+		} else {
+			/* otherwise block by default */
+			/* result = XDP_DROP; */
+		}
+
+	/*
 	} else if (src_ip == ntohl((__u32) 1128442048)) {
-		/* NOTE: testing with source IP of 1.2.3.4 */
+		// NOTE: testing redirection from 192.168.66.67 -> 192.168.66.254
 		bpf_printk("changing destination address");
 		change_dst_addr(ip_headers, 4265781440);
+	*/
 
 		/* XDP_TX = send packet back from the same interface it came from */
 		result = XDP_TX;
@@ -146,5 +199,3 @@ int process_packet(struct xdp_md *ctx)
 
 	return result;
 }
-
-/* TODO second uretprobe and user ring buffer callback for config */

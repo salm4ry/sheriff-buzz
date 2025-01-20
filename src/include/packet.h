@@ -47,7 +47,7 @@ struct flagged_rb_event {
  * block_src: true = block flagged IPs, false = redirect flagged IPs
  * redirect_ip: IP address to redirect traffic from flagged IPs to
  */
-struct config_rb_event {
+struct config_entry {
 	bool block_src;
 	long redirect_ip;
 };

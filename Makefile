@@ -52,7 +52,7 @@ $(USR_TARGET): $(USR_OBJ)
 ######################################
 .PHONY: unload
 unload:
-	sudo ip link set $(INTERFACE) xdpgeneric off
+	sudo ip link set $(INTERFACE) xdp off
 
 
 ######################################

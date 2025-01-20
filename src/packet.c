@@ -579,7 +579,8 @@ int main(int argc, char *argv[])
 	}
 
     /* load and attach XDP program */
-    err = load_and_attach_xdp(xdp_obj, BPF_FILENAME, ifindex, xdp_flags);
+    err = load_and_attach_xdp(xdp_obj, BPF_FILENAME, "process_packet",
+            ifindex, xdp_flags);
 	if (err < 0) {
 		log_error("XDP attach on %s failed %d: %s\n",
 				argv[1], -err, strerror(-err));
@@ -608,7 +609,8 @@ int main(int argc, char *argv[])
 	flagged_ips_fd = bpf_map__fd(map);
 
 	if (load_and_attach_bpf_uretprobe(uretprobe_obj,
-            BPF_FILENAME, flagged_ips_fd) <= 0) {
+            BPF_FILENAME, "read_flagged_rb", "submit_flagged_ip",
+            flagged_ips_fd, "flagged_ips") <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 		err = -1;
 		goto cleanup;

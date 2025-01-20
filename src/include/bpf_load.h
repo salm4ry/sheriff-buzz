@@ -10,7 +10,7 @@ FILE *LOG;
 
 /* load XDP program */
 int load_and_attach_xdp(struct bpf_object *xdp_obj,
-        const char *filename, int ifindex, uint32_t flags)
+        const char *filename, const char *progname, int ifindex, uint32_t flags)
 {
 	int prog_fd = -1;
 	int err;
@@ -23,7 +23,7 @@ int load_and_attach_xdp(struct bpf_object *xdp_obj,
 		return -1;
 	}
 
-	prog = bpf_object__find_program_by_name(xdp_obj, "process_packet");
+	prog = bpf_object__find_program_by_name(xdp_obj, progname);
 	if (prog == NULL) {
 		log_error("find program in object failed: %s\n", strerror(errno));
 		return -1;
@@ -53,8 +53,19 @@ int load_and_attach_xdp(struct bpf_object *xdp_obj,
 	return prog_fd;
 }
 
+/*
+ * Load and attach BPF uretprobe with a shared (already loaded) map
+ *
+ * uretprobe_obj: BPF object to load program into
+ * filename: name of file BPF program is in
+ * prog_name: name of BPF uretprobe program
+ * uprobe_func: function to trace
+ * map_fd: file descriptor of map to share
+ * map_name: name of map to share
+ */
 int load_and_attach_bpf_uretprobe(struct bpf_object *uretprobe_obj,
-        const char *filename, int flagged_ips_fd)
+        const char *filename, const char *prog_name, const char *uprobe_func,
+        int map_fd, char *map_name)
 {
 	int prog_fd = -1;
 	int err;
@@ -68,7 +79,7 @@ int load_and_attach_bpf_uretprobe(struct bpf_object *uretprobe_obj,
 		return -1;
 	}
 
-	prog = bpf_object__find_program_by_name(uretprobe_obj, "read_flagged_rb");
+	prog = bpf_object__find_program_by_name(uretprobe_obj, prog_name);
 	if (prog == NULL) {
 		log_error(msg, "find program in object failed: %s\n", strerror(errno));
 		return -1;
@@ -76,8 +87,8 @@ int load_and_attach_bpf_uretprobe(struct bpf_object *uretprobe_obj,
 
     /* both XDP and uretprobe need to access the flagged_ips hash map (uretprobe
      * for writing, XDP for reading) so we reuse the file descriptor */
-	flagged_ips = bpf_object__find_map_by_name(uretprobe_obj, "flagged_ips");
-	err = bpf_map__reuse_fd(flagged_ips, flagged_ips_fd);
+	flagged_ips = bpf_object__find_map_by_name(uretprobe_obj, map_name);
+	err = bpf_map__reuse_fd(flagged_ips, map_fd);
 	if (err) {
 		log_error("failed to reuse map fd: %s\n", strerror(errno));
 		return -1;

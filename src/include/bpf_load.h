@@ -7,10 +7,12 @@
 
 FILE *LOG;
 
+struct bpf_object *xdp_obj;
+struct bpf_object *uretprobe_obj;
+
 
 /* load XDP program */
-int load_and_attach_xdp(struct bpf_object *xdp_obj,
-        const char *filename, const char *progname, int ifindex, uint32_t flags)
+int load_and_attach_xdp(const char *filename, const char *progname, int ifindex, uint32_t flags)
 {
 	int prog_fd = -1;
 	int err;
@@ -63,8 +65,7 @@ int load_and_attach_xdp(struct bpf_object *xdp_obj,
  * map_fd: file descriptor of map to share
  * map_name: name of map to share
  */
-int load_and_attach_bpf_uretprobe(struct bpf_object *uretprobe_obj,
-        const char *filename, const char *prog_name, const char *uprobe_func,
+int load_and_attach_bpf_uretprobe(const char *filename, const char *prog_name, const char *uprobe_func,
         int map_fd, char *map_name)
 {
 	int prog_fd = -1;

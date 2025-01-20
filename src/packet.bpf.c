@@ -85,7 +85,7 @@ static long flagged_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 
 static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 {
-	struct config_entry *sample;
+	struct config_entry *sample = NULL;
 	__u32 index = 0; /* only one element in config map (index 0) */
 
 	sample = bpf_dynptr_data(dynptr, 0, sizeof(*sample));
@@ -94,7 +94,7 @@ static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 	}
 
 	/* update config map entry */
-	bpf_map_update_elem(&config, &index, &sample, 0);
+	bpf_map_update_elem(&config, &index, sample, 0);
 	return 0;
 }
 
@@ -174,7 +174,7 @@ int process_packet(struct xdp_md *ctx)
 	*/
 
 		/* XDP_TX = send packet back from the same interface it came from */
-		result = XDP_TX;
+		/* result = XDP_TX; */
 	} else {
 		struct tcphdr *tcp_headers = parse_tcp_headers(ctx);
 		if (!tcp_headers)

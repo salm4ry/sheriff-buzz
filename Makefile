@@ -69,3 +69,10 @@ run:
 clean:
 	rm -f $(USR_TARGET)
 	cd $(SRC_DIR) && rm -f *.o
+
+######################################
+# bpf_printk() output
+######################################
+.PHONY: bpf_debug
+bpf_debug:
+	sudo cat /sys/kernel/debug/tracing/trace_pipe

@@ -29,7 +29,7 @@
 #include "include/parse_config.h"
 #include "include/log.h"
 
-struct bpf_object *xdp_obj, *uretprobe_obj;
+struct bpf_object *xdp_obj, *flag_uretprobe_obj, *config_uretprobe_obj;
 uint32_t xdp_flags;
 int ifindex;
 
@@ -483,7 +483,10 @@ int main(int argc, char *argv[])
 	struct bpf_map *map = NULL;
 
     /* map file descriptors */
-	int flagged_ips_fd, xdp_rb_fd, flagged_rb_fd;
+	int flagged_ips_fd, config_hash_fd;
+
+    /* ring buffers */
+    int xdp_rb_fd, flagged_rb_fd, config_rb_fd;
 	int res = 0;
 
 	char *thread_env;
@@ -608,7 +611,8 @@ int main(int argc, char *argv[])
 	}
 	flagged_ips_fd = bpf_map__fd(map);
 
-	if (load_and_attach_bpf_uretprobe(&uretprobe_obj, BPF_FILENAME,
+    /* load and attach flagged IPs uretprobe */
+	if (load_and_attach_bpf_uretprobe(&flag_uretprobe_obj, BPF_FILENAME,
 				"read_flagged_rb", "submit_flagged_ip", 
 				flagged_ips_fd, "flagged_ips") <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
@@ -648,7 +652,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* find user ring buffer */
-	map = bpf_object__find_map_by_name(uretprobe_obj, "flagged_rb");
+	map = bpf_object__find_map_by_name(flag_uretprobe_obj, "flagged_rb");
 	if (!map) {
 		log_error("cannot find map by name: %s\n", "flagged_rb");
 		goto cleanup;

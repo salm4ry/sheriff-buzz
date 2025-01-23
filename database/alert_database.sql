@@ -20,6 +20,7 @@ NOTE: inet holds IPv4/IPv6 host address (and optionally subnet) in one field
 */
 
 -- alert types
+-- TODO replace with enum
 CREATE TABLE alert_type(
 	id SERIAL PRIMARY KEY,
 	description VARCHAR(20)); -- TODO plan scan names: check if max length too short
@@ -37,7 +38,7 @@ CREATE TABLE log(
 	latest TIMESTAMP);
 
 -- flagged IP addresses
-create table flagged_ips(
+create table flagged(
 	src_ip INET PRIMARY KEY,  -- source IP is unique
 	time TIMESTAMP  -- time IP was flagged
 );

@@ -18,10 +18,13 @@ ALTER DATABASE alerts OWNER TO root;
 tables
 NOTE: inet holds IPv4/IPv6 host address (and optionally subnet) in one field
 */
+
+-- alert types
 CREATE TABLE alert_type(
 	id SERIAL PRIMARY KEY,
 	description VARCHAR(20)); -- TODO plan scan names: check if max length too short
 
+-- alert log
 CREATE TABLE log(
 	id SERIAL PRIMARY KEY,
 	fingerprint CHAR(12),
@@ -33,7 +36,13 @@ CREATE TABLE log(
 	first TIMESTAMP,
 	latest TIMESTAMP);
 
--- foreign key relation
+-- flagged IP addresses
+create table flagged_ips(
+	src_ip INET PRIMARY KEY,  -- source IP is unique
+	time TIMESTAMP  -- time IP was flagged
+);
+
+-- alert type foreign key relation
 ALTER TABLE IF EXISTS log
 	ADD FOREIGN KEY (alert_type)
 	REFERENCES alert_type (id) match simple

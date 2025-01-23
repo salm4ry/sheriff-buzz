@@ -15,3 +15,6 @@ INSERT INTO log (dst_port, alert_type, src_ip, port_count, first, latest)
 
 -- look up number of alerts for a given source IP
 SELECT count(id) FROM log WHERE src_ip = '%s';
+
+-- log flagged IP to database
+INSERT INTO flagged (src_ip, time) VALUES ('%s', to_timestamp(%ld))

@@ -471,6 +471,13 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		if (alert_count >= flag_threshold) {
 			log_alert("flagging %s\n", address);
 			submit_flagged_ip(current_packet.src_ip);
+
+            if (use_db_thread) {
+                queue_work(&task_queue_head, &task_queue_lock, NULL, 0,
+                        &current_packet, &new_val, NULL);
+            } else {
+                db_flagged(db_conn, &db_lock, &current_packet, &new_val);
+            }
 		}
 	}
 

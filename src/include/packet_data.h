@@ -1,3 +1,4 @@
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -308,6 +309,38 @@ int db_alert(PGconn *conn, pthread_mutex_t *db_lock,
 	return err;
 }
 
+/*
+int db_alert(PGconn *conn, pthread_mutex_t *db_lock,
+		char *fingerprint, int alert_type, struct key *key, struct value *value,
+		struct port_info *info)
+*/
+int db_flagged(PGconn *conn, pthread_mutex_t *db_lock,
+        struct key *key, struct value *value)
+{
+    int err = 0;
+	PGresult *db_res;
+	char query[MAX_QUERY];
+    char *cmd;
+	char ip_str[MAX_IP];
+
+	long src_ip = ntohl(key->src_ip);
+	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
+
+    cmd = "INSERT INTO flagged (src_ip, time) VALUES ('%s', to_timestamp(%ld))";
+    snprintf(query, MAX_QUERY, cmd, ip_str, value->latest);
+
+    pthread_mutex_lock(db_lock);
+    db_res = PQexec(conn, query);
+    pthread_mutex_unlock(db_lock);
+
+    err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
+    if (err) {
+        log_error("postgres: %s\n", PQerrorMessage(conn));
+    }
+
+    return err;
+}
+
 /* connect to postgres database with peer authentication
  * (postgres username = system username) */
 static PGconn *connect_db(char *user, char *dbname)
@@ -368,13 +401,19 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 		exit(1);
 	}
 
-	if (alert_type == BASIC_SCAN) {
-		/* basic scan has port_info argument */
-		memcpy(&new_task->info, info, sizeof(struct port_info));
-	} else {
-		/* flag-based scans have fingerprint argument */
-		strncpy(new_task->fingerprint, fingerprint, MAX_FINGERPRINT);
-	}
+    switch (alert_type) {
+        case BASIC_SCAN:
+            /* basic scan has port info argument */
+		    memcpy(&new_task->info, info, sizeof(struct port_info));
+            break;
+        case 0:
+            /* no alert type set */
+            break;
+        default:
+            /* flag-based scans have fingerprint argument */
+		    strncpy(new_task->fingerprint, fingerprint, MAX_FINGERPRINT);
+            break;
+    }
 
 	new_task->alert_type = alert_type;
 	memcpy(&new_task->key, key, sizeof(struct key));
@@ -404,12 +443,18 @@ void db_thread_work(void *args)
 		pthread_mutex_unlock(task_queue_lock);
 
 		while (current) {
-			db_alert(db_conn, db_lock,
-					current->fingerprint,
-					current->alert_type,
-					&current->key,
-					&current->value,
-					&current->info);
+            if (current->alert_type) {
+                /* write alert to database */
+    			db_alert(db_conn, db_lock,
+			    		current->fingerprint,
+			    		current->alert_type,
+			    		&current->key,
+			    		&current->value,
+			     		&current->info);
+            } else {
+                /* write flagged IP to database */
+                db_flagged(db_conn, db_lock, &current->key, &current->value);
+            }
 
 			pthread_mutex_lock(task_queue_lock);
 			next = TAILQ_NEXT(current, entries);

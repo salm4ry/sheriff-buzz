@@ -1,6 +1,18 @@
 #include <errno.h>
+#include <time.h>
 
 #define MAX_LOG_MSG 512
+#define MAX_TIME_STR 20
+#define MAX_PREFIX 28
+#define TIME_FMT "%Y-%m-%d %H-%M-%S"
+
+#define make_prefix(prefix, base) \
+	char time_str[MAX_TIME_STR]; \
+	time_t current_time = time(NULL); \
+	struct tm *tm = localtime(&current_time); \
+	\
+	strftime(time_str, MAX_TIME_STR, TIME_FMT, tm); \
+	snprintf(prefix, MAX_PREFIX, "%s %s", time_str, base);
 
 #define make_msg(msg, fmt, ...) \
 	snprintf(msg, MAX_LOG_MSG, fmt, ##__VA_ARGS__);
@@ -26,15 +38,21 @@
 
 #define log_debug(fmt, ...) \
 { \
-	log("debug: ", fmt, ##__VA_ARGS__); \
+	char prefix[MAX_PREFIX]; \
+	make_prefix(prefix, "debug: "); \
+	log(prefix, fmt, ##__VA_ARGS__); \
 }
 
 #define log_error(fmt, ...) \
 { \
-	log("error: ", fmt, ##__VA_ARGS__); \
+	char prefix[MAX_PREFIX]; \
+	make_prefix(prefix, "error: "); \
+	log(prefix, fmt, ##__VA_ARGS__); \
 }
 
 #define log_alert(fmt, ...) \
 { \
-	log("alert: ", fmt, ##__VA_ARGS__); \
+	char prefix[MAX_PREFIX]; \
+	make_prefix(prefix, "alert: "); \
+	log(prefix, fmt, ##__VA_ARGS__); \
 }

@@ -106,7 +106,7 @@ int load_and_attach_bpf_uretprobe(struct bpf_object **uretprobe_obj,
 	}
 
 	/* name of function to attach to */
-	uprobe_opts.func_name = "submit_flagged_ip";
+	uprobe_opts.func_name = uprobe_func;
 	/* uretprobe = attach to function exit (we want to read the ring buffer
 	 * after we're done submitting) */
 	uprobe_opts.retprobe = true;

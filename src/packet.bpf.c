@@ -25,7 +25,7 @@ struct {
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__type(key, __u32);
-	__type(value, struct config_entry);
+	__type(value, struct config_rb_event);
 	__uint(max_entries, 1); /* only one entry required: the current config */
 } config SEC(".maps");
 
@@ -85,7 +85,7 @@ static long flagged_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 
 static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 {
-	struct config_entry *sample = NULL;
+	struct config_rb_event *sample = NULL;
 	__u32 index = 0; /* only one element in config map (index 0) */
 
 	sample = bpf_dynptr_data(dynptr, 0, sizeof(*sample));
@@ -94,6 +94,7 @@ static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 	}
 
 	/* update config map entry */
+	/* bpf_printk("updating config"); */
 	bpf_map_update_elem(&config, &index, sample, 0);
 	return 0;
 }
@@ -108,6 +109,7 @@ int read_flagged_rb()
 SEC("uretprobe")
 int read_config_rb()
 {
+	/* bpf_printk("reading config"); */
 	bpf_user_ringbuf_drain(&config_rb, config_rb_callback, NULL, 0);
 	return 0;
 }
@@ -125,7 +127,7 @@ int process_packet(struct xdp_md *ctx)
 	struct xdp_rb_event *e;
 
 	__u32 config_index = 0; /* index 0 */
-	struct config_entry *current_config;
+	struct config_rb_event *current_config;
 
 	int result = XDP_PASS;  /* pass packet on to network stack */
 
@@ -150,12 +152,12 @@ int process_packet(struct xdp_md *ctx)
 		/* if we have config loaded */
 		if (current_config) {
 			if (current_config->block_src) {
-				bpf_printk("action = block");
+				/* bpf_printk("action = block"); */
 				/*
 				result = XDP_DROP;
 				*/
 			} else {
-				bpf_printk("action = redirect");
+				/* bpf_printk("action = redirect"); */
 				/*
 				change_dst_addr(ip_headers, current_config->redirect_ip);
 				result = XDP_TX;

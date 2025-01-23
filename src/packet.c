@@ -35,6 +35,7 @@ int ifindex;
 
 struct ring_buffer *xdp_rb = NULL;
 struct user_ring_buffer *flagged_rb = NULL;
+struct user_ring_buffer *config_rb = NULL;
 int err;
 
 GHashTable *packet_table;
@@ -74,6 +75,10 @@ void cleanup()
 
 	if (flagged_rb) {
 		user_ring_buffer__free(flagged_rb);
+	}
+
+	if (config_rb) {
+		user_ring_buffer__free(config_rb);
 	}
 
 	if (xdp_rb) {
@@ -276,6 +281,31 @@ __attribute__((noinline)) int submit_flagged_ip(long src_ip)
 	return err;
 }
 
+__attribute__((noinline)) int submit_config()
+{
+	int err = 0;
+	struct config_rb_event *e;
+
+	e = user_ring_buffer__reserve(config_rb, sizeof(*e));
+	if (!e) {
+		err = -errno;
+		return err;
+	}
+
+#ifdef DEBUG
+	log_debug("%s\n", "submitting config");
+#endif
+
+	/* fill out ring buffer sample */
+	pthread_rwlock_rdlock(&config_lock);
+	e->block_src = current_config.block_src;
+	e->redirect_ip = current_config.redirect_ip;
+	pthread_rwlock_unlock(&config_lock);
+
+	user_ring_buffer__submit(config_rb, e);
+
+	return err;
+}
 
 /* called for each packet sent through the ring buffer */
 static int handle_event(void *ctx, void *data, size_t data_sz)
@@ -478,6 +508,129 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	return 0;
 }
 
+static void handle_inotify_events(int fd, const char *target_filename,
+		struct config *current_config, pthread_rwlock_t *lock)
+{
+	/* buffer used for reading from inotify fd should have same alignment as
+	 * struct inotify_event
+	 *
+	 * (see inotify(7) for more details)
+	 */
+	char buf[MAX_EVENT]
+		__attribute__((aligned(__alignof__(struct inotify_event))));
+	const struct inotify_event *event;
+	size_t len;
+
+	/* loop while events can be read from fd */
+	while (1) {
+		/* read events */
+		len = read(fd, buf, sizeof(buf));
+		if (len == -1 && errno != EAGAIN) {
+			/* read failed */
+			log_error("read inotify fd failed: %s\n", strerror(errno));
+			break;
+		}
+
+		if (len <= 0) {
+			/* read() returns -1 && errno == EAGAIN => no events to read */
+			break;
+		}
+
+		/* loop over events
+		 * step forward by inotify_event size + event name each time */
+		for (char *ptr = buf; ptr < buf + len;
+				ptr += sizeof(struct inotify_event) + event->len) {
+			event = (const struct inotify_event *) ptr;
+
+			/* we only care about the config file */
+			if (event->len && strcmp(event->name, target_filename) == 0) {
+				cJSON *config_json = json_config(config_path);
+				if (!config_json) {
+					log_error("%s\n", "invalid JSON");
+				} else {
+					apply_config(config_json, current_config, lock);
+					submit_config();
+					cJSON_Delete(config_json);
+				}
+			}
+		}
+
+	}
+}
+
+void inotify_thread_work(void *args)
+{
+	struct inotify_thread_args *ctx = args;
+
+	int poll_num, inotify_fd, wd;
+	nfds_t nfds;
+	struct pollfd poll_fd;
+
+	struct config *current_config = ctx->current_config;
+	pthread_rwlock_t *lock = ctx->lock;
+
+	const char *CONFIG_FILENAME = "config.json"; /* 12 bytes */
+	const char *CONFIG_DIR = "config";           /* 7 bytes */
+
+	/* set up config path */
+	snprintf(config_path, CONFIG_PATH_LEN, "%s/%s", CONFIG_DIR, CONFIG_FILENAME);
+#ifdef DEBUG
+	log_debug("config path: %s\n", config_path);
+#endif
+
+	/* create inotify file descriptor */
+	inotify_fd = inotify_init();
+	if (inotify_fd == -1) {
+		log_error("inotify_init: %s\n", strerror(errno));
+	}
+
+	/* watch for changes to files in the config directory
+	 * wd = watch file descriptor */
+	wd = inotify_add_watch(inotify_fd, CONFIG_DIR, IN_CLOSE_WRITE);
+	if (wd == -1) {
+		log_error("inotify: cannot watch '%s': %s\n",
+				CONFIG_DIR, strerror(errno));
+		return;
+	}
+
+	/* set up polling */
+	nfds = 1;
+	poll_fd.fd = inotify_fd;
+	poll_fd.events = POLLIN;
+
+	/* NOTE: main thread has already applied default and initial config at this
+	 * point */
+
+	/* wait for events and handle them when they occur */
+	while (1) {
+		/* poll_num = number of elements in our poll_fd with non zero revents
+		 * (real events)
+		 *
+		 * third argument to poll() = timeout
+		 *     -> -1 means block until an event occurs */
+		poll_num = poll(&poll_fd, nfds, -1);
+		if (poll_num == -1) {
+			if (errno != EINTR)
+				continue;
+
+			log_error("inotify poll: %s\n", strerror(errno));
+			return;
+		}
+
+		/*
+		 * events = types of events poller cares about
+		 * revents = types of events that actually happened
+		 */
+		if (poll_num > 0) {
+			if (poll_fd.revents & POLLIN) {
+				/* inotify events available */
+				handle_inotify_events(inotify_fd, CONFIG_FILENAME,
+						current_config, lock);
+			}
+		}
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	struct bpf_map *map = NULL;
@@ -603,6 +756,8 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
+	/* get flagged IP map file descriptor so it can be shared with the
+	 * corresponding uretprobe */
 	map = bpf_object__find_map_by_name(xdp_obj, "flagged_ips");
 	if (!map) {
 		log_error("cannot find map by name %s\n", "flagged_ips");
@@ -613,11 +768,28 @@ int main(int argc, char *argv[])
 
     /* load and attach flagged IPs uretprobe */
 	if (load_and_attach_bpf_uretprobe(&flag_uretprobe_obj, BPF_FILENAME,
-				"read_flagged_rb", "submit_flagged_ip", 
+				"read_flagged_rb", "submit_flagged_ip",
 				flagged_ips_fd, "flagged_ips") <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 		err = -1;
 		goto cleanup;
+	}
+
+	/* get config hash map file descriptor so it can be shared with the
+	 * corresponding uretprobe */
+	map = bpf_object__find_map_by_name(xdp_obj, "config");
+	if (!map) {
+		log_error("cannot find map by name %s\n", "config");
+		err = -1;
+		goto cleanup;
+	}
+	config_hash_fd = bpf_map__fd(map);
+
+	/* load and attach config uretprobe */
+	if (load_and_attach_bpf_uretprobe(&config_uretprobe_obj, BPF_FILENAME,
+				"read_config_rb", "submit_config",
+				config_hash_fd, "config") <= 0) {
+		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 	}
 
 	/* set up database */
@@ -651,7 +823,7 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
-	/* find user ring buffer */
+	/* find flagged IP user ring buffer */
 	map = bpf_object__find_map_by_name(flag_uretprobe_obj, "flagged_rb");
 	if (!map) {
 		log_error("cannot find map by name: %s\n", "flagged_rb");
@@ -659,11 +831,27 @@ int main(int argc, char *argv[])
 	}
 	flagged_rb_fd = bpf_map__fd(map);
 
-	/* set up user ring buffer */
+	/* set up flagged IP user ring buffer */
 	flagged_rb = user_ring_buffer__new(flagged_rb_fd, NULL);
 	if (!flagged_rb) {
 		err = -1;
-		log_error("%s\n", "failed to create user ring buffer");
+		log_error("%s\n", "failed to create flagged IP user ring buffer");
+		goto cleanup;
+	}
+
+	/* find config user ring buffer */
+	map = bpf_object__find_map_by_name(config_uretprobe_obj, "config_rb");
+	if (!map) {
+		log_error("cannot find map by name: %s\n", "config_rb");
+		goto cleanup;
+	}
+	config_rb_fd = bpf_map__fd(map);
+
+	/* set up flagged IP user ring buffer */
+	config_rb = user_ring_buffer__new(config_rb_fd, NULL);
+	if (!config_rb) {
+		err = -1;
+		log_error("%s\n", "failed to create config user ring buffer");
 		goto cleanup;
 	}
 
@@ -700,7 +888,8 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* TODO config file ring buffer */
+	/* submit initial config */
+	submit_config();
 
 	/* poll ring buffer */
 	while (!exiting) {

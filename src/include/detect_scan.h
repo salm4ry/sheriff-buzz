@@ -8,7 +8,7 @@
 #define NUM_PORTS 65536
 #define MAX_PACKETS 1024
 
-static bool is_basic_scan(bool *ports_scanned, int threshold)
+static bool is_port_scan(bool *ports_scanned, int threshold)
 {
 	int port_count = count_ports_scanned(ports_scanned);
 

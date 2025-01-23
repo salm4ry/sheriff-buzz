@@ -442,17 +442,17 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	long port_threshold = current_config.port_threshold;
 	pthread_rwlock_unlock(&config_lock);
 
-	if (is_basic_scan(ports, port_threshold)) {
+	if (is_port_scan(ports, port_threshold)) {
 		is_alert = true;
 		log_alert("nmap (%d or more ports) detected from %s!\n",
 				port_threshold, address);
 
 		if (use_db_thread) {
-			queue_work(&task_queue_head, &task_queue_lock, NULL, BASIC_SCAN,
+			queue_work(&task_queue_head, &task_queue_lock, NULL, PORT_SCAN,
 					&current_packet, &new_val, &info);
 		} else {
 			db_alert(db_conn, &db_lock,
-					NULL, BASIC_SCAN, &current_packet, &new_val, &info);
+					NULL, PORT_SCAN, &current_packet, &new_val, &info);
 		}
 	}
 

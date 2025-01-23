@@ -248,7 +248,7 @@ int db_alert(PGconn *conn, pthread_mutex_t *db_lock,
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
 	switch (alert_type) {
-		case BASIC_SCAN:
+		case PORT_SCAN:
 			/* port-based alert
 			 *
 			 * destination port is a string colon-delimited range
@@ -402,7 +402,7 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 	}
 
     switch (alert_type) {
-        case BASIC_SCAN:
+        case PORT_SCAN:
             /* basic scan has port info argument */
 		    memcpy(&new_task->info, info, sizeof(struct port_info));
             break;

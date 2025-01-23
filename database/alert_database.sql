@@ -6,6 +6,9 @@ Prerequisites:
 Run from inside psql using \i alert_database.sql
 */
 
+-- TODO
+-- create type alert_type as enum ('Xmas scan', 'FIN scan', 'NULL scan', 'Port scan')
+
 CREATE DATABASE alerts;
 
 -- ensure owner set to root
@@ -62,4 +65,4 @@ CREATE UNIQUE INDEX ON log(src_ip, alert_type)
 INSERT INTO alert_type (description) VALUES('Xmas scan');
 INSERT INTO alert_type (description) VALUES('FIN scan');
 INSERT INTO alert_type (description) VALUES('NULL scan');
-INSERT INTO alert_type (description) VALUES('Basic port scan');
+INSERT INTO alert_type (description) VALUES('Port scan');

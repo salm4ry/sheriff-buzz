@@ -2,5 +2,5 @@ enum alert_type {
 	XMAS_SCAN = 1,
 	FIN_SCAN = 2,
 	NULL_SCAN = 3,
-	BASIC_SCAN = 4
+	PORT_SCAN = 4
 };

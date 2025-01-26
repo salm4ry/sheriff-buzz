@@ -17,9 +17,9 @@ char LICENSE[] SEC("license") = "GPL";
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__type(key, __u32); /* length of IPv4 address */
-	__type(value, __u8);
+	__type(value, __u16);
 	__uint(max_entries, 256);
-} flagged_ips SEC(".maps");
+} ip_list SEC(".maps");
 
 /* config (sent from user space */
 struct {
@@ -45,7 +45,7 @@ struct {
 struct {
 	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
 	__uint(max_entries, 256 * 1024); /* 256 KB */
-} flagged_rb SEC(".maps");
+} ip_rb SEC(".maps");
 
 /* config options
  *
@@ -60,26 +60,27 @@ struct {
 /**
  * User ring buffer callback
  *
- * Add flagged IP sent from user space to BPF array map
+ * Add black/whitelisted IP sent from user space to BPF array map
  *
  * In general:
  * return 0: continue to try and drain next sample
  * return 1: skip the rest of the samples and return
  * other: not used- rejected by verifier
  */
-static long flagged_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
+static long ip_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 {
 	/* bpf_map__update_elem(&flagged_ips,  */
-	struct flagged_rb_event *sample;
-	__u8 data = 1;
+	struct ip_rb_event *sample;
 
 	sample = bpf_dynptr_data(dynptr, 0, sizeof(*sample));
 	if (!sample) {
 		return 0;
 	}
 
-	/* insert hash map entry for new flagged IP */
-	bpf_map_update_elem(&flagged_ips, &sample->src_ip, &data, 0);
+	/* bpf_printk("received %ld, %d", sample->src_ip, sample->type); */
+
+	/* insert hash map entry for new black/whitelisted IP */
+	bpf_map_update_elem(&ip_list, &sample->src_ip, &sample->type, 0);
 	return 0;
 }
 
@@ -100,9 +101,9 @@ static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 }
 
 SEC("uretprobe")
-int read_flagged_rb()
+int read_ip_rb()
 {
-	bpf_user_ringbuf_drain(&flagged_rb, flagged_rb_callback, NULL, 0);
+	bpf_user_ringbuf_drain(&ip_rb, ip_rb_callback, NULL, 0);
 	return 0;
 }
 
@@ -121,15 +122,15 @@ SEC("xdp")
 int process_packet(struct xdp_md *ctx)
 {
 	__u8 protocol_number;
-	/* __u64 *packet_entry; */
+	__u16 *ip_list_type;
 	__u32 src_ip;
+
+	int result = XDP_PASS;
 
 	struct xdp_rb_event *e;
 
 	__u32 config_index = 0; /* index 0 */
 	struct config_rb_event *current_config;
-
-	int result = XDP_PASS;  /* pass packet on to network stack */
 
 	protocol_number = lookup_protocol(ctx);
 
@@ -142,47 +143,52 @@ int process_packet(struct xdp_md *ctx)
 	/* get config */
 	current_config = bpf_map_lookup_elem(&config, &config_index);
 
-	if (bpf_map_lookup_elem(&flagged_ips, &src_ip)) {
-		/* lookup returns non-null => IP is flagged */
-		/* TODO option to redirect instead of block */
+	/* look up source IP */
+	ip_list_type = bpf_map_lookup_elem(&ip_list, &src_ip);
 
-		/* NOTE: commented out for soft blocking */
-		/* result = XDP_DROP; */
+	if (ip_list_type) {
+		/* bpf_printk("%lu -> %x", src_ip, *ip_list_type); */
+		switch (*ip_list_type) {
+			case BLACKLIST:
+				/* check config for action */
+				if (current_config) {
+					/* block source IP */
+					if (current_config->block_src) {
+						bpf_printk("action = block");
+						/* NOTE "soft block"
+						result = XDP_DROP;
+						*/
+					} else {
+						bpf_printk("action = redirect");
+						change_dst_addr(ip_headers, current_config->redirect_ip);
 
-		/* if we have config loaded */
-		if (current_config) {
-			if (current_config->block_src) {
-				/* bpf_printk("action = block"); */
-				/*
-				result = XDP_DROP;
-				*/
-			} else {
-				/* bpf_printk("action = redirect"); */
-				/*
-				change_dst_addr(ip_headers, current_config->redirect_ip);
-				result = XDP_TX;
-				*/
-			}
-		} else {
-			/* otherwise block by default */
-			/* result = XDP_DROP; */
+						/* XDP_TX = send packet back on the same interface it
+						 * came from */
+						/* NOTE "soft redirect"
+						result = XDP_TX;
+						*/
+					}
+				} else {
+					/* otherwise block by default */
+					/* NOTE "soft block"
+					return XDP_DROP;
+					*/
+				}
+				break;
+			default:
+				/* whitelisted: pass packet on (result is already set to
+				 * XDP_PASS) */
+				/* bpf_printk("whitelisted"); */
+				break;
 		}
-
-	/*
-	} else if (src_ip == ntohl((__u32) 1128442048)) {
-		// NOTE: testing redirection from 192.168.66.67 -> 192.168.66.254
-		bpf_printk("changing destination address");
-		change_dst_addr(ip_headers, 4265781440);
-	*/
-
-		/* XDP_TX = send packet back from the same interface it came from */
-		/* result = XDP_TX; */
 	} else {
-		struct tcphdr *tcp_headers = parse_tcp_headers(ctx);
-		if (!tcp_headers)
-			return result;
-
+		/* bpf_printk("%lu not found", src_ip); */
 		if (protocol_number == TCP_PNUM) {
+			/* IP not black/whitelisted- send TCP headers to user space */
+			struct tcphdr *tcp_headers = parse_tcp_headers(ctx);
+			if (!tcp_headers)
+				return result;
+
 			/* reserve ring buffer sample */
 			e = bpf_ringbuf_reserve(&xdp_rb, sizeof(*e), 0);
 			if (!e) {
@@ -196,7 +202,7 @@ int process_packet(struct xdp_md *ctx)
 
 			/* submit ring buffer event */
 			bpf_ringbuf_submit(e, 0);
-		}
+	}
 	}
 
 	return result;

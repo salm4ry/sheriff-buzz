@@ -4,4 +4,6 @@
 	"flag_threshold": 3,
 	"action": "block",
 	"redirect_ip": "0.0.0.0"
+	"ip_blacklist": ["1.1.1.1", "2.2.2.2", "3.3.3.3"],
+	"ip_whitelist": ["8.8.8.8", "100.100.100.100"]
 }

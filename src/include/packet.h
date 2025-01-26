@@ -17,6 +17,12 @@
 #define TCP_PNUM 6 /* TCP protocol number */
 #define NUM_PORTS 65536
 
+enum ip_types {
+	BLACKLIST = 0xdead,
+	WHITELIST = 0xbeef
+};
+
+
 /**
  * XDP ring buffer event
  *
@@ -30,15 +36,14 @@ struct xdp_rb_event {
 };
 
 /**
- * Flagged IP user ring buffer event
+ * IP user ring buffer event
  *
  * src_ip: flagged source IP address
+ * type: either BLACKLIST or WHITELIST
  */
-struct flagged_rb_event {
-	long src_ip;
-
-     /* NOTE could block IP's traffic to e.g. specific ports by adding to
-      * this struct */
+struct ip_rb_event {
+	__u32 src_ip;
+	int type;
 };
 
 /**
@@ -49,7 +54,7 @@ struct flagged_rb_event {
  */
 struct config_rb_event {
 	bool block_src;
-	long redirect_ip;
+	__u32 redirect_ip;
 };
 
 /* return the protocol byte for an IP packet, 0 for anything else
@@ -122,5 +127,5 @@ fail:
 /* get IP packet source address */
 static __u32 src_addr(struct iphdr *ip_header)
 {
-	return ntohl(ip_header->saddr);
+	return ip_header->saddr;
 }

@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,7 +9,6 @@
 #include <cjson/cJSON.h>
 
 #include <pthread.h>
-#include <errno.h>
 #include <unistd.h>
 #include <poll.h>
 #include <sys/inotify.h>
@@ -26,12 +26,20 @@ FILE *LOG;
 
 #define MAX_EVENT 4096
 
+struct ip_list {
+	int size;
+	unsigned long *entries;
+};
+
 struct config {
 	int packet_threshold;
 	int flag_threshold;
-	long port_threshold;
-	long redirect_ip;
+	unsigned long port_threshold;
+	unsigned long redirect_ip;
 	bool block_src;
+
+	struct ip_list *ip_blacklist;
+	struct ip_list *ip_whitelist;
 };
 
 struct inotify_thread_args {
@@ -96,12 +104,12 @@ static cJSON *json_config(const char *filename)
 	return obj;
 }
 
-static char *str_json_value(cJSON *json_obj, const char *item_name)
+static char *str_json_value(cJSON *obj, const char *item_name)
 {
 	char *value = NULL;
 	cJSON *item;
 
-	item = cJSON_GetObjectItemCaseSensitive(json_obj, item_name);
+	item = cJSON_GetObjectItemCaseSensitive(obj, item_name);
 	if (cJSON_IsString(item) && (item->valuestring)) {
 		/* +1 for null terminator */
 		value = (char *) malloc((strlen(item->valuestring)+1) * sizeof(char));
@@ -121,12 +129,12 @@ static char *str_json_value(cJSON *json_obj, const char *item_name)
  *
  * return parsed IP on success, -1 on error
  */
-static long ip_json_value(cJSON *json_obj, const char *item_name)
+static long ip_json_value(cJSON *obj, const char *item_name)
 {
 	long ip = -1;
 	int res;
 
-	char *value = str_json_value(json_obj, item_name);
+	char *value = str_json_value(obj, item_name);
 
 	if (value) {
 		/* inet_pton() returns 1 on success, 0 on error */
@@ -140,6 +148,52 @@ static long ip_json_value(cJSON *json_obj, const char *item_name)
 
 	return ip;
 }
+
+/**
+ * Extract array of IP addresses from JSON item into long *
+ *
+ * return number of entries
+ */
+struct ip_list *ip_list_json(cJSON *obj, const char *item_name)
+{
+	/* TODO max blacklist/whitelist size- truncate accordingly */
+	int index = 0;
+	cJSON *array, *elem;
+	struct ip_list *list;
+
+	list = malloc(sizeof(struct ip_list));
+	if (!list) {
+		pr_err("memory allocation failed: %s\n", strerror(errno));
+		exit(1);
+	}
+
+	array = cJSON_GetObjectItemCaseSensitive(obj, item_name);
+	list->size = cJSON_GetArraySize(array);
+	if (list->size != 0) {
+		list->entries = calloc(list->size, sizeof(unsigned long));
+		if (!list->entries) {
+			pr_err("memory allocation failed: %s\n", strerror(errno));
+			exit(1);
+		}
+
+#ifdef DEBUG
+		log_debug("%s size = %d\n", item_name, list->size);
+#endif
+
+		/* extract IP addresses from array */
+		cJSON_ArrayForEach(elem, array)
+		{
+			if (cJSON_IsString(elem) && elem->valuestring) {
+				inet_pton(AF_INET, elem->valuestring, &list->entries[index]);
+			}
+
+			index++;
+		}
+	}
+
+	return list;
+}
+
 
 /**
  * Extract block/redirect action from JSON item
@@ -192,26 +246,6 @@ static long threshold_json_value(
 	return value;
 }
 
-/**
- * Extract value of boolean JSON item
- *
- * return 0/1 (false/true) on success, -1 on error
- */
-/*
-static int bool_json_value(cJSON *json_obj, const char *item_name)
-{
-	int value = -1;
-	cJSON *item;
-
-	item = cJSON_GetObjectItemCaseSensitive(json_obj, item_name);
-	if (cJSON_IsBool(item)) {
-		value = item->valueint;
-	}
-
-	return value;
-}
-*/
-
 static void set_default_config(struct config *config, pthread_rwlock_t *lock)
 {
 	pthread_rwlock_wrlock(lock);
@@ -222,6 +256,11 @@ static void set_default_config(struct config *config, pthread_rwlock_t *lock)
 	/* block by default */
 	config->block_src = true;
 	config->redirect_ip = -1;
+
+	/* blacklist + whitelists empty initially */
+	config->ip_blacklist = NULL;
+	config->ip_whitelist = NULL;
+
 	pthread_rwlock_unlock(lock);
 }
 
@@ -229,7 +268,10 @@ static void apply_config(cJSON *config_json, struct config *current_config,
 		pthread_rwlock_t *lock)
 {
 	int packet_threshold, flag_threshold, block_src;
-	long port_threshold, redirect_ip;
+	unsigned long redirect_ip;
+	long port_threshold;
+
+	struct ip_list *ip_blacklist, *ip_whitelist;
 
 	/* read thresholds */
 	packet_threshold = threshold_json_value(config_json,
@@ -288,4 +330,28 @@ static void apply_config(cJSON *config_json, struct config *current_config,
 		log_debug("config: flag_threshold = %d\n", flag_threshold);
 #endif
 	}
+
+	/* blacklist and whitelist */
+	ip_blacklist = ip_list_json(config_json, "ip_blacklist");
+	ip_whitelist = ip_list_json(config_json, "ip_whitelist");
+
+	pthread_rwlock_wrlock(lock);
+	if (current_config->ip_blacklist) {
+		if (current_config->ip_blacklist->entries) {
+			free(current_config->ip_blacklist->entries);
+		}
+		free(current_config->ip_blacklist);
+	}
+
+	if (current_config->ip_whitelist) {
+		if (current_config->ip_whitelist->entries) {
+			free(current_config->ip_whitelist->entries);
+		}
+		free(current_config->ip_whitelist);
+	}
+
+	current_config->ip_blacklist = ip_blacklist;
+	current_config->ip_whitelist = ip_whitelist;
+
+	pthread_rwlock_unlock(lock);
 }

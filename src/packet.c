@@ -34,7 +34,7 @@ uint32_t xdp_flags;
 int ifindex;
 
 struct ring_buffer *xdp_rb = NULL;
-struct user_ring_buffer *flagged_rb = NULL;
+struct user_ring_buffer *ip_rb = NULL;
 struct user_ring_buffer *config_rb = NULL;
 int err;
 
@@ -73,8 +73,8 @@ void cleanup()
 
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
 
-	if (flagged_rb) {
-		user_ring_buffer__free(flagged_rb);
+	if (ip_rb) {
+		user_ring_buffer__free(ip_rb);
 	}
 
 	if (config_rb) {
@@ -261,13 +261,13 @@ void port_info(long src_ip, struct port_info *info)
 	free_ip_fingerprint(fingerprint);
 }
 
-/* submit flagged IP to BPF program with user ring buffer */
-__attribute__((noinline)) int submit_flagged_ip(long src_ip)
+/* submit IP list entry (black/whitelist) to BPF program with user ring buffer */
+__attribute__((noinline)) int submit_ip_entry(__u32 src_ip, int type)
 {
 	int err = 0;
-	struct flagged_rb_event *e;
+	struct ip_rb_event *e;
 
-	e = user_ring_buffer__reserve(flagged_rb, sizeof(*e));
+	e = user_ring_buffer__reserve(ip_rb, sizeof(*e));
 	if (!e) {
 		err = -errno;
 		return err;
@@ -275,13 +275,27 @@ __attribute__((noinline)) int submit_flagged_ip(long src_ip)
 
 	/* fill out ring buffer sample */
 	e->src_ip = src_ip;
+	e->type = type;
 
 	/* submit ring buffer event */
-	user_ring_buffer__submit(flagged_rb, e);
+	user_ring_buffer__submit(ip_rb, e);
 	return err;
 }
 
-__attribute__((noinline)) int submit_config()
+/* submit blacklist and whitelist to BPF program */
+void submit_ip_list()
+{
+	pthread_rwlock_rdlock(&config_lock);
+	for (int i = 0; i < current_config.ip_blacklist->size; i++) {
+		submit_ip_entry(current_config.ip_blacklist->entries[i], BLACKLIST);
+	}
+	for (int i = 0; i < current_config.ip_whitelist->size; i++) {
+		submit_ip_entry(current_config.ip_whitelist->entries[i], WHITELIST);
+	}
+	pthread_rwlock_unlock(&config_lock);
+}
+
+__attribute__((noinline)) int submit_action_config()
 {
 	int err = 0;
 	struct config_rb_event *e;
@@ -470,7 +484,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		/* flag IP if config threshold reached */
 		if (alert_count >= flag_threshold) {
 			log_alert("flagging %s\n", address);
-			submit_flagged_ip(current_packet.src_ip);
+			submit_ip_entry(current_packet.src_ip, BLACKLIST);
 
             if (use_db_thread) {
                 queue_work(&task_queue_head, &task_queue_lock, NULL, 0,
@@ -556,7 +570,11 @@ static void handle_inotify_events(int fd, const char *target_filename,
 					log_error("%s\n", "invalid JSON");
 				} else {
 					apply_config(config_json, current_config, lock);
-					submit_config();
+
+					/* submit config: action, and black/whitelisted IPs */
+					submit_action_config();
+					submit_ip_list();
+
 					cJSON_Delete(config_json);
 				}
 			}
@@ -643,10 +661,10 @@ int main(int argc, char *argv[])
 	struct bpf_map *map = NULL;
 
     /* map file descriptors */
-	int flagged_ips_fd, config_hash_fd;
+	int ip_list_fd, config_hash_fd;
 
     /* ring buffers */
-    int xdp_rb_fd, flagged_rb_fd, config_rb_fd;
+    int xdp_rb_fd, ip_rb_fd, config_rb_fd;
 	int res = 0;
 
 	char *thread_env;
@@ -684,6 +702,7 @@ int main(int argc, char *argv[])
 		apply_config(config_json, &current_config, &config_lock);
 	}
 
+
 	/* catch SIGINT (e.g. Ctrl+C, kill) */
 	if (signal(SIGINT, cleanup) == SIG_ERR) {
 		log_error("%s\n", "failed to set up SIGINT handler");
@@ -694,13 +713,6 @@ int main(int argc, char *argv[])
 		log_error("%s\n", "failed to set up SIGTERM handler");
 		return 1;
 	}
-
-	/* TODO ???
-	if (signal(SIGKILL, cleanup) == SIG_ERR) {
-		log_error("%s\n", "failed to set up SIGKILL handler");
-		return 1;
-	}
-	*/
 
 	/* check we have the second argument */
 	if (argc < 2) {
@@ -763,20 +775,20 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
-	/* get flagged IP map file descriptor so it can be shared with the
+	/* get IP hash map file descriptor so it can be shared with the
 	 * corresponding uretprobe */
-	map = bpf_object__find_map_by_name(xdp_obj, "flagged_ips");
+	map = bpf_object__find_map_by_name(xdp_obj, "ip_list");
 	if (!map) {
-		log_error("cannot find map by name %s\n", "flagged_ips");
+		log_error("cannot find map by name %s\n", "ip_list");
 		err = -1;
 		goto cleanup;
 	}
-	flagged_ips_fd = bpf_map__fd(map);
+	ip_list_fd = bpf_map__fd(map);
 
-    /* load and attach flagged IPs uretprobe */
+    /* load and attach IP list uretprobe */
 	if (load_and_attach_bpf_uretprobe(&flag_uretprobe_obj, BPF_FILENAME,
-				"read_flagged_rb", "submit_flagged_ip",
-				flagged_ips_fd, "flagged_ips") <= 0) {
+				"read_ip_rb", "submit_ip_entry",
+				ip_list_fd, "ip_list") <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 		err = -1;
 		goto cleanup;
@@ -794,7 +806,7 @@ int main(int argc, char *argv[])
 
 	/* load and attach config uretprobe */
 	if (load_and_attach_bpf_uretprobe(&config_uretprobe_obj, BPF_FILENAME,
-				"read_config_rb", "submit_config",
+				"read_config_rb", "submit_action_config",
 				config_hash_fd, "config") <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 	}
@@ -830,19 +842,19 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
-	/* find flagged IP user ring buffer */
-	map = bpf_object__find_map_by_name(flag_uretprobe_obj, "flagged_rb");
+	/* find IP user ring buffer */
+	map = bpf_object__find_map_by_name(flag_uretprobe_obj, "ip_rb");
 	if (!map) {
-		log_error("cannot find map by name: %s\n", "flagged_rb");
+		log_error("cannot find map by name: %s\n", "ip_rb");
 		goto cleanup;
 	}
-	flagged_rb_fd = bpf_map__fd(map);
+	ip_rb_fd = bpf_map__fd(map);
 
-	/* set up flagged IP user ring buffer */
-	flagged_rb = user_ring_buffer__new(flagged_rb_fd, NULL);
-	if (!flagged_rb) {
+	/* set up IP list user ring buffer */
+	ip_rb = user_ring_buffer__new(ip_rb_fd, NULL);
+	if (!ip_rb) {
 		err = -1;
-		log_error("%s\n", "failed to create flagged IP user ring buffer");
+		log_error("%s\n", "failed to create IP list user ring buffer");
 		goto cleanup;
 	}
 
@@ -854,13 +866,17 @@ int main(int argc, char *argv[])
 	}
 	config_rb_fd = bpf_map__fd(map);
 
-	/* set up flagged IP user ring buffer */
+	/* set up config user ring buffer */
 	config_rb = user_ring_buffer__new(config_rb_fd, NULL);
 	if (!config_rb) {
 		err = -1;
 		log_error("%s\n", "failed to create config user ring buffer");
 		goto cleanup;
 	}
+
+	/* submit initial config */
+	submit_action_config();
+	submit_ip_list();
 
 	/* create database worker thread
 	 *
@@ -895,8 +911,6 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	/* submit initial config */
-	submit_config();
 
 	/* poll ring buffer */
 	while (!exiting) {

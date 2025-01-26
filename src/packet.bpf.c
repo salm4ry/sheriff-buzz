@@ -77,7 +77,10 @@ static long ip_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 		return 0;
 	}
 
-	/* bpf_printk("received %ld, %d", sample->src_ip, sample->type); */
+#ifdef DEBUG
+	bpf_printk("ip %ld, blacklist = %d", sample->src_ip,
+			sample->type == BLACKLIST);
+#endif
 
 	/* insert hash map entry for new black/whitelisted IP */
 	bpf_map_update_elem(&ip_list, &sample->src_ip, &sample->type, 0);
@@ -95,7 +98,9 @@ static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 	}
 
 	/* update config map entry */
-	/* bpf_printk("updating config"); */
+#ifdef DEBUG
+	bpf_printk("updating block/redirect config");
+#endif
 	bpf_map_update_elem(&config, &index, sample, 0);
 	return 0;
 }
@@ -110,7 +115,6 @@ int read_ip_rb()
 SEC("uretprobe")
 int read_config_rb()
 {
-	/* bpf_printk("reading config"); */
 	bpf_user_ringbuf_drain(&config_rb, config_rb_callback, NULL, 0);
 	return 0;
 }
@@ -147,19 +151,25 @@ int process_packet(struct xdp_md *ctx)
 	ip_list_type = bpf_map_lookup_elem(&ip_list, &src_ip);
 
 	if (ip_list_type) {
-		/* bpf_printk("%lu -> %x", src_ip, *ip_list_type); */
+#ifdef DEBUG
+		bpf_printk("%lu -> blacklist = %d", src_ip, *ip_list_type == BLACKLIST);
+#endif
 		switch (*ip_list_type) {
 			case BLACKLIST:
 				/* check config for action */
 				if (current_config) {
 					/* block source IP */
 					if (current_config->block_src) {
-						bpf_printk("action = block");
+#ifdef DEBUG
+						bpf_printk("action for %lu = block", src_ip);
+#endif
 						/* NOTE "soft block"
 						result = XDP_DROP;
 						*/
 					} else {
-						bpf_printk("action = redirect");
+#ifdef DEBUG
+						bpf_printk("action for %lu = redirect", src_ip);
+#endif
 						change_dst_addr(ip_headers, current_config->redirect_ip);
 
 						/* XDP_TX = send packet back on the same interface it
@@ -178,11 +188,12 @@ int process_packet(struct xdp_md *ctx)
 			default:
 				/* whitelisted: pass packet on (result is already set to
 				 * XDP_PASS) */
-				/* bpf_printk("whitelisted"); */
+#ifdef DEBUG
+				bpf_printk("%ld whitelisted", src_ip);
+#endif
 				break;
 		}
 	} else {
-		/* bpf_printk("%lu not found", src_ip); */
 		if (protocol_number == TCP_PNUM) {
 			/* IP not black/whitelisted- send TCP headers to user space */
 			struct tcphdr *tcp_headers = parse_tcp_headers(ctx);

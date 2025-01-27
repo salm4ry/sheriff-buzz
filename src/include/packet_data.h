@@ -249,7 +249,7 @@ void port_info(GHashTable *packet_table, long src_ip, struct port_info *info)
  *
  * key = hash table key
  * value = hash table value (unused, required for foreach_remove)
- * user_data = array of fingerprints related to target IP
+ * user_data = IP portion of fingerprint to compare to
  */
 gboolean fingerprint_ip_equal(gpointer key, gpointer value, gpointer user_data)
 {

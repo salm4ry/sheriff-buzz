@@ -8,8 +8,7 @@
 
 int main(int argc, char *argv[])
 {
-    __u32 ip, mask;
-    struct in_addr addr;
+    __u32 ip, mask, network;
     char *ip_str, *cidr;
     char mask_str[17], network_str[17];
     int bits;
@@ -23,19 +22,19 @@ int main(int argc, char *argv[])
     cidr = argv[2];
 
     inet_pton(AF_INET, ip_str, &ip);
-    bits = inet_net_pton(AF_INET, cidr, &addr, sizeof(addr));
-    mask = htonl(~(bits == 32 ? 0 : ~0U >> bits));
+    bits = inet_net_pton(AF_INET, cidr, &network, sizeof(network));
 
-    inet_ntop(AF_INET, &addr.s_addr, network_str, sizeof(network_str));
+    /* convert number of bits to subnet mask (based on ipcalc implementation) */
+    mask = htonl(~((1 << (32 - bits)) - 1));
+
+    inet_ntop(AF_INET, &network, network_str, sizeof(network_str));
     inet_ntop(AF_INET, &mask, mask_str, sizeof(mask_str));
 
-    printf("bits: %d, addr: %s, mask: %s\n",
+    printf("bits: %d, network addr: %s, mask: %s\n",
             bits, network_str, mask_str);
 
-    /*
     printf("IP %s in subnet %s = %d\n", ip_str, cidr,
             (ip & network) == (ip & mask));
-     */
 
     return EXIT_SUCCESS;
 }

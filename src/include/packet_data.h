@@ -219,6 +219,32 @@ void ports_scanned(GHashTable *packet_table, long src_ip, bool *ports_scanned)
 	free_ip_fingerprint(fingerprint);
 }
 
+/* get information about packets a given IP has sent
+ *
+ * struct port_info contains information about ports the source IP has sent
+ * packets to and the total number of packets it has sent
+ */
+void port_info(GHashTable *packet_table, long src_ip, struct port_info *info)
+{
+	char **fingerprint = ip_fingerprint(src_ip);
+	struct value *res;
+
+	info->total_packet_count = 0;
+
+	for (int i = 0; i < NUM_PORTS; i++) {
+		res = g_hash_table_lookup(packet_table, (gconstpointer) fingerprint[i]);
+
+		if (res != NULL) {
+			info->ports_scanned[i] = true;
+			info->total_packet_count++;
+		} else {
+			info->ports_scanned[i] = false;
+		}
+	}
+
+	free_ip_fingerprint(fingerprint);
+}
+
 /* check if hash table entry is related to a target IP
  *
  * key = hash table key
@@ -237,14 +263,14 @@ gboolean fingerprint_ip_equal(gpointer key, gpointer value, gpointer user_data)
 /* delete all hash table entries related to a given IP
  *
  * ip = target IP to delete entries about
- * table = packet information hash table
+ * packet_table = packet information hash table
  */
-void delete_ip_entries(long ip, GHashTable *table)
+void delete_ip_entries(long ip, GHashTable *packet_table)
 {
 	char ip_fingerprint[MAX_IP_HEX+1];
 	snprintf(ip_fingerprint, MAX_IP_HEX+1, "%08lx", ip);
 
-    g_hash_table_foreach_remove(table, &fingerprint_ip_equal, ip_fingerprint);
+    g_hash_table_foreach_remove(packet_table, &fingerprint_ip_equal, ip_fingerprint);
 }
 
 int get_alert_count(PGconn *conn, pthread_mutex_t *db_lock, char *src_addr)

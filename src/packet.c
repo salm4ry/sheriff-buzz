@@ -221,32 +221,6 @@ int *get_port_list(char *filename, int num_ports) {
 	return port_list;
 }
 
-/* get information about packets a given IP has sent
- *
- * struct port_info contains information about ports the source IP has sent
- * packets to and the total number of packets it has sent
- */
-void port_info(long src_ip, struct port_info *info)
-{
-	char **fingerprint = ip_fingerprint(src_ip);
-	struct value *res;
-
-	info->total_packet_count = 0;
-
-	for (int i = 0; i < NUM_PORTS; i++) {
-		res = g_hash_table_lookup(packet_table, (gconstpointer) fingerprint[i]);
-
-		if (res != NULL) {
-			info->ports_scanned[i] = true;
-			info->total_packet_count++;
-		} else {
-			info->ports_scanned[i] = false;
-		}
-	}
-
-	free_ip_fingerprint(fingerprint);
-}
-
 /* submit IP list entry (black/whitelist) to BPF program with user ring buffer */
 __attribute__((noinline)) int submit_ip_entry(__u32 src_ip, int type)
 {
@@ -344,7 +318,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	ip_to_str(current_packet.src_ip, address);
 	time_to_str(timestamp, time_string, 32, "%H:%M:%S");
 	ports_scanned(packet_table, current_packet.src_ip, ports);
-	port_info(current_packet.src_ip, &info);
+	port_info(packet_table, current_packet.src_ip, &info);
 
 	/* update hash table */
 	get_fingerprint(&current_packet, fingerprint);
@@ -368,10 +342,6 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	/* insert/replace hash table entry */
 	g_hash_table_replace(packet_table,
 			g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
-#ifdef DEBUG
-    log_debug("number of entries: %d\n",
-            count_entries(packet_table));
-#endif
 
 	/* detect flag-based scans */
 	if (is_xmas_scan(&e->tcp_header)) {
@@ -478,11 +448,6 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
             /* remove IP-related entries from hash table */
             delete_ip_entries(current_packet.src_ip, packet_table);
-
-#ifdef DEBUG
-            log_debug("number of entries after blacklisting: %d\n",
-                    count_entries(packet_table));
-#endif
 
             if (use_db_thread) {
                 queue_work(&task_queue_head, &task_queue_lock, NULL, 0,

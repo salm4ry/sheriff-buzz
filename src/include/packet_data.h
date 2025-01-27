@@ -1,4 +1,3 @@
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +10,7 @@
 #include <glib-2.0/glib.h>
 #include <postgresql/libpq-fe.h>
 
+#include <pthread.h>
 #include <sys/queue.h>
 
 #include "log.h"
@@ -22,6 +22,7 @@
 #define MAX_FINGERPRINT 13
 #define MAX_QUERY 512
 #define MAX_IP 16
+#define MAX_IP_HEX 8
 #define MAX_PORT_RANGE 12
 
 #define MAX_DB_TASKS 20
@@ -210,20 +211,13 @@ int count_entries(GHashTable *table)
  * value = hash table value (unused, required for foreach_remove)
  * user_data = array of fingerprints related to target IP
  */
-/* NOTE untested */
-gboolean delete_ip_entry(gpointer key, gpointer value, gpointer user_data)
+gboolean fingerprint_ip_equal(gpointer key, gpointer value, gpointer user_data)
 {
     /* check if fingerprint is in IP fingerpint list */
     char *key_fingerprint = (char *) key;
-    char **target_fingerprint = (char **) user_data;
+    char *target_fingerprint = (char *) user_data;
 
-    for (int i = 0; i < NUM_PORTS; i++) {
-        if (strncmp(key_fingerprint, target_fingerprint[i], MAX_FINGERPRINT) == 0) {
-            return true;
-        }
-    }
-
-    return false;
+	return (strncmp(key_fingerprint, target_fingerprint, MAX_IP_HEX) == 0);
 }
 
 /* delete all hash table entries related to a given IP
@@ -231,11 +225,12 @@ gboolean delete_ip_entry(gpointer key, gpointer value, gpointer user_data)
  * ip = target IP to delete entries about
  * table = packet information hash table
  */
-/* NOTE untested */
 void delete_ip_entries(long ip, GHashTable *table)
 {
-    char **fingerprint = ip_fingerprint(ip);
-    g_hash_table_foreach_remove(table, &delete_ip_entry, fingerprint);
+	char ip_fingerprint[MAX_IP_HEX+1];
+	snprintf(ip_fingerprint, MAX_IP_HEX+1, "%08lx", ip);
+
+    g_hash_table_foreach_remove(table, &fingerprint_ip_equal, ip_fingerprint);
 }
 
 int get_alert_count(PGconn *conn, pthread_mutex_t *db_lock, char *src_addr)

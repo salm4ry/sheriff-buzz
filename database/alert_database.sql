@@ -42,7 +42,8 @@ CREATE TABLE log(
 
 -- flagged IP addresses
 create table flagged(
-	src_ip INET PRIMARY KEY,  -- source IP is unique
+	id SERIAL PRIMARY KEY, -- not strictly required: just for completeness
+	src_ip INET,
 	time TIMESTAMP  -- time IP was flagged
 );
 

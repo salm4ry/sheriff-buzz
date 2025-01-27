@@ -1,4 +1,4 @@
-#include <stdio.h>
+
 
 #include <errno.h>
 #include <string.h>
@@ -350,7 +350,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	/* extract data from IP and TCP headers */
 	/* source IP address */
-	current_packet.src_ip = src_addr(&e->ip_header);
+	current_packet.src_ip = ntohl(src_addr(&e->ip_header));
 
 	/* destination TCP port */
 	current_packet.dst_port = get_dst_port(&e->tcp_header);
@@ -382,6 +382,10 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	/* insert/replace hash table entry */
 	g_hash_table_replace(packet_table,
 			g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
+#ifdef DEBUG
+    log_debug("number of entries: %d\n",
+            count_entries(packet_table));
+#endif
 
 	/* detect flag-based scans */
 	if (is_xmas_scan(&e->tcp_header)) {
@@ -486,6 +490,14 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 			log_alert("flagging %s\n", address);
 			submit_ip_entry(current_packet.src_ip, BLACKLIST);
 
+            /* remove IP-related entries from hash table */
+            delete_ip_entries(current_packet.src_ip, packet_table);
+
+#ifdef DEBUG
+            log_debug("number of entries after blacklisting: %d\n",
+                    count_entries(packet_table));
+#endif
+
             if (use_db_thread) {
                 queue_work(&task_queue_head, &task_queue_lock, NULL, 0,
                         &current_packet, &new_val, NULL);
@@ -495,36 +507,17 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		}
 	}
 
-/* #ifdef DEBUG */
+#ifdef DEBUG
 	/* measure end time */
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
 	delta = diff(&start_time, &end_time);
 	total_handle_time += delta.tv_sec + delta.tv_nsec;
 
 	if (current_packet.dst_port != 22) {
-#ifdef DEBUG
 		log_debug("time taken: %ld ns\n", delta.tv_nsec);
-#endif
 		log_debug("total handle_event time: %ld ns\n", total_handle_time);
 	}
-
-/* #endif */
-
-/*
-#ifdef DEBUG
-	// print corresponding hash table entry
-	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
-
-	struct value *current_val = (struct value*) res;
-
-	// don't print SSH-related entries
-	if (current_packet.dst_port != 22) {
-		log_debug("%s -> {%ld, %ld, %d}\n",
-				fingerprint,
-				current_val->first, current_val->latest, current_val->count);
-	}
 #endif
-*/
 
 	return 0;
 }

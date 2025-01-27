@@ -189,6 +189,21 @@ void free_ip_fingerprint(char **fingerprint)
 	free(fingerprint);
 }
 
+void update_count(gpointer key, gpointer value, gpointer user_data)
+{
+    int *count = (int*) user_data;
+     *count += 1;
+ }
+
+/* get number of entries in hash table */
+int count_entries(GHashTable *table)
+{
+    int count = 0;
+    g_hash_table_foreach(table, &update_count, &count);
+
+    return count;
+}
+
 /* check if hash table entry is related to a target IP
  *
  * key = hash table key
@@ -203,7 +218,7 @@ gboolean delete_ip_entry(gpointer key, gpointer value, gpointer user_data)
     char **target_fingerprint = (char **) user_data;
 
     for (int i = 0; i < NUM_PORTS; i++) {
-        if (target_fingerprint[i] == key_fingerprint) {
+        if (strncmp(key_fingerprint, target_fingerprint[i], MAX_FINGERPRINT) == 0) {
             return true;
         }
     }

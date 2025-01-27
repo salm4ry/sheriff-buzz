@@ -221,20 +221,6 @@ int *get_port_list(char *filename, int num_ports) {
 	return port_list;
 }
 
-/* get list of ports a given IP (and flag combination) has sent packets to */
-void ports_scanned(long src_ip, bool *ports_scanned)
-{
-	char **fingerprint = ip_fingerprint(src_ip);
-	gboolean res;
-
-	for (int i = 0; i < NUM_PORTS; i++) {
-		res = g_hash_table_contains(packet_table, (gconstpointer) fingerprint[i]);
-		ports_scanned[i] = res;
-	}
-
-	free_ip_fingerprint(fingerprint);
-}
-
 /* get information about packets a given IP has sent
  *
  * struct port_info contains information about ports the source IP has sent
@@ -357,7 +343,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	ip_to_str(current_packet.src_ip, address);
 	time_to_str(timestamp, time_string, 32, "%H:%M:%S");
-	ports_scanned(current_packet.src_ip, ports);
+	ports_scanned(packet_table, current_packet.src_ip, ports);
 	port_info(current_packet.src_ip, &info);
 
 	/* update hash table */

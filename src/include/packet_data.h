@@ -190,7 +190,7 @@ void free_ip_fingerprint(char **fingerprint)
 	free(fingerprint);
 }
 
-void update_count(gpointer key, gpointer value, gpointer user_data)
+void update_entry_count(gpointer key, gpointer value, gpointer user_data)
 {
     int *count = (int*) user_data;
      *count += 1;
@@ -200,9 +200,23 @@ void update_count(gpointer key, gpointer value, gpointer user_data)
 int count_entries(GHashTable *table)
 {
     int count = 0;
-    g_hash_table_foreach(table, &update_count, &count);
+    g_hash_table_foreach(table, &update_entry_count, &count);
 
     return count;
+}
+
+/* get list of ports a given IP (and flag combination) has sent packets to */
+void ports_scanned(GHashTable *packet_table, long src_ip, bool *ports_scanned)
+{
+	char **fingerprint = ip_fingerprint(src_ip);
+	gboolean res;
+
+	for (int i = 0; i < NUM_PORTS; i++) {
+		res = g_hash_table_contains(packet_table, (gconstpointer) fingerprint[i]);
+		ports_scanned[i] = res;
+	}
+
+	free_ip_fingerprint(fingerprint);
 }
 
 /* check if hash table entry is related to a target IP

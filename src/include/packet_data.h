@@ -189,6 +189,40 @@ void free_ip_fingerprint(char **fingerprint)
 	free(fingerprint);
 }
 
+/* check if hash table entry is related to a target IP
+ *
+ * key = hash table key
+ * value = hash table value (unused, required for foreach_remove)
+ * user_data = array of fingerprints related to target IP
+ */
+/* NOTE untested */
+gboolean delete_ip_entry(gpointer key, gpointer value, gpointer user_data)
+{
+    /* check if fingerprint is in IP fingerpint list */
+    char *key_fingerprint = (char *) key;
+    char **target_fingerprint = (char **) user_data;
+
+    for (int i = 0; i < NUM_PORTS; i++) {
+        if (target_fingerprint[i] == key_fingerprint) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/* delete all hash table entries related to a given IP
+ *
+ * ip = target IP to delete entries about
+ * table = packet information hash table
+ */
+/* NOTE untested */
+void delete_ip_entries(long ip, GHashTable *table)
+{
+    char **fingerprint = ip_fingerprint(ip);
+    g_hash_table_foreach_remove(table, &delete_ip_entry, fingerprint);
+}
+
 int get_alert_count(PGconn *conn, pthread_mutex_t *db_lock, char *src_addr)
 {
 	int err, alert_count = 0, query_size;

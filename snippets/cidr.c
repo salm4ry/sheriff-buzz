@@ -8,7 +8,7 @@
 
 int main(int argc, char *argv[])
 {
-    __u32 ip, mask, network;
+    __u32 ip, mask, network = 0;
     char *ip_str, *cidr;
     char mask_str[17], network_str[17];
     int bits;
@@ -26,6 +26,8 @@ int main(int argc, char *argv[])
 
     /* convert number of bits to subnet mask (based on ipcalc implementation) */
     mask = htonl(~((1 << (32 - bits)) - 1));
+    /* convert address to network address with bitwise AND */
+    network &= mask;
 
     inet_ntop(AF_INET, &network, network_str, sizeof(network_str));
     inet_ntop(AF_INET, &mask, mask_str, sizeof(mask_str));

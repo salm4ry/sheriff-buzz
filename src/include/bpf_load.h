@@ -49,7 +49,7 @@ int load_and_attach_xdp(struct bpf_object **xdp_obj,
 
     err = bpf_xdp_attach(ifindex, prog_fd, flags, NULL);
 
-	return prog_fd;
+	return err;
 }
 
 /*

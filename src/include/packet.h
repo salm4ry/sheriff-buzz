@@ -22,7 +22,6 @@ enum ip_types {
 	WHITELIST = 0xbeef
 };
 
-
 /**
  * XDP ring buffer event
  *
@@ -43,6 +42,19 @@ struct xdp_rb_event {
  */
 struct ip_rb_event {
 	__u32 src_ip;
+	int type;
+};
+
+/**
+ * Subnet user ring buffer event
+ *
+ * network_addr: subnet network address
+ * mask: subnet mask
+ * type: either BLACKLIST or WHITELIST
+ */
+struct subnet_rb_event {
+	in_addr_t network_addr;
+	in_addr_t mask;
 	int type;
 };
 

@@ -13,13 +13,21 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-/* array of flagged IP addresses from which to block/redirect traffic */
+/* hash map of black/whitelisted IPs */
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__type(key, __u32); /* length of IPv4 address */
 	__type(value, __u16);
 	__uint(max_entries, 256);
 } ip_list SEC(".maps");
+
+/* array of black/whitelisted subnets */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__type(key, __u32);
+	__type(value, struct subnet_rb_event);
+	__uint(max_entries, 256);
+} subnet_list SEC(".maps");
 
 /* config (sent from user space */
 struct {
@@ -38,16 +46,28 @@ struct {
 	__uint(max_entries, 256 * 1024); /* 256 KB */
 } xdp_rb SEC(".maps");
 
-/* user ring buffer
+/* IP user ring buffer
  *
- * send IPs to block/redirect from user -> kernel space
+ * send black/whitelisted IPs from user -> kernel space
+ *
+ * NOTE: IPs take precedence over subnets e.g. an IP being whitelisted takes
+ * precedence over its subnet being blacklisted
  */
 struct {
 	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
 	__uint(max_entries, 256 * 1024); /* 256 KB */
 } ip_rb SEC(".maps");
 
-/* config options
+/* subnet user ring buffer
+ *
+ * send black/whitelisted subnets from user -> kernel space
+ */
+struct {
+	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
+	__uint(max_entries, 256 * 1024); /* 256 KB */
+} subnet_rb SEC(".maps");
+
+/* action config user ring buffer
  *
  * sent from user space
  */

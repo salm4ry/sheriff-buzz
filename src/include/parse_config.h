@@ -1,6 +1,6 @@
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
 
@@ -25,6 +25,11 @@ FILE *LOG;
 #define MAX_FLAG_THRESHOLD 10
 
 #define MAX_EVENT 4096
+
+struct subnet {
+	in_addr_t network_addr;
+	in_addr_t mask;
+};
 
 struct ip_list {
 	int size;
@@ -59,6 +64,27 @@ static char *str_lower(char *str)
 	}
 
 	return str;
+}
+
+/* get network address and subnet mask given CIDR (slash notation) string */
+struct subnet cidr_to_subnet(char *cidr)
+{
+	int bits;
+	struct subnet res;
+
+	res.network_addr = 0;
+	res.mask = 0;
+
+	/* bits = number of bits in network number */
+	bits = inet_net_pton(AF_INET, cidr,
+			&res.network_addr, sizeof(res.network_addr));
+
+	/* convert bits to subnet mask (based on ipcalc implementation) */
+	res.mask = htonl(~((1 << (32 - bits)) - 1));
+	/* convert resulting address to network address with bitwise AND */
+	res.network_addr &= res.mask;
+
+	return res;
 }
 
 /**

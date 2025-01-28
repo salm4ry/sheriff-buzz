@@ -129,3 +129,16 @@ static __u32 src_addr(struct iphdr *ip_header)
 {
 	return ip_header->saddr;
 }
+
+/**
+ * Return whether a given IP belongs to the specified subnet
+ * NOTE: all values are in network (big-endian) byte order
+ *
+ * ip = IP address to check
+ * network_addr = network address of subnet
+ * mask = subnet mask
+ */
+static bool in_subnet(__u32 ip, __u32 network_addr, __u32 mask)
+{
+	return (ip & network_addr) == (ip & mask);
+}

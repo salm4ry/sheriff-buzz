@@ -1,4 +1,4 @@
-
+#include <stdio.h>
 
 #include <errno.h>
 #include <string.h>
@@ -57,9 +57,9 @@ const int MAX_ADDR_LEN = 16;
 bool exiting = false;
 bool use_db_thread = false;
 
-/* #ifdef DEBUG */
+#ifdef DEBUG
 long total_handle_time = 0.0;
-/* #endif */
+#endif
 
 FILE *LOG;
 
@@ -246,11 +246,16 @@ __attribute__((noinline)) int submit_ip_entry(__u32 src_ip, int type)
 void submit_ip_list()
 {
 	pthread_rwlock_rdlock(&config_lock);
-	for (int i = 0; i < current_config.ip_blacklist->size; i++) {
-		submit_ip_entry(current_config.ip_blacklist->entries[i], BLACKLIST);
+	if (current_config.ip_blacklist) {
+		for (int i = 0; i < current_config.ip_blacklist->size; i++) {
+			submit_ip_entry(current_config.ip_blacklist->entries[i], BLACKLIST);
+		}
 	}
-	for (int i = 0; i < current_config.ip_whitelist->size; i++) {
-		submit_ip_entry(current_config.ip_whitelist->entries[i], WHITELIST);
+
+	if (current_config.ip_whitelist) {
+		for (int i = 0; i < current_config.ip_whitelist->size; i++) {
+			submit_ip_entry(current_config.ip_whitelist->entries[i], WHITELIST);
+		}
 	}
 	pthread_rwlock_unlock(&config_lock);
 }
@@ -299,11 +304,11 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	int alert_count;       /* number of alerts from current source IP */
 
 
-/* #ifdef DEBUG */
+#ifdef DEBUG
 	/* measure start time */
 	struct timespec start_time, end_time, delta;
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
-/* #endif */
+#endif
 
 	/* packet timestamp */
 	timestamp = time(NULL);
@@ -312,6 +317,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	/* source IP address */
 	current_packet.src_ip = ntohl(src_addr(&e->ip_header));
 
+
 	/* destination TCP port */
 	current_packet.dst_port = get_dst_port(&e->tcp_header);
 
@@ -319,6 +325,24 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	time_to_str(timestamp, time_string, 32, "%H:%M:%S");
 	ports_scanned(packet_table, current_packet.src_ip, ports);
 	port_info(packet_table, current_packet.src_ip, &info);
+
+	/* NOTE testing CIDR calculation */
+#ifdef DEBUG
+	char *cidr_1 = "192.168.1.100/24";
+	char *cidr_2 = "192.168.66.30/24";
+
+	struct subnet subnet_1 = cidr_to_subnet(cidr_1);
+	struct subnet subnet_2 = cidr_to_subnet(cidr_2);
+
+	log_debug("IP %s in subnet %s: %d\n",
+			address, cidr_1,
+			in_subnet(htonl(current_packet.src_ip),
+				subnet_1.network_addr, subnet_1.mask))
+	log_debug("IP %s in subnet %s: %d\n",
+			address, cidr_2,
+			in_subnet(htonl(current_packet.src_ip),
+				subnet_2.network_addr, subnet_2.mask))
+#endif
 
 	/* update hash table */
 	get_fingerprint(&current_packet, fingerprint);

@@ -170,11 +170,11 @@ int process_packet(struct xdp_md *ctx)
 #ifdef DEBUG
 						bpf_printk("action for %lu = redirect", src_ip);
 #endif
-						change_dst_addr(ip_headers, current_config->redirect_ip);
 
 						/* XDP_TX = send packet back on the same interface it
 						 * came from */
 						/* NOTE "soft redirect"
+						change_dst_addr(ip_headers, current_config->redirect_ip);
 						result = XDP_TX;
 						*/
 					}

@@ -43,8 +43,8 @@ struct config {
 	unsigned long redirect_ip;
 	bool block_src;
 
-	struct ip_list *ip_blacklist;
-	struct ip_list *ip_whitelist;
+	struct ip_list *blacklist_ip;
+	struct ip_list *whitelist_ip;
 };
 
 struct inotify_thread_args {
@@ -284,8 +284,8 @@ static void set_default_config(struct config *config, pthread_rwlock_t *lock)
 	config->redirect_ip = -1;
 
 	/* blacklist + whitelists empty initially */
-	config->ip_blacklist = NULL;
-	config->ip_whitelist = NULL;
+	config->blacklist_ip = NULL;
+	config->whitelist_ip = NULL;
 
 	pthread_rwlock_unlock(lock);
 }
@@ -358,26 +358,26 @@ static void apply_config(cJSON *config_json, struct config *current_config,
 	}
 
 	/* blacklist and whitelist */
-	ip_blacklist = ip_list_json(config_json, "ip_blacklist");
-	ip_whitelist = ip_list_json(config_json, "ip_whitelist");
+	ip_blacklist = ip_list_json(config_json, "blacklist_ip");
+	ip_whitelist = ip_list_json(config_json, "whitelist_ip");
 
 	pthread_rwlock_wrlock(lock);
-	if (current_config->ip_blacklist) {
-		if (current_config->ip_blacklist->entries) {
-			free(current_config->ip_blacklist->entries);
+	if (current_config->blacklist_ip) {
+		if (current_config->blacklist_ip->entries) {
+			free(current_config->blacklist_ip->entries);
 		}
-		free(current_config->ip_blacklist);
+		free(current_config->blacklist_ip);
 	}
 
-	if (current_config->ip_whitelist) {
-		if (current_config->ip_whitelist->entries) {
-			free(current_config->ip_whitelist->entries);
+	if (current_config->whitelist_ip) {
+		if (current_config->whitelist_ip->entries) {
+			free(current_config->whitelist_ip->entries);
 		}
-		free(current_config->ip_whitelist);
+		free(current_config->whitelist_ip);
 	}
 
-	current_config->ip_blacklist = ip_blacklist;
-	current_config->ip_whitelist = ip_whitelist;
+	current_config->blacklist_ip = ip_blacklist;
+	current_config->whitelist_ip = ip_whitelist;
 
 	pthread_rwlock_unlock(lock);
 }

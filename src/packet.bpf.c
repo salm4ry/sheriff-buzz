@@ -144,6 +144,14 @@ int process_packet(struct xdp_md *ctx)
 
 	src_ip = src_addr(ip_headers);
 
+	/* NOTE: test if IP belongs to subnet 192.168.66.0/24
+	__u32 example_network = 4368576;
+	__u32 example_mask = 16777215;
+
+	bpf_printk("IP %u belongs to subnet: %d",
+			src_ip, in_subnet(src_ip, example_network, example_mask));
+	*/
+
 	/* get config */
 	current_config = bpf_map_lookup_elem(&config, &config_index);
 

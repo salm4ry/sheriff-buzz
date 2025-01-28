@@ -18,6 +18,7 @@ GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
 
 CC = clang
 INCLUDE += -I/usr/include/x86_64-linux-gnu
+LIBS = -lbpf -lelf -lpq -lz -lcjson -lresolv
 
 # include debug logging
 CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g -DDEBUG
@@ -45,7 +46,7 @@ $(KRN_TARGET):
 	$(CC) $(CFLAGS) -target bpf -c $(KRN_SRC) -o $(KRN_TARGET)
 
 $(USR_TARGET): $(USR_OBJ)
-	$(CC) $(CFLAGS) $(USR_OBJ) -o $(USR_TARGET) -lbpf -lelf -lpq -lz -lcjson $(GLIB_LIBS)
+	$(CC) $(CFLAGS) $(USR_OBJ) -o $(USR_TARGET) $(LIBS) $(GLIB_LIBS)
 
 ######################################
 # Unload

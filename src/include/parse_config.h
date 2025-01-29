@@ -33,14 +33,14 @@ struct subnet {
 
 struct ip_list {
 	int size;
-	unsigned long *entries;
+	in_addr_t *entries;
 };
 
 struct config {
 	int packet_threshold;
 	int flag_threshold;
-	unsigned long port_threshold;
-	unsigned long redirect_ip;
+	long port_threshold;
+	in_addr_t redirect_ip;
 	bool block_src;
 
 	struct ip_list *blacklist_ip;
@@ -157,7 +157,7 @@ static char *str_json_value(cJSON *obj, const char *item_name)
  */
 static long ip_json_value(cJSON *obj, const char *item_name)
 {
-	long ip = -1;
+	in_addr_t ip = 0;
 	int res;
 
 	char *value = str_json_value(obj, item_name);
@@ -166,7 +166,7 @@ static long ip_json_value(cJSON *obj, const char *item_name)
 		/* inet_pton() returns 1 on success, 0 on error */
 		res = inet_pton(AF_INET, value, &ip);
 		if (res == 0) {
-			ip = -1;
+			return -1;
 		}
 	}
 
@@ -196,7 +196,7 @@ struct ip_list *ip_list_json(cJSON *obj, const char *item_name)
 	array = cJSON_GetObjectItemCaseSensitive(obj, item_name);
 	list->size = cJSON_GetArraySize(array);
 	if (list->size != 0) {
-		list->entries = calloc(list->size, sizeof(unsigned long));
+		list->entries = calloc(list->size, sizeof(in_addr_t));
 		if (!list->entries) {
 			pr_err("memory allocation failed: %s\n", strerror(errno));
 			exit(1);
@@ -294,7 +294,7 @@ static void apply_config(cJSON *config_json, struct config *current_config,
 		pthread_rwlock_t *lock)
 {
 	int packet_threshold, flag_threshold, block_src;
-	unsigned long redirect_ip;
+	in_addr_t redirect_ip;
 	long port_threshold;
 
 	struct ip_list *ip_blacklist, *ip_whitelist;

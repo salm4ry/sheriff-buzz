@@ -36,6 +36,11 @@ struct ip_list {
 	in_addr_t *entries;
 };
 
+struct subnet_list {
+	int size;
+	struct subnet *entries;
+};
+
 struct config {
 	int packet_threshold;
 	int flag_threshold;
@@ -45,6 +50,9 @@ struct config {
 
 	struct ip_list *blacklist_ip;
 	struct ip_list *whitelist_ip;
+
+	struct subnet_list *blacklist_subnet;
+	struct subnet_list *whitelist_subnet;
 };
 
 struct inotify_thread_args {
@@ -67,24 +75,21 @@ static char *str_lower(char *str)
 }
 
 /* get network address and subnet mask given CIDR (slash notation) string */
-struct subnet cidr_to_subnet(char *cidr)
+static void cidr_to_subnet(char *cidr, struct subnet *subnet)
 {
 	int bits;
-	struct subnet res;
 
-	res.network_addr = 0;
-	res.mask = 0;
+	subnet->network_addr = 0;
+	subnet->mask = 0;
 
 	/* bits = number of bits in network number */
 	bits = inet_net_pton(AF_INET, cidr,
-			&res.network_addr, sizeof(res.network_addr));
+			&subnet->network_addr, sizeof(subnet->network_addr));
 
 	/* convert bits to subnet mask (based on ipcalc implementation) */
-	res.mask = htonl(~((1 << (32 - bits)) - 1));
+	subnet->mask = htonl(~((1 << (32 - bits)) - 1));
 	/* convert resulting address to network address with bitwise AND */
-	res.network_addr &= res.mask;
-
-	return res;
+	subnet->network_addr &= subnet->mask;
 }
 
 /**
@@ -215,6 +220,51 @@ struct ip_list *ip_list_json(cJSON *obj, const char *item_name)
 
 			index++;
 		}
+	} else {
+		free(list);
+		list = NULL;
+	}
+
+	return list;
+}
+
+static struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name)
+{
+	int index = 0;
+	cJSON *array, *elem;
+	struct subnet_list *list;
+
+	list = malloc(sizeof(struct subnet_list));
+	if (!list) {
+		pr_err("memory allocation failed: %s\n", strerror(errno));
+		exit(1);
+	}
+
+	array = cJSON_GetObjectItemCaseSensitive(obj, item_name);
+	list->size = cJSON_GetArraySize(array);
+	if (list->size != 0) {
+		list->entries = calloc(list->size, sizeof(struct subnet));
+		if (!list->entries) {
+			pr_err("memory allocation failed: %s\n", strerror(errno));
+			exit(1);
+		}
+
+#ifdef DEBUG
+		log_debug("%s size = %d\n", item_name, list->size);
+#endif
+
+		/* extract subnets from array */
+		cJSON_ArrayForEach(elem, array)
+		{
+			if (cJSON_IsString(elem) && elem->valuestring) {
+				cidr_to_subnet(elem->valuestring, &list->entries[index]);
+			}
+
+			index++;
+		}
+	} else {
+		free(list);
+		list = NULL;
 	}
 
 	return list;
@@ -272,6 +322,26 @@ static long threshold_json_value(
 	return value;
 }
 
+static void free_ip_list(struct ip_list *list)
+{
+	if (list) {
+		if (list->entries) {
+			free(list->entries);
+		}
+		free(list);
+	}
+}
+
+static void free_subnet_list(struct subnet_list *list)
+{
+	if (list) {
+		if (list->entries) {
+			free(list->entries);
+		}
+		free(list);
+	}
+}
+
 static void set_default_config(struct config *config, pthread_rwlock_t *lock)
 {
 	pthread_rwlock_wrlock(lock);
@@ -297,7 +367,8 @@ static void apply_config(cJSON *config_json, struct config *current_config,
 	in_addr_t redirect_ip;
 	long port_threshold;
 
-	struct ip_list *ip_blacklist, *ip_whitelist;
+	struct ip_list *blacklist_ip, *whitelist_ip;
+	struct subnet_list *blacklist_subnet, *whitelist_subnet;
 
 	/* read thresholds */
 	packet_threshold = threshold_json_value(config_json,
@@ -357,27 +428,23 @@ static void apply_config(cJSON *config_json, struct config *current_config,
 #endif
 	}
 
-	/* blacklist and whitelist */
-	ip_blacklist = ip_list_json(config_json, "blacklist_ip");
-	ip_whitelist = ip_list_json(config_json, "whitelist_ip");
+	/* IP blacklist and whitelist */
+	blacklist_ip = ip_list_json(config_json, "blacklist_ip");
+	whitelist_ip = ip_list_json(config_json, "whitelist_ip");
+
+	/* subnet blacklist and whitelist */
+	blacklist_subnet = subnet_list_json(config_json, "blacklist_subnet");
+	whitelist_subnet = subnet_list_json(config_json, "whitelist_subnet");
 
 	pthread_rwlock_wrlock(lock);
-	if (current_config->blacklist_ip) {
-		if (current_config->blacklist_ip->entries) {
-			free(current_config->blacklist_ip->entries);
-		}
-		free(current_config->blacklist_ip);
-	}
+	free_ip_list(current_config->blacklist_ip);
+	free_ip_list(current_config->whitelist_ip);
+	free_subnet_list(current_config->blacklist_subnet);
+	free_subnet_list(current_config->whitelist_subnet);
 
-	if (current_config->whitelist_ip) {
-		if (current_config->whitelist_ip->entries) {
-			free(current_config->whitelist_ip->entries);
-		}
-		free(current_config->whitelist_ip);
-	}
-
-	current_config->blacklist_ip = ip_blacklist;
-	current_config->whitelist_ip = ip_whitelist;
-
+	current_config->blacklist_ip = blacklist_ip;
+	current_config->whitelist_ip = whitelist_ip;
+	current_config->blacklist_subnet = blacklist_subnet;
+	current_config->whitelist_subnet = whitelist_subnet;
 	pthread_rwlock_unlock(lock);
 }

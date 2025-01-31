@@ -187,7 +187,7 @@ int process_packet(struct xdp_md *ctx)
 	__u16 *ip_list_type;
 	__u32 src_ip;
 
-    struct subnet_rb_event *subnet;
+    struct bpf_subnet *subnet = NULL;
 
 	int result = XDP_PASS;
 
@@ -285,6 +285,7 @@ int process_packet(struct xdp_md *ctx)
 	}
 
     /* look up subnet */
+    /* TODO fix loop- use bpf_loop() helper */
     for (__u32 i = 0; i < MAX_SUBNET; i++) {
         subnet = bpf_map_lookup_elem(&subnet_list, &i);
         if (subnet) {

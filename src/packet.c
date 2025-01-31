@@ -29,12 +29,15 @@
 #include "include/parse_config.h"
 #include "include/log.h"
 
-struct bpf_object *xdp_obj, *flag_uretprobe_obj, *config_uretprobe_obj;
+struct bpf_object *xdp_obj, *ip_uretprobe_obj, \
+                      *subnet_uretprobe_obj, *config_uretprobe_obj;
+
 uint32_t xdp_flags;
 int ifindex;
 
 struct ring_buffer *xdp_rb = NULL;
 struct user_ring_buffer *ip_rb = NULL;
+struct user_ring_buffer *subnet_rb = NULL;
 struct user_ring_buffer *config_rb = NULL;
 int err;
 
@@ -258,6 +261,50 @@ void submit_ip_list()
 		}
 	}
 	pthread_rwlock_unlock(&config_lock);
+}
+
+__attribute__((noinline)) int submit_subnet_entry(struct subnet *entry,
+        int type, int index)
+{
+    int err = 0;
+    struct subnet_rb_event *e;
+
+    e = user_ring_buffer__reserve(subnet_rb, sizeof(*e));
+    if (!e) {
+        err = -errno;
+        return err;
+    }
+
+    /* fill out ring buffer sample */
+    e->mask = entry->mask;
+    e->network_addr = entry->network_addr;
+    e->index = index;
+    e->type = type;
+
+    user_ring_buffer__submit(subnet_rb, e);
+    return err;
+}
+
+void submit_subnet_list()
+{
+    int index = 0;
+
+    pthread_rwlock_rdlock(&config_lock);
+    if (current_config.blacklist_subnet) {
+        for (int i = 0; i < current_config.blacklist_subnet->size; i++) {
+            submit_subnet_entry(&current_config.blacklist_subnet->entries[i],
+                    index, BLACKLIST);
+            index++;
+        }
+    }
+    if (current_config.whitelist_subnet) {
+        for (int i = 0; i < current_config.whitelist_subnet->size; i++) {
+            submit_subnet_entry(&current_config.whitelist_subnet->entries[i],
+                    index, WHITELIST);
+            index++;
+        }
+    }
+    pthread_rwlock_unlock(&config_lock);
 }
 
 __attribute__((noinline)) int submit_action_config()
@@ -611,7 +658,7 @@ int main(int argc, char *argv[])
 	struct bpf_map *map = NULL;
 
     /* map file descriptors */
-	int ip_list_fd, config_hash_fd;
+	int ip_list_fd, subnet_list_fd, config_hash_fd;
 
     /* ring buffers */
     int xdp_rb_fd, ip_rb_fd, config_rb_fd;
@@ -735,10 +782,29 @@ int main(int argc, char *argv[])
 	}
 	ip_list_fd = bpf_map__fd(map);
 
+    /* get subnet array file descriptor so it can be shared with the
+     * corresponding uretprobe */
+    map = bpf_object__find_map_by_name(xdp_obj, "subnet_list");
+    if (!map) {
+        log_error("cannot find map by name: %s\n", "subnet_list");
+        err = -1;
+        goto cleanup;
+    }
+    subnet_list_fd = bpf_map__fd(map);
+
     /* load and attach IP list uretprobe */
-	if (load_and_attach_bpf_uretprobe(&flag_uretprobe_obj, BPF_FILENAME,
+	if (load_and_attach_bpf_uretprobe(&ip_uretprobe_obj, BPF_FILENAME,
 				"read_ip_rb", "submit_ip_entry",
 				ip_list_fd, "ip_list") <= 0) {
+		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
+		err = -1;
+		goto cleanup;
+	}
+
+    /* load and attach subnet list uretprobe */
+	if (load_and_attach_bpf_uretprobe(&subnet_uretprobe_obj, BPF_FILENAME,
+				"read_subnet_rb", "submit_subnet_entry",
+				subnet_list_fd, "subnet_list") <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 		err = -1;
 		goto cleanup;
@@ -793,7 +859,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* find IP user ring buffer */
-	map = bpf_object__find_map_by_name(flag_uretprobe_obj, "ip_rb");
+	map = bpf_object__find_map_by_name(ip_uretprobe_obj, "ip_rb");
 	if (!map) {
 		log_error("cannot find map by name: %s\n", "ip_rb");
 		goto cleanup;

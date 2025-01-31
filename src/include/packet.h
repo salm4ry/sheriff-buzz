@@ -50,6 +50,7 @@ struct ip_rb_event {
  *
  * network_addr: subnet network address
  * mask: subnet mask
+ * index: subnet array index (calculated in user space)
  * type: either BLACKLIST or WHITELIST
  */
 struct subnet_rb_event {

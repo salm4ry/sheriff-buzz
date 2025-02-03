@@ -264,7 +264,7 @@ void submit_ip_list()
 }
 
 __attribute__((noinline)) int submit_subnet_entry(struct subnet *entry,
-        int type, int index)
+        int index, int type)
 {
     int err = 0;
     struct subnet_rb_event *e;
@@ -571,6 +571,7 @@ static void handle_inotify_events(int fd, const char *target_filename,
 					/* submit config: action, and black/whitelisted IPs */
 					submit_action_config();
 					submit_ip_list();
+                    submit_subnet_list();
 
 					cJSON_Delete(config_json);
 				}
@@ -661,7 +662,7 @@ int main(int argc, char *argv[])
 	int ip_list_fd, subnet_list_fd, config_hash_fd;
 
     /* ring buffers */
-    int xdp_rb_fd, ip_rb_fd, config_rb_fd;
+    int xdp_rb_fd, ip_rb_fd, subnet_rb_fd, config_rb_fd;
 	int res = 0;
 
 	char *thread_env;
@@ -874,6 +875,22 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
+    /* find subnet user ring buffer */
+    map = bpf_object__find_map_by_name(subnet_uretprobe_obj, "subnet_rb");
+    if (!map) {
+        log_error("cannot find map by name: %s\n", "subnet_rb");
+        goto cleanup;
+    }
+    subnet_rb_fd = bpf_map__fd(map);
+
+    /* set up subnet list user ring buffer */
+    subnet_rb = user_ring_buffer__new(subnet_rb_fd, NULL);
+    if (!subnet_rb) {
+        err = -1;
+        log_error("%s\n", "failed to create subnet list user ring buffer");
+        goto cleanup;
+    }
+
 	/* find config user ring buffer */
 	map = bpf_object__find_map_by_name(config_uretprobe_obj, "config_rb");
 	if (!map) {
@@ -893,6 +910,7 @@ int main(int argc, char *argv[])
 	/* submit initial config */
 	submit_action_config();
 	submit_ip_list();
+    submit_subnet_list();
 
 	/* create database worker thread
 	 *

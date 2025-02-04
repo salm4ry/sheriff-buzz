@@ -69,5 +69,6 @@ All configuration is optional; defaults are:
 - `whitelist_ip`, `whitelist_subnet`: do not analyse traffic on these IPs and
   subnets
 
-> [!note]
-> IP blacklisting/whitelisting takes **precedence** over subnets
+#### Blacklist/Whitelist Precedence
+- IP > subnet
+- whitelist > blacklist

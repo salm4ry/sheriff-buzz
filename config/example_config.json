@@ -3,9 +3,9 @@
 	"port_threshold": 100,
 	"flag_threshold": 3,
 	"action": "block",
-	"redirect_ip": "0.0.0.0"
+	"redirect_ip": "0.0.0.0",
 	"blacklist_ip": ["1.1.1.1", "2.2.2.2", "3.3.3.3"],
-	"whitelist_ip": ["8.8.8.8", "100.100.100.100"]
+	"whitelist_ip": ["8.8.8.8", "100.100.100.100"],
 	"blacklist_subnet": ["10.0.0.0/8", "1.2.3.0/24"],
 	"whitelist_subnet": ["192.168.66.0/24"]
 }

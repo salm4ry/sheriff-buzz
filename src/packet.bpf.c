@@ -1,4 +1,3 @@
-#include <bpf/libbpf_legacy.h>
 #include <linux/bpf.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>

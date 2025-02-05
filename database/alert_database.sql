@@ -67,3 +67,9 @@ INSERT INTO alert_type (description) VALUES('Xmas scan');
 INSERT INTO alert_type (description) VALUES('FIN scan');
 INSERT INTO alert_type (description) VALUES('NULL scan');
 INSERT INTO alert_type (description) VALUES('Port scan');
+
+-- let unprivileged account have permissions
+-- TODO pass in username programatically
+GRANT SELECT ON log TO gamek0i;
+GRANT SELECT ON alert_type TO gamek0i;
+GRANT SELECT ON flagged TO gamek0i;

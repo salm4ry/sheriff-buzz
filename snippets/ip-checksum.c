@@ -73,7 +73,7 @@ int main(int argc, char *argv[])
 		0x40, 0x06, 0xb1, 0xe6, 0xac, 0x10, 0x0a, 0x63, 0xac, 0x10, 0x0a, 0x0c};
 	struct iphdr *header = (struct iphdr *) &header_bytes;
 	char old_dst_addr[MAX_IP], new_dst_addr[MAX_IP];
-	long new_dest_ip;
+	in_addr_t new_dest_ip;
 
 	/* calculate IP checksum */
 	ip_checksum(header);

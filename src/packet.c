@@ -174,7 +174,7 @@ char *procnum_to_str(int protocol)
 	}
 }
 
-void ip_to_str(long address, char buffer[]) {
+void ip_to_str(in_addr_t address, char buffer[]) {
 	address = ntohl(address);
 
 	/* NOTE specific to IPv4, would need to add another case (and maximum

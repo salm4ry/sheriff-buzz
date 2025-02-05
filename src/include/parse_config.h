@@ -1,3 +1,4 @@
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -160,7 +161,7 @@ static char *str_json_value(cJSON *obj, const char *item_name)
  *
  * return parsed IP on success, -1 on error
  */
-static long ip_json_value(cJSON *obj, const char *item_name)
+static in_addr_t ip_json_value(cJSON *obj, const char *item_name)
 {
 	in_addr_t ip = 0;
 	int res;

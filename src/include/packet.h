@@ -17,9 +17,10 @@
 #define TCP_PNUM 6 /* TCP protocol number */
 #define NUM_PORTS 65536
 
+/* TODO figure out why black/whitelisting fails when these are set to 0 and 1 */
 enum ip_types {
-	BLACKLIST = 1,
-	WHITELIST = 0
+	BLACKLIST = 0xdead,
+	WHITELIST = 0xbeef
 };
 
 /**

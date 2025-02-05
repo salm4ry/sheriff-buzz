@@ -35,7 +35,7 @@
  * flags: TCP flags
  */
 struct key {
-	long src_ip;
+	in_addr_t src_ip;
 	int dst_port;
 	/* bool flags[NUM_FLAGS]; */
 };
@@ -151,11 +151,11 @@ static int count_ports_scanned(bool *ports_scanned)
 void get_fingerprint(struct key *key, char *buf)
 {
 	/* zero-padded so fingerprints are always of length MAX_FINGERPRINT */
-	snprintf(buf, MAX_FINGERPRINT, "%08lx%04x", key->src_ip, key->dst_port);
+	snprintf(buf, MAX_FINGERPRINT, "%08x%04x", key->src_ip, key->dst_port);
 }
 
 /* generate port-based fingerprints for a given source IP and flag combination */
-char **ip_fingerprint(long src_ip)
+char **ip_fingerprint(in_addr_t src_ip)
 {
 	char **fingerprint = malloc(NUM_PORTS * sizeof(char *));
 	if (!fingerprint) {
@@ -206,7 +206,7 @@ int count_entries(GHashTable *table)
 }
 
 /* get list of ports a given IP (and flag combination) has sent packets to */
-void ports_scanned(GHashTable *packet_table, long src_ip, bool *ports_scanned)
+void ports_scanned(GHashTable *packet_table, in_addr_t src_ip, bool *ports_scanned)
 {
 	char **fingerprint = ip_fingerprint(src_ip);
 	gboolean res;
@@ -224,7 +224,7 @@ void ports_scanned(GHashTable *packet_table, long src_ip, bool *ports_scanned)
  * struct port_info contains information about ports the source IP has sent
  * packets to and the total number of packets it has sent
  */
-void port_info(GHashTable *packet_table, long src_ip, struct port_info *info)
+void port_info(GHashTable *packet_table, in_addr_t src_ip, struct port_info *info)
 {
 	char **fingerprint = ip_fingerprint(src_ip);
 	struct value *res;
@@ -265,10 +265,10 @@ gboolean fingerprint_ip_equal(gpointer key, gpointer value, gpointer user_data)
  * ip = target IP to delete entries about
  * packet_table = packet information hash table
  */
-void delete_ip_entries(long ip, GHashTable *packet_table)
+void delete_ip_entries(in_addr_t ip, GHashTable *packet_table)
 {
 	char ip_fingerprint[MAX_IP_HEX+1];
-	snprintf(ip_fingerprint, MAX_IP_HEX+1, "%08lx", ip);
+	snprintf(ip_fingerprint, MAX_IP_HEX+1, "%08x", ip);
 
     g_hash_table_foreach_remove(packet_table, &fingerprint_ip_equal, ip_fingerprint);
 }
@@ -328,7 +328,7 @@ int db_alert(PGconn *conn, pthread_mutex_t *db_lock,
 	char ip_str[MAX_IP];
 	char *cmd;
 
-	long src_ip = ntohl(key->src_ip);
+	in_addr_t src_ip = ntohl(key->src_ip);
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
 	switch (alert_type) {
@@ -407,7 +407,7 @@ int db_flagged(PGconn *conn, pthread_mutex_t *db_lock,
     char *cmd;
 	char ip_str[MAX_IP];
 
-	long src_ip = ntohl(key->src_ip);
+	in_addr_t src_ip = ntohl(key->src_ip);
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
     cmd = "INSERT INTO flagged (src_ip, time) VALUES ('%s', to_timestamp(%ld))";

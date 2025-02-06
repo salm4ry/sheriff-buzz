@@ -19,6 +19,11 @@ HEAD_OPTS='-1'
 
 NMAP=/usr/bin/nmap
 
+# database query: inner join with alert type to get human-readable names
+LOG_QUERY='SELECT log.dst_port, log.src_ip, log.packet_count, log.latest,
+	alert_type.description AS alert_type FROM log 
+	INNER JOIN alert_type ON log.alert_type = alert_type.id;'
+
 # TODO document test script e.g. in README
 
 # generate pseudorandom port numbers for testing
@@ -38,7 +43,9 @@ nmap_scan() {
 	local scan_type=$1
 	local NMAP_OPTS=()
 
-	NMAP_OPTS+=('-n')  # never use DNS
+	# -n = never use DNS
+	# -v0 = remove stdout output
+	NMAP_OPTS+=('-n' '-v0')
 
 	case $scan_type in
 		xmas)
@@ -91,10 +98,14 @@ nmap_scan null "$port" "${HOST}"
 log=$(get_log_file)
 printf "\nusing log file: %s\n" "$log"
 
-# TODO save log output to file and grep for alert lines etc.
-"${SSH}" "${SSH_OPTS}" "${HOST}" "cat ${LOG_DIR}/$log"
+# save log to temporary file
+tmp_log=$(mktemp -p .)
+"${SSH}" "${SSH_OPTS}" "${HOST}" "cat ${LOG_DIR}/$log" > "${tmp_log}"
+# only output alert-related lines
+grep 'alert: ' "${tmp_log}"
+# remove temporary file after use
+rm "${tmp_log}"
 
 # check alerts were added to the database correctly
-# TODO inner join with alert type to get human-readable names
 printf "\nconnecting to %s alert database\n" "$HOST"
-"${SSH}" "${SSH_OPTS}" "${HOST}" "psql alerts -c 'SELECT * FROM log;'"
+"${SSH}" "${SSH_OPTS}" "${HOST}" "psql alerts -c '${LOG_QUERY}'"

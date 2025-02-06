@@ -12,7 +12,6 @@ SSH=/usr/bin/ssh
 SSH_OPTS=-q
 
 LS=/usr/bin/ls
-LS_OPTS='-1t'
 
 HEAD=/usr/bin/head
 HEAD_OPTS='-1'
@@ -34,6 +33,7 @@ rand_port () {
 # get name of latest log file (assumption that the program is already running so
 # has already created a log file)
 get_log_file () {
+	local LS_OPTS='-1t'
 	printf "%s" "$("${SSH}" "${SSH_OPTS}" "${HOST}" \
 		"${LS} ${LS_OPTS} ${LOG_DIR} \
 		| ${HEAD} ${HEAD_OPTS}")"
@@ -107,5 +107,5 @@ grep 'alert: ' "${tmp_log}"
 rm "${tmp_log}"
 
 # check alerts were added to the database correctly
-printf "\nconnecting to %s alert database\n" "$HOST"
+printf "\nconnecting to %s alert database\n" "${HOST}"
 "${SSH}" "${SSH_OPTS}" "${HOST}" "psql alerts -c '${LOG_QUERY}'"

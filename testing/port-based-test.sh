@@ -74,6 +74,8 @@ initial_count=$(count_alerts)
 
 printf "nmap scan on %s\n" "${HOST}"
 nmap_scan "${HOST}"
+# TODO timing measurement for how long it took the alert to make it to the log
+# file + database
 
 # get log filename
 log=$(get_log_file)
@@ -87,6 +89,7 @@ do
 	then
 		sleep 1;
 	else
+		# NOTE log file timing measurement ends here
 		break
 	fi
 done
@@ -110,12 +113,11 @@ do
 
 	if [[ "$count" > "$initial_count" ]]
 	then
+		# NOTE database timing measurement ends here
 		break
 	else
 		sleep 1
 	fi
 done
-
-
 
 run_on_host "psql alerts -c '${LOG_QUERY}'"

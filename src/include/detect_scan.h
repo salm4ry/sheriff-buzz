@@ -8,12 +8,12 @@
 #define NUM_PORTS 65536
 #define MAX_PACKETS 1024
 
+/*
 static bool is_port_scan(bool *ports_scanned, int threshold)
 {
 	int port_count = count_ports_scanned(ports_scanned);
 
-	/* TODO use common port count as well as overall port count */
-	/*
+	// TODO use common port count as well as overall port count
 	int common_port_count = 0;
 
 	for (int i = 0; i < NUM_PORTS; i++) {
@@ -21,10 +21,10 @@ static bool is_port_scan(bool *ports_scanned, int threshold)
 			common_port_count++;
 		}
 	}
-	*/
 
 	return (port_count >= threshold);
 }
+*/
 
 /* detect nmap -sF: FIN only */
 static bool is_fin_scan(struct tcphdr *tcph)

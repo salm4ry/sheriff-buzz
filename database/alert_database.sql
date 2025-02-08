@@ -55,11 +55,7 @@ ALTER TABLE IF EXISTS log
 		ON DELETE CASCADE;
 
 -- index for update conflict detection
-CREATE UNIQUE INDEX ON log(fingerprint, src_ip, alert_type)
-	WHERE fingerprint IS NOT NULL;
-
-CREATE UNIQUE INDEX ON log(src_ip, alert_type)
-	WHERE fingerprint IS NULL;
+CREATE UNIQUE INDEX ON log(src_ip, alert_type);
 
 -- set up alert types
 -- flag-based scans

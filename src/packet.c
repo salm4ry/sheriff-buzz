@@ -339,17 +339,14 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	struct xdp_rb_event *e = data;
 	time_t timestamp;
     char address[MAX_ADDR_LEN], time_string[32];
-	bool ports[NUM_PORTS];
-	struct port_info info;
+	int dst_port;
 
-	struct key current_packet;
+	struct key current_key;
 	struct value new_val;
-	char fingerprint[MAX_FINGERPRINT];
 	gpointer res;
 
 	bool is_alert = false; /* did this packet cause an alert? */
-	int alert_count;       /* number of alerts from current source IP */
-
+	bool flagged = false;  /* did this IP get flagged? */
 
 #ifdef DEBUG
 	/* measure start time */
@@ -362,39 +359,51 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 	/* extract data from IP and TCP headers */
 	/* source IP address */
-	current_packet.src_ip = ntohl(src_addr(&e->ip_header));
+	current_key.src_ip = ntohl(src_addr(&e->ip_header));
 
 
 	/* destination TCP port */
-	current_packet.dst_port = get_dst_port(&e->tcp_header);
+	dst_port = get_dst_port(&e->tcp_header);
 
-	ip_to_str(current_packet.src_ip, address);
+	ip_to_str(current_key.src_ip, address);
 	time_to_str(timestamp, time_string, 32, "%H:%M:%S");
-	ports_scanned(packet_table, current_packet.src_ip, ports);
-	port_info(packet_table, current_packet.src_ip, &info);
 
 	/* update hash table */
-	get_fingerprint(&current_packet, fingerprint);
-
 	/* look up hash table entry */
-	res = g_hash_table_lookup(packet_table, (gconstpointer) &fingerprint);
+	res = g_hash_table_lookup(packet_table, (gconstpointer) &current_key.src_ip);
 
 	if (res) {
 		/* entry already exists: update count and timestamp */
 		struct value *current_val = (struct value*) res;
 		new_val.first = current_val->first;
 		new_val.latest = timestamp;
-		new_val.count = current_val->count + 1;
+		new_val.total_packet_count = current_val->total_packet_count + 1;
+		new_val.total_port_count = current_val->total_port_count;
+
+		/* copy per-port counts */
+		memcpy(current_val->ports, new_val.ports, NUM_PORTS);
+
+		/* increment port count if this is a new port */
+		if (new_val.ports[dst_port] == 0) {
+			new_val.total_port_count++;
+		}
+		/* increment packet count for current destination port */
+		new_val.ports[dst_port]++;
+
+
 	} else {
 		/* set up new entry */
 		new_val.first = timestamp;
 		new_val.latest = new_val.first;
-		new_val.count = 1;
+
+		/* explicitly zero port count array */
+		bzero(new_val.ports, NUM_PORTS);
+		/* set up total packete and port counts */
+		new_val.total_packet_count = 1;
+		new_val.total_port_count = 1;
+		new_val.ports[dst_port] = 1;
 	}
 
-	/* insert/replace hash table entry */
-	g_hash_table_replace(packet_table,
-			g_strdup(fingerprint), g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
 
 	/* detect flag-based scans */
 	if (is_xmas_scan(&e->tcp_header)) {
@@ -402,18 +411,18 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		int packet_threshold = current_config.packet_threshold;
 		pthread_rwlock_unlock(&config_lock);
 
-		if (new_val.count >= packet_threshold) {
+		if (new_val.total_packet_count >= packet_threshold) {
 			is_alert = true;
 
 			log_alert("nmap Xmas scan detected from %s (port %d)!\n",
-					address, current_packet.dst_port);
+					address, dst_port);
 
 			if (use_db_thread) {
 				queue_work(&task_queue_head, &task_queue_lock,
-						 fingerprint, XMAS_SCAN, &current_packet, &new_val, NULL);
+						 XMAS_SCAN, &current_key, &new_val, dst_port);
 			} else {
-				db_alert(db_conn, &db_lock, fingerprint, XMAS_SCAN,
-						&current_packet, &new_val, NULL);
+				db_alert(db_conn, &db_lock, XMAS_SCAN,
+						&current_key, &new_val, dst_port);
 			}
 		}
 	}
@@ -423,18 +432,18 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		int packet_threshold = current_config.packet_threshold;
 		pthread_rwlock_unlock(&config_lock);
 
-		if (new_val.count >= packet_threshold) {
+		if (new_val.total_packet_count >= packet_threshold) {
 			is_alert = true;
 
 			log_alert("nmap FIN scan detected from %s (port %d)!\n",
-					address, current_packet.dst_port);
+					address, dst_port);
 
 			if (use_db_thread) {
 				queue_work(&task_queue_head, &task_queue_lock,
-						 fingerprint, FIN_SCAN, &current_packet, &new_val, NULL);
+						 FIN_SCAN, &current_key, &new_val, dst_port);
 			} else {
-				db_alert(db_conn, &db_lock, fingerprint, FIN_SCAN,
-						&current_packet, &new_val, NULL);
+				db_alert(db_conn, &db_lock, FIN_SCAN,
+						&current_key, &new_val, dst_port);
 			}
 		}
 
@@ -445,70 +454,84 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		int packet_threshold = current_config.packet_threshold;
 		pthread_rwlock_unlock(&config_lock);
 
-		if (new_val.count >= packet_threshold) {
+		if (new_val.total_packet_count >= packet_threshold) {
 			is_alert = true;
 
 			log_alert("nmap NULL scan detected from %s (port %d)!\n",
-					address, current_packet.dst_port);
+					address, dst_port);
 
 			if (use_db_thread) {
 				queue_work(&task_queue_head, &task_queue_lock,
-						 fingerprint, NULL_SCAN, &current_packet, &new_val, NULL);
+						 NULL_SCAN, &current_key, &new_val, dst_port);
 			} else {
-				db_alert(db_conn, &db_lock, fingerprint, NULL_SCAN,
-						&current_packet, &new_val, NULL);
+				db_alert(db_conn, &db_lock, NULL_SCAN,
+						&current_key, &new_val, dst_port);
 			}
 		}
 	}
 
 	/* NOTE avoids logging every time we send an SSH packet */
-	char **port_fingerprints = ip_fingerprint(current_packet.src_ip);
+	/*
+	char **port_fingerprints = ip_fingerprint(current_key.src_ip);
 	free_ip_fingerprint(port_fingerprints);
+	*/
 
+	/* read port threshold from config */
 	pthread_rwlock_rdlock(&config_lock);
 	long port_threshold = current_config.port_threshold;
 	pthread_rwlock_unlock(&config_lock);
 
-	if (is_port_scan(ports, port_threshold)) {
+	if (new_val.total_port_count >= port_threshold) {
 		is_alert = true;
 		log_alert("nmap (%d or more ports) detected from %s!\n",
 				port_threshold, address);
 
 		if (use_db_thread) {
-			queue_work(&task_queue_head, &task_queue_lock, NULL, PORT_SCAN,
-					&current_packet, &new_val, &info);
+			queue_work(&task_queue_head, &task_queue_lock, PORT_SCAN,
+					&current_key, &new_val, 0);
 		} else {
-			db_alert(db_conn, &db_lock,
-					NULL, PORT_SCAN, &current_packet, &new_val, &info);
+			db_alert(db_conn, &db_lock, PORT_SCAN,
+					&current_key, &new_val, 0);
 		}
 	}
 
 	if (is_alert) {
+		/* incrment alert count */
+		new_val.alert_count++;
+
 		pthread_rwlock_rdlock(&config_lock);
 		int flag_threshold = current_config.flag_threshold;
 		pthread_rwlock_unlock(&config_lock);
 
 		/* check current number of alerts */
-		alert_count = get_alert_count(db_conn, &db_lock, address);
 #ifdef DEBUG
-		log_debug("alert count: %d\n", alert_count);
+		log_debug("alert count: %d\n", new_val.alert_count);
 #endif
 
 		/* flag IP if config threshold reached */
-		if (alert_count >= flag_threshold) {
+		if (new_val.alert_count >= flag_threshold) {
 			log_alert("flagging %s\n", address);
-			submit_ip_entry(current_packet.src_ip, BLACKLIST);
-
-            /* remove IP-related entries from hash table */
-            delete_ip_entries(current_packet.src_ip, packet_table);
+			flagged = true;
+			submit_ip_entry(current_key.src_ip, BLACKLIST);
 
             if (use_db_thread) {
-                queue_work(&task_queue_head, &task_queue_lock, NULL, 0,
-                        &current_packet, &new_val, NULL);
+                queue_work(&task_queue_head, &task_queue_lock, 0,
+                        &current_key, &new_val, 0);
             } else {
-                db_flagged(db_conn, &db_lock, &current_packet, &new_val);
+                db_flagged(db_conn, &db_lock, &current_key, &new_val);
             }
 		}
+	}
+
+	/* update hash table */
+	if (flagged) {
+        /* flagged: remove IP entry from hash table */
+		g_hash_table_remove(packet_table, (gconstpointer) &current_key.src_ip);
+	} else {
+		/* insert/update entry */
+		g_hash_table_replace(packet_table,
+				g_memdup2((gconstpointer) &current_key.src_ip, sizeof(in_addr_t)),
+				g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
 	}
 
 #ifdef DEBUG
@@ -517,7 +540,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	delta = diff(&start_time, &end_time);
 	total_handle_time += delta.tv_sec + delta.tv_nsec;
 
-	if (current_packet.dst_port != 22) {
+	if (dst_port != 22) {
 		log_debug("time taken: %ld ns\n", delta.tv_nsec);
 		log_debug("total handle_event time: %ld ns\n", total_handle_time);
 	}
@@ -836,7 +859,7 @@ int main(int argc, char *argv[])
 	 * hash function = djb hash
 	 * key equal function = string equality
 	 */
-	packet_table = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+	packet_table = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, g_free);
 
 	TAILQ_INIT(&task_queue_head);
 

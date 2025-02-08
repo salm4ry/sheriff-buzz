@@ -8,9 +8,9 @@
 #include <sys/queue.h>
 #include <pthread.h>
 
-
 /**
- * work queue implementation using tailq and a single mutex
+ * work queue implementation using tailq and a single mutex, in addition to a
+ * pthread_cond_t for event-based programming
  */
 
 #define MAX_QUEUE_SIZE 100
@@ -29,12 +29,11 @@ struct queue_entry {
 struct thread_args {
 	struct work_queue *queue_head;
 	pthread_mutex_t *queue_lock;
+	pthread_cond_t *queue_cond;
 };
 
 TAILQ_HEAD(work_queue, queue_entry);
 
-struct work_queue queue_head;
-pthread_mutex_t queue_lock = PTHREAD_MUTEX_INITIALIZER;
 
 int queue_size(struct work_queue *head)
 {
@@ -53,7 +52,7 @@ int queue_full(struct work_queue *head)
 }
 
 int queue_work(struct work_queue *queue, pthread_mutex_t *queue_lock,
-		int alert_type, int key, int value)
+		pthread_cond_t *queue_cond, int alert_type, int key, int value)
 {
 	/* don't add if queue full */
 	if (queue_full(queue)) {
@@ -70,6 +69,17 @@ int queue_work(struct work_queue *queue, pthread_mutex_t *queue_lock,
 
 	pthread_mutex_lock(queue_lock);
 	TAILQ_INSERT_TAIL(queue, new_entry, entries);
+#ifdef DEBUG
+	printf("sending signal -> queued task %d\n", new_item->alert_type+1);
+#endif
+
+	/* send signal to worker thread to indicate queue is nonempty
+	 *
+	 * NOTE: since we only have one worker thread, using pthread_cond_signal()
+	 * is more efficient than the pthread_cond_broadcast(), which works for
+	 * multiple waiting threads
+	 * */
+	pthread_cond_signal(queue_cond);
 	pthread_mutex_unlock(queue_lock);
 
 	return 0;
@@ -88,36 +98,37 @@ void thread_work(void *args)
 	struct thread_args *ctx = args;
 	struct work_queue *queue_head = ctx->queue_head;
 	pthread_mutex_t *queue_lock = ctx->queue_lock;
+	pthread_cond_t *queue_cond = ctx->queue_cond;
 
-	struct queue_entry *current, *next;
+	struct queue_entry *current = NULL;
+	int last = 0;
 
 	while (1) {
 		pthread_mutex_lock(queue_lock);
+#ifdef DEBUG
+		printf("waiting for entries...\n");
+#endif
+		while (TAILQ_EMPTY(queue_head)) {
+			pthread_cond_wait(queue_cond, queue_lock);
+		}
+
+		/* grab new entry and remove from queue */
 		current = TAILQ_FIRST(queue_head);
+		TAILQ_REMOVE(queue_head, current, entries);
 		pthread_mutex_unlock(queue_lock);
 
-		while (current) {
-			/* act on item */
-			log_alert(current->item->alert_type,
-					  current->item->key, 
-					  current->item->value);
+		/* act on item */
+		log_alert(current->item->alert_type,
+				  current->item->key,
+				  current->item->value);
 
-			/* exit if this is the last entry */
-			if (current->item->alert_type == MAX_QUEUE_SIZE-1) {
-				free(current->item);
-				free(current);
-				return;
-			}
+		/* exit if this is the last entry */
+		last = current->item->alert_type == MAX_QUEUE_SIZE-1;
+		free(current->item);
+		free(current);
 
-			/* otherwise get next entry and continue */
-			pthread_mutex_lock(queue_lock);
-			next = TAILQ_NEXT(current, entries);
-			TAILQ_REMOVE(queue_head, current, entries);
-			free(current->item);
-			free(current);
-			pthread_mutex_unlock(queue_lock);
-
-			current = next;
+		if (last) {
+			return;
 		}
 	}
 }
@@ -128,12 +139,18 @@ int main(int argc, char *argv[])
 	pthread_t worker_thread;
 	struct thread_args args;
 
-	TAILQ_INIT(&queue_head);
+	struct work_queue queue_head;
+	pthread_mutex_t queue_lock = PTHREAD_MUTEX_INITIALIZER;
+	pthread_cond_t queue_cond = PTHREAD_COND_INITIALIZER;
+
 	srand(0);
+
+	TAILQ_INIT(&queue_head);
 
 	/* set up thread arguments */
 	args.queue_head = &queue_head;
 	args.queue_lock = &queue_lock;
+	args.queue_cond = &queue_cond;
 
 	printf("queue size = %d\n", queue_size(&queue_head));
 
@@ -144,7 +161,7 @@ int main(int argc, char *argv[])
 
 	/* queue work after starting thread */
 	for (int i = 0; i < MAX_QUEUE_SIZE; i++) {
-		queue_work(&queue_head, &queue_lock, i, i*2, i*3);
+		queue_work(&queue_head, &queue_lock, &queue_cond, i, i*2, i*3);
 		/* random sleep (constant seed to match work_queue) */
 		sleep(rand() % 10);
 	}

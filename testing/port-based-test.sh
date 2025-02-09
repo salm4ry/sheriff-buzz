@@ -38,10 +38,18 @@ nmap_scan() {
 	local NMAP_OPTS=()
 
 	# nmap with no scan type arguments = top n ports
-	NMAP_OPTS+=('-n' '-v0')
-	NMAP_OPTS+=('--top-ports' "$NUM_PORTS")
+	# NMAP_OPTS+=('-n' '-v0')
+	NMAP_OPTS+=('-n')
+
+	if [[ $NUM_PORTS -le 1000 ]]; then
+		NMAP_OPTS+=('--top-ports' "$NUM_PORTS")
+	else
+		NMAP_OPTS+=('-p' "1-$NUM_PORTS")
+	fi
+
 	NMAP_OPTS+=("$1")
 
+	echo "${NMAP}" "${NMAP_OPTS[@]}"
 	"${NMAP}" "${NMAP_OPTS[@]}"
 }
 
@@ -55,6 +63,8 @@ count_alerts() {
 	# count is on the last output line
 	run_on_host "psql alerts --csv -c ${CHECK_QUERY}" | tail -1
 }
+
+printf "host = %s, port threshold = %s\n" "$HOST" "$NUM_PORTS"
 
 # set up configuration
 #
@@ -71,6 +81,7 @@ run_on_host "echo \
 
 # initial alert count
 initial_count=$(count_alerts)
+printf "initial alert count: %d\n" "$initial_count"
 
 printf "nmap scan on %s\n" "${HOST}"
 nmap_scan "${HOST}"
@@ -87,6 +98,7 @@ while true
 do
 	if ! check_log
 	then
+		run_on_host "tail -1 $LOG_DIR/$log"
 		sleep 1;
 	else
 		# NOTE log file timing measurement ends here
@@ -116,6 +128,7 @@ do
 		# NOTE database timing measurement ends here
 		break
 	else
+		printf "number of alerts: %d\n" "$count"
 		sleep 1
 	fi
 done

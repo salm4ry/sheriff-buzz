@@ -46,6 +46,7 @@ int err;
 GHashTable *packet_table;
 struct db_task_queue task_queue_head;
 pthread_mutex_t task_queue_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t task_queue_cond = PTHREAD_COND_INITIALIZER;
 
 PGconn *db_conn;
 pthread_t db_worker;
@@ -390,11 +391,9 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 			new_val.total_port_count++;
 		}
 
-		/*
 #ifdef DEBUG
 		log_debug("total port count for %s = %d\n", address, new_val.total_port_count);
 #endif
-		*/
 
 		/* increment packet count for current destination port */
 		new_val.ports[dst_port]++;
@@ -425,7 +424,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 					address, dst_port);
 
 			if (use_db_thread) {
-				queue_work(&task_queue_head, &task_queue_lock,
+				queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 						 XMAS_SCAN, &current_key, &new_val, dst_port);
 			} else {
 				db_alert(db_conn, &db_lock, XMAS_SCAN,
@@ -446,7 +445,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 					address, dst_port);
 
 			if (use_db_thread) {
-				queue_work(&task_queue_head, &task_queue_lock,
+				queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 						 FIN_SCAN, &current_key, &new_val, dst_port);
 			} else {
 				db_alert(db_conn, &db_lock, FIN_SCAN,
@@ -468,7 +467,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 					address, dst_port);
 
 			if (use_db_thread) {
-				queue_work(&task_queue_head, &task_queue_lock,
+				queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 						 NULL_SCAN, &current_key, &new_val, dst_port);
 			} else {
 				db_alert(db_conn, &db_lock, NULL_SCAN,
@@ -494,8 +493,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				port_threshold, address);
 
 		if (use_db_thread) {
-			queue_work(&task_queue_head, &task_queue_lock, PORT_SCAN,
-					&current_key, &new_val, 0);
+			queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
+				PORT_SCAN, &current_key, &new_val, 0);
 		} else {
 			db_alert(db_conn, &db_lock, PORT_SCAN,
 					&current_key, &new_val, 0);
@@ -522,8 +521,8 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 			submit_ip_entry(current_key.src_ip, BLACKLIST);
 
             if (use_db_thread) {
-                queue_work(&task_queue_head, &task_queue_lock, 0,
-                        &current_key, &new_val, 0);
+				queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
+					0, &current_key, &new_val, 0);
             } else {
                 db_flagged(db_conn, &db_lock, &current_key, &new_val);
             }
@@ -951,6 +950,7 @@ int main(int argc, char *argv[])
 		db_worker_args.db_lock = &db_lock;
 		db_worker_args.head = &task_queue_head;
 		db_worker_args.task_queue_lock = &task_queue_lock;
+		db_worker_args.task_queue_cond = &task_queue_cond;
 		res = pthread_create(&db_worker, NULL,
 				(void *) db_thread_work, &db_worker_args);
 		if (res != 0) {

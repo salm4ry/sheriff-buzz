@@ -87,6 +87,7 @@ TAILQ_HEAD(db_task_queue, db_task);
 struct db_thread_args {
 	struct db_task_queue *head;
 	pthread_mutex_t *task_queue_lock;
+	pthread_cond_t *task_queue_cond;
 	pthread_mutex_t *db_lock;
 	PGconn *db_conn;
 };
@@ -477,8 +478,8 @@ int queue_full(struct db_task_queue *head)
  * 		struct key *key, struct value *value) 
  */
 int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
-			 int alert_type, struct key *key, struct value *value,
-			 int dst_port)
+		pthread_cond_t *cond, int alert_type,
+		struct key *key, struct value *value, int dst_port)
 {
 	struct db_task *new_task;
 
@@ -492,22 +493,6 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 		exit(1);
 	}
 
-	/*
-    switch (alert_type) {
-        case PORT_SCAN:
-            // basic scan has port info argument
-		    memcpy(&new_task->info, info, sizeof(struct port_info));
-            break;
-        case 0:
-            // no alert type set
-            break;
-        default:
-            // flag-based scans have fingerprint argument
-		    strncpy(new_task->fingerprint, fingerprint, MAX_FINGERPRINT);
-            break;
-    }
-	*/
-
 	switch (alert_type) {
 		case PORT_SCAN:
 			/* no destination port required */
@@ -516,7 +501,7 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 			/* no alert type set */
 			break;
 		default:
-			/* flag-based scans have destination port */
+			/* flag-based alerts have destination port */
 			new_task->dst_port = dst_port;
 	}
 
@@ -526,6 +511,7 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 
 	pthread_mutex_lock(lock);
 	TAILQ_INSERT_TAIL(task_queue_head, new_task, entries);
+	pthread_cond_signal(cond);
 	pthread_mutex_unlock(lock);
 
 	return 0;
@@ -537,36 +523,36 @@ void db_thread_work(void *args)
 	PGconn *db_conn = ctx->db_conn;
 	struct db_task_queue *head = ctx->head;
 	pthread_mutex_t *task_queue_lock = ctx->task_queue_lock;
+	pthread_cond_t *task_queue_cond = ctx->task_queue_cond;
 	pthread_mutex_t *db_lock = ctx->db_lock;
 
-	struct db_task *current, *next;
+	struct db_task *current;
 
 	/* loop forever, waiting for work from task list */
 	while (true) {
 		pthread_mutex_lock(task_queue_lock);
+
+		while (TAILQ_EMPTY(head)) {
+			pthread_cond_wait(task_queue_cond, task_queue_lock);
+		}
+
+		/* grab new entry and remove from queue */
 		current = TAILQ_FIRST(head);
+		TAILQ_REMOVE(head, current, entries);
 		pthread_mutex_unlock(task_queue_lock);
 
-		while (current) {
-            if (current->alert_type) {
-                /* write alert to database */
-    			db_alert(db_conn, db_lock,
-			    		current->alert_type,
-			    		&current->key,
-			    		&current->value,
-						current->dst_port);
-            } else {
-                /* write flagged IP to database */
-                db_flagged(db_conn, db_lock, &current->key, &current->value);
-            }
-
-			pthread_mutex_lock(task_queue_lock);
-			next = TAILQ_NEXT(current, entries);
-			TAILQ_REMOVE(head, current, entries);
-			free(current);
-			pthread_mutex_unlock(task_queue_lock);
-
-			current = next;
+		if (current->alert_type) {
+			/* write alert to database */
+			db_alert(db_conn, db_lock,
+					current->alert_type,
+					&current->key,
+					&current->value,
+					current->dst_port);
+		} else {
+			/* write flagged IP to database */
+			db_flagged(db_conn, db_lock, &current->key, &current->value);
 		}
+
+		free(current);
 	}
 }

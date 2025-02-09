@@ -29,6 +29,8 @@
 #include "include/parse_config.h"
 #include "include/log.h"
 
+#define XDP_RB_TIMEOUT 100  /* XDP ring buffer poll timeout (ms) */
+
 struct bpf_object *xdp_obj, *ip_uretprobe_obj, \
                       *subnet_uretprobe_obj, *config_uretprobe_obj;
 
@@ -381,23 +383,28 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		new_val.total_port_count = current_val->total_port_count;
 
 		/* copy per-port counts */
-		memcpy(current_val->ports, new_val.ports, NUM_PORTS);
+		memcpy(new_val.ports, current_val->ports, NUM_PORTS * sizeof(unsigned long));
 
 		/* increment port count if this is a new port */
 		if (new_val.ports[dst_port] == 0) {
 			new_val.total_port_count++;
 		}
+
+		/*
+#ifdef DEBUG
+		log_debug("total port count for %s = %d\n", address, new_val.total_port_count);
+#endif
+		*/
+
 		/* increment packet count for current destination port */
 		new_val.ports[dst_port]++;
-
-
 	} else {
 		/* set up new entry */
 		new_val.first = timestamp;
 		new_val.latest = new_val.first;
 
 		/* explicitly zero port count array */
-		bzero(new_val.ports, NUM_PORTS);
+		memset(new_val.ports, 0, NUM_PORTS * sizeof(unsigned long));
 		/* set up total packete and port counts */
 		new_val.total_packet_count = 1;
 		new_val.total_port_count = 1;
@@ -971,7 +978,7 @@ int main(int argc, char *argv[])
 
 	/* poll ring buffer */
 	while (!exiting) {
-		err = ring_buffer__poll(xdp_rb, 100);
+		err = ring_buffer__poll(xdp_rb, XDP_RB_TIMEOUT);
 
 		/* EINTR = interrupted syscall */
 		if (err == -EINTR) {

@@ -53,7 +53,7 @@ struct value {
 	int total_port_count;
 	int total_packet_count;
 	int alert_count;
-	int ports[NUM_PORTS];
+	unsigned long ports[NUM_PORTS];
 };
 
 struct db_task_queue;
@@ -104,7 +104,7 @@ struct detection_task {
 	bool ports[NUM_PORTS];
 };
 
-static int min_port(int *ports_scanned)
+static int min_port(unsigned long *ports_scanned)
 {
 	for (int i = 0; i < NUM_PORTS; i++) {
 		if (ports_scanned[i] != 0) {
@@ -116,7 +116,7 @@ static int min_port(int *ports_scanned)
 	return -1;
 }
 
-static int max_port(int *ports_scanned)
+static int max_port(unsigned long *ports_scanned)
 {
 	for (int i = NUM_PORTS - 1; i >= 0; i--) {
 		if (ports_scanned[i] != 0) {

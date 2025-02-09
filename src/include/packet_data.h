@@ -68,7 +68,6 @@ FILE *LOG;
  * value: hash table value
  */
 struct db_task {
-	char fingerprint[MAX_FINGERPRINT];
 	int alert_type;
 	int dst_port;
 	struct key key;

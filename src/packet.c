@@ -50,7 +50,6 @@ pthread_cond_t task_queue_cond = PTHREAD_COND_INITIALIZER;
 
 PGconn *db_conn;
 pthread_t db_worker;
-pthread_mutex_t db_lock = PTHREAD_MUTEX_INITIALIZER;
 
 struct config current_config;
 pthread_rwlock_t config_lock = PTHREAD_RWLOCK_INITIALIZER;
@@ -427,7 +426,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 						 XMAS_SCAN, &current_key, &new_val, dst_port);
 			} else {
-				db_alert(db_conn, &db_lock, XMAS_SCAN,
+				db_alert(db_conn, XMAS_SCAN,
 						&current_key, &new_val, dst_port);
 			}
 		}
@@ -448,8 +447,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 						 FIN_SCAN, &current_key, &new_val, dst_port);
 			} else {
-				db_alert(db_conn, &db_lock, FIN_SCAN,
-						&current_key, &new_val, dst_port);
+				db_alert(db_conn, FIN_SCAN, &current_key, &new_val, dst_port);
 			}
 		}
 
@@ -470,8 +468,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 						 NULL_SCAN, &current_key, &new_val, dst_port);
 			} else {
-				db_alert(db_conn, &db_lock, NULL_SCAN,
-						&current_key, &new_val, dst_port);
+				db_alert(db_conn, NULL_SCAN, &current_key, &new_val, dst_port);
 			}
 		}
 	}
@@ -496,8 +493,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 			queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 				PORT_SCAN, &current_key, &new_val, 0);
 		} else {
-			db_alert(db_conn, &db_lock, PORT_SCAN,
-					&current_key, &new_val, 0);
+			db_alert(db_conn, PORT_SCAN, &current_key, &new_val, 0);
 		}
 	}
 
@@ -524,7 +520,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 					0, &current_key, &new_val, 0);
             } else {
-                db_flagged(db_conn, &db_lock, &current_key, &new_val);
+                db_flagged(db_conn, &current_key, &new_val);
             }
 		}
 	}
@@ -947,7 +943,6 @@ int main(int argc, char *argv[])
 	 * function) */
 	if (use_db_thread) {
 		db_worker_args.db_conn = db_conn;
-		db_worker_args.db_lock = &db_lock;
 		db_worker_args.head = &task_queue_head;
 		db_worker_args.task_queue_lock = &task_queue_lock;
 		db_worker_args.task_queue_cond = &task_queue_cond;

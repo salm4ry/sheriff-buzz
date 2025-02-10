@@ -94,14 +94,12 @@ TAILQ_HEAD(db_task_queue, db_task);
  * - head: head of task queue
  * - task_queue_lock: database task queue lock
  * - task_queue_cond: database tack queue condition
- * - db_lock: database lock (TODO remove)
  * - db_conn: database connection
  */
 struct db_thread_args {
 	struct db_task_queue *head;
 	pthread_mutex_t *task_queue_lock;
 	pthread_cond_t *task_queue_cond;
-	pthread_mutex_t *db_lock;
 	PGconn *db_conn;
 };
 
@@ -177,7 +175,6 @@ int count_entries(GHashTable *table)
  * Log alert to database (upsert)
  *
  * - conn: database connection
- * - db_lock: database lock (TODO remove)
  * - alert_type: type of alert (from alert_type enum)
  * - key: hash table key
  * - value: hash table value
@@ -186,7 +183,7 @@ int count_entries(GHashTable *table)
  *
  * Return 0 on success, non-zero value on error
  */
-int db_alert(PGconn *conn, pthread_mutex_t *db_lock, int alert_type,
+int db_alert(PGconn *conn, int alert_type,
 		struct key *key, struct value *value, int dst_port)
 {
 	PGresult *db_res;
@@ -250,9 +247,7 @@ int db_alert(PGconn *conn, pthread_mutex_t *db_lock, int alert_type,
 	log_debug("%s\n", query);
 #endif
 
-	pthread_mutex_lock(db_lock);
 	db_res = PQexec(conn, query);
-	pthread_mutex_unlock(db_lock);
 
 	err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
 	if (err) {
@@ -268,14 +263,12 @@ int db_alert(PGconn *conn, pthread_mutex_t *db_lock, int alert_type,
  * Log flagged IP address to database
  *
  * - conn: database connection
- * - db_lock: database lock (TODO remove)
  * - key: hash table key
  * - value: hash table value
  *
  * Return 0 on success, non-zero on error
  */
-int db_flagged(PGconn *conn, pthread_mutex_t *db_lock,
-        struct key *key, struct value *value)
+int db_flagged(PGconn *conn, struct key *key, struct value *value)
 {
     int err = 0;
 	PGresult *db_res;
@@ -289,9 +282,7 @@ int db_flagged(PGconn *conn, pthread_mutex_t *db_lock,
     cmd = "INSERT INTO flagged (src_ip, time) VALUES ('%s', to_timestamp(%ld))";
     snprintf(query, MAX_QUERY, cmd, ip_str, value->latest);
 
-    pthread_mutex_lock(db_lock);
     db_res = PQexec(conn, query);
-    pthread_mutex_unlock(db_lock);
 
     err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
     if (err) {
@@ -423,7 +414,6 @@ void db_thread_work(void *args)
 	struct db_task_queue *head = ctx->head;
 	pthread_mutex_t *task_queue_lock = ctx->task_queue_lock;
 	pthread_cond_t *task_queue_cond = ctx->task_queue_cond;
-	pthread_mutex_t *db_lock = ctx->db_lock;
 
 	struct db_task *current;
 
@@ -442,14 +432,14 @@ void db_thread_work(void *args)
 
 		if (current->alert_type) {
 			/* write alert to database */
-			db_alert(db_conn, db_lock,
+			db_alert(db_conn,
 					current->alert_type,
 					&current->key,
 					&current->value,
 					current->dst_port);
 		} else {
 			/* write flagged IP to database */
-			db_flagged(db_conn, db_lock, &current->key, &current->value);
+			db_flagged(db_conn, &current->key, &current->value);
 		}
 
 		free(current);

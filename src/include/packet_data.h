@@ -3,7 +3,10 @@
 #include <string.h>
 #include <stdbool.h>
 #include <time.h>
-/* #include <math.h> */
+
+/* for ULONG_MAX
+#include <limits.h>
+*/
 
 #include <arpa/inet.h>
 #include <bpf/libbpf.h>
@@ -26,6 +29,13 @@
 #define MAX_PORT_RANGE 12
 
 #define MAX_DB_TASKS 20
+
+struct packet_count {
+    unsigned long val;
+    /* carry when val reaches ULONG_MAX (starts at 0)
+     * TODO: how big should carry be? */
+    int carry;
+};
 
 /**
  * Hash table key
@@ -62,10 +72,11 @@ FILE *LOG;
 /**
  * Database work queue entry
  *
- * fingerprint: hash table key
- * alert type: type of alert to be logged
- * key: key data from hash table fingerprint
- * value: hash table value
+ * - alert_type: type of alert to be logged
+ * - dst_port: alert destination port (optional)
+ * - key: hash table key alert is concerned with
+ * - value: hash table value alert is concerned with
+ * - entries: database workqueue structure
  */
 struct db_task {
 	int alert_type;
@@ -80,8 +91,11 @@ TAILQ_HEAD(db_task_queue, db_task);
 /**
  * Arguments for database worker thread
  *
- * head: head of task linked list
- * db_conn: database connection
+ * - head: head of task queue
+ * - task_queue_lock: database task queue lock
+ * - task_queue_cond: database tack queue condition
+ * - db_lock: database lock (TODO remove)
+ * - db_conn: database connection
  */
 struct db_thread_args {
 	struct db_task_queue *head;
@@ -92,34 +106,35 @@ struct db_thread_args {
 };
 
 /**
- * Detection work queue entry
+ * Get the minimum port number used
  *
- * tcph: current packet TCP headers
- * ports: list of ports packet source IP has sent packets to
- * TODO add more if handling other protocols
+ * ports: per-port packet count array
  *
+ * Return -1 on error
  */
-struct detection_task {
-	struct tcphdr tcph;
-	bool ports[NUM_PORTS];
-};
-
-static int min_port(unsigned long *ports_scanned)
+static int min_port(unsigned long *ports)
 {
 	for (int i = 0; i < NUM_PORTS; i++) {
-		if (ports_scanned[i] != 0) {
+		if (ports[i] != 0) {
 			return i;
 		}
 	}
 
-	/* no ports scanned */
+	/* error: no ports scanned */
 	return -1;
 }
 
-static int max_port(unsigned long *ports_scanned)
+/**
+ * Get the maximum port number used
+ *
+ * - ports: per-port packet count array
+ *
+ * Return -1 on error
+ */
+static int max_port(unsigned long *ports)
 {
 	for (int i = NUM_PORTS - 1; i >= 0; i--) {
-		if (ports_scanned[i] != 0) {
+		if (ports[i] != 0) {
 			return i;
 		}
 	}
@@ -128,75 +143,27 @@ static int max_port(unsigned long *ports_scanned)
 	return -1;
 }
 
-/*
-static int count_ports_scanned(bool *ports_scanned)
-{
-	int port_count = 0;
 
-	for (int i = 0; i < NUM_PORTS; i++) {
-		if (ports_scanned[i]) {
-			port_count++;
-		}
-	}
-
-	return port_count;
-}
-*/
-
-/* create string fingerprint from key struct */
-/*
-void get_fingerprint(struct key *key, char *buf)
-{
-	// zero-padded so fingerprints are always of length MAX_FINGERPRINT
-	snprintf(buf, MAX_FINGERPRINT, "%08x%04x", key->src_ip, key->dst_port);
-}
-*/
-
-/* generate port-based fingerprints for a given source IP and flag combination */
-/*
-char **ip_fingerprint(in_addr_t src_ip)
-{
-	char **fingerprint = malloc(NUM_PORTS * sizeof(char *));
-	if (!fingerprint) {
-		pr_err("memory allocation failed: %s\n", strerror(errno));
-		exit(1);
-	}
-
-
-	struct key current_key;
-	current_key.src_ip = src_ip;
-
-	for (int i = 0; i < NUM_PORTS; i++) {
-		current_key.dst_port = i;
-		fingerprint[i] = malloc((MAX_FINGERPRINT+1) * sizeof(char));
-		if (!fingerprint[i]) {
-			pr_err("memory allocation failed: %s\n", strerror(errno));
-			exit(1);
-		}
-
-		get_fingerprint(&current_key, fingerprint[i]);
-	}
-
-	return fingerprint;
-}
-*/
-
-/* free per-port IP fingerprints */
-void free_ip_fingerprint(char **fingerprint)
-{
-	for (int i = 0; i < NUM_PORTS; i++) {
-		free(fingerprint[i]);
-	}
-	free(fingerprint);
-}
-
+/**
+ * Helper to update hash table entry count
+ *
+ * - key: hash table key
+ * - value: hash table value
+ * - user_data: count vaule to update
+ */
 void update_entry_count(gpointer key, gpointer value, gpointer user_data)
 {
     int *count = (int*) user_data;
      *count += 1;
  }
 
-/* get number of entries in hash table */
+/**
+ * Get number of entries in a GHashTable
+ *
+ * table: hash table to count entries of
+ *
+ * Walks the hash table, incrementing the final count value for each entry
+ */
 int count_entries(GHashTable *table)
 {
     int count = 0;
@@ -205,128 +172,25 @@ int count_entries(GHashTable *table)
     return count;
 }
 
-/* get list of ports a given IP (and flag combination) has sent packets to */
-/*
-void ports_scanned(GHashTable *packet_table, in_addr_t src_ip, bool *ports_scanned)
-{
-	char **fingerprint = ip_fingerprint(src_ip);
-	gboolean res;
-
-	for (int i = 0; i < NUM_PORTS; i++) {
-		res = g_hash_table_contains(packet_table, (gconstpointer) fingerprint[i]);
-		ports_scanned[i] = res;
-	}
-
-	free_ip_fingerprint(fingerprint);
-}
-*/
-
-/* get information about packets a given IP has sent
+/**
  *
- * struct port_info contains information about ports the source IP has sent
- * packets to and the total number of packets it has sent
- */
-/*
-void port_info(GHashTable *packet_table, in_addr_t src_ip, struct port_info *info)
-{
-	char **fingerprint = ip_fingerprint(src_ip);
-	struct value *res;
-
-	info->total_packet_count = 0;
-
-	for (int i = 0; i < NUM_PORTS; i++) {
-		res = g_hash_table_lookup(packet_table, (gconstpointer) fingerprint[i]);
-
-		if (res != NULL) {
-			info->ports_scanned[i] = true;
-			info->total_packet_count++;
-		} else {
-			info->ports_scanned[i] = false;
-		}
-	}
-
-	free_ip_fingerprint(fingerprint);
-}
-*/
-
-/* check if hash table entry is related to a target IP
+ * Log alert to database (upsert)
  *
- * key = hash table key
- * value = hash table value (unused, required for foreach_remove)
- * user_data = IP portion of fingerprint to compare to
- */
-gboolean fingerprint_ip_equal(gpointer key, gpointer value, gpointer user_data)
-{
-    /* check if fingerprint is in IP fingerpint list */
-    char *key_fingerprint = (char *) key;
-    char *target_fingerprint = (char *) user_data;
-
-	return (strncmp(key_fingerprint, target_fingerprint, MAX_IP_HEX) == 0);
-}
-
-/* delete all hash table entries related to a given IP
+ * - conn: database connection
+ * - db_lock: database lock (TODO remove)
+ * - alert_type: type of alert (from alert_type enum)
+ * - key: hash table key
+ * - value: hash table value
+ * - dst_port: alert destination port (optional- flag-based alerts only)
  *
- * ip = target IP to delete entries about
- * packet_table = packet information hash table
+ *
+ * Return 0 on success, non-zero value on error
  */
-void delete_ip_entries(in_addr_t ip, GHashTable *packet_table)
-{
-	char ip_fingerprint[MAX_IP_HEX+1];
-	snprintf(ip_fingerprint, MAX_IP_HEX+1, "%08x", ip);
-
-    g_hash_table_foreach_remove(packet_table, &fingerprint_ip_equal, ip_fingerprint);
-}
-
-int get_alert_count(PGconn *conn, pthread_mutex_t *db_lock, char *src_addr)
-{
-	int err, alert_count = 0, query_size;
-	PGresult *db_res;
-	char *cmd, *query;
-
-	/* set up query components */
-	cmd = "SELECT count(id) FROM log WHERE src_ip = '%s'";
-
-	/* build query */
-	query_size = strlen(cmd) + MAX_IP;
-	query = malloc(query_size * sizeof(char));
-	if (!query) {
-		pr_err("memory allocation failed: %s\n", strerror(errno));
-		exit(1);
-	}
-
-
-	snprintf(query, query_size, cmd, src_addr);
-
-#ifdef DEBUG
-	log_debug("%s\n", query);
-#endif
-
-	pthread_mutex_lock(db_lock);
-	db_res = PQexec(conn, query);
-	pthread_mutex_unlock(db_lock);
-
-	err = (PQresultStatus(db_res) != PGRES_TUPLES_OK);
-	if (err) {
-		log_error("postgres: %s\n", PQerrorMessage(conn));
-	} else {
-#ifdef DEBUG
-		log_debug("%s alert count = %s\n", src_addr, PQgetvalue(db_res, 0, 0));
-#endif
-		alert_count = atoi(PQgetvalue(db_res, 0, 0));
-	}
-
-	PQclear(db_res);
-
-
-	return alert_count;
-}
-
-/* log alert to database, replacing old record if necessary */
 int db_alert(PGconn *conn, pthread_mutex_t *db_lock, int alert_type,
 		struct key *key, struct value *value, int dst_port)
 {
 	PGresult *db_res;
-	int err;
+	int err = 0;
 	char query[MAX_QUERY];
 	char ip_str[MAX_IP];
 	char *cmd;
@@ -400,11 +264,16 @@ int db_alert(PGconn *conn, pthread_mutex_t *db_lock, int alert_type,
 	return err;
 }
 
-/*
-int db_alert(PGconn *conn, pthread_mutex_t *db_lock,
-		char *fingerprint, int alert_type, struct key *key, struct value *value,
-		struct port_info *info)
-*/
+/**
+ * Log flagged IP address to database
+ *
+ * - conn: database connection
+ * - db_lock: database lock (TODO remove)
+ * - key: hash table key
+ * - value: hash table value
+ *
+ * Return 0 on success, non-zero on error
+ */
 int db_flagged(PGconn *conn, pthread_mutex_t *db_lock,
         struct key *key, struct value *value)
 {
@@ -432,8 +301,15 @@ int db_flagged(PGconn *conn, pthread_mutex_t *db_lock,
     return err;
 }
 
-/* connect to postgres database with peer authentication
- * (postgres username = system username) */
+/**
+ * Connect to PostgreSQL database with peer authentication (postgres username =
+ * system username)
+ *
+ * - user: username
+ * - dbname: database name
+ *
+ * Return the database connection object on success, NULL on error
+ */
 static PGconn *connect_db(char *user, char *dbname)
 {
 	char query[1024];
@@ -451,6 +327,11 @@ static PGconn *connect_db(char *user, char *dbname)
 	return conn;
 }
 
+/**
+ * Calculate the number of entries in a database task queue (tailq)
+ *
+ * head: head of queue
+ */
 int queue_size(struct db_task_queue *head)
 {
 	struct db_task *current = NULL;
@@ -463,6 +344,13 @@ int queue_size(struct db_task_queue *head)
 	return size;
 }
 
+/**
+ * Determine whether a database task queue is full
+ *
+ * head: head of queue
+ *
+ * Return 1 if full, 0 otherwise
+ */
 int queue_full(struct db_task_queue *head)
 {
 	return queue_size(head) >= MAX_DB_TASKS;
@@ -471,10 +359,15 @@ int queue_full(struct db_task_queue *head)
 /**
  * Queue database work
  *
- * provide data such that the database worker can carry out:
+ * - task_queue_head: head of database work queue
+ * - lock: task queue lock
+ * - cond: task queue condition
+ * - alert_type: type of alert
+ * - key: hash table key
+ * - value: hash table value
+ * - dst_port: destination port (optional- used for flag-based alerts)
  *
- * db_alert(PGconn *db_conn, char *fingerprint, int alert_type, 
- * 		struct key *key, struct value *value) 
+ * Return 0 on success, 1 on error (queue full)
  */
 int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 		pthread_cond_t *cond, int alert_type,
@@ -516,6 +409,13 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 	return 0;
 }
 
+/**
+ * Work for database thread
+ *
+ * args = struct db_thread_args passed to the thread on creation
+ *
+ * Wait for work from the task queue and carry it out as it arrives
+ */
 void db_thread_work(void *args)
 {
 	struct db_thread_args *ctx = args;

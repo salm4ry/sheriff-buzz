@@ -20,10 +20,15 @@ CC = clang
 INCLUDE += -I/usr/include/x86_64-linux-gnu
 LIBS = -lbpf -lelf -lpq -lz -lcjson -lresolv
 
+CFLAGS_COMMON = -Wall -O2 -ggdb
+CFLAGS_DEBUG=
+
 # include debug logging
-CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g -DDEBUG
-# no debug logging
-# CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) -Wall -O2 -g
+ifeq ($(DEBUG), 1)
+	CFLAGS_DEBUG = -DDEBUG
+endif
+
+CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) $(CFLAGS_COMMON) $(CFLAGS_DEBUG)
 
 SRC_DIR = ./src
 

@@ -140,7 +140,7 @@ fail:
 }
 
 /* get IP packet source address */
-static __u32 src_addr(struct iphdr *ip_header)
+__u32 src_addr(struct iphdr *ip_header)
 {
 	return ip_header->saddr;
 }
@@ -153,7 +153,7 @@ static __u32 src_addr(struct iphdr *ip_header)
  * network_addr = network address of subnet
  * mask = subnet mask
  */
-static bool in_subnet(__u32 ip, __u32 network_addr, __u32 mask)
+bool in_subnet(__u32 ip, __u32 network_addr, __u32 mask)
 {
 	return (ip & network_addr) == (ip & mask);
 }

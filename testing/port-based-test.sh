@@ -1,10 +1,12 @@
 #!/bin/bash
 
+# TODO improve argument parsing
 HOST=${1:-k0ibian}
-NUM_PORTS=${2:-1000}
+USER=${2:-gamek0i}
+NUM_PORTS=${3:-1000}
 PORT_SCAN_ALERT=4
 
-ROOT_DIR=/home/gamek0i/port-scan-detector
+ROOT_DIR="/home/$USER/port-scan-detector"
 LOG_DIR="$ROOT_DIR"/log
 CONFIG_PATH="$ROOT_DIR"/config
 CONFIG_FILE=config.json
@@ -64,7 +66,7 @@ count_alerts() {
 	run_on_host "psql alerts --csv -c ${CHECK_QUERY}" | tail -1
 }
 
-printf "host = %s, port threshold = %s\n" "$HOST" "$NUM_PORTS"
+printf "%s@%s, port threshold = %s\n" "$USER" "$HOST" "$NUM_PORTS"
 
 # set up configuration
 #

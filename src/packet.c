@@ -69,8 +69,8 @@ bool use_db_thread = false;
 unsigned long total_handle_time = 0;
 unsigned long total_packet_count = 0;
 
-FILE *LOG;
-int LOG_FD;
+FILE *LOG = NULL;
+int LOG_FD = -1;
 
 void cleanup()
 {
@@ -106,10 +106,39 @@ void cleanup()
 	close(LOG_FD);
 
 	/* terminate database and inotify worker threads */
+	/* TODO merge with init_cleanup() by checking if threads are running */
 	pthread_kill(db_worker, SIGKILL);
 	pthread_kill(inotify_worker, SIGKILL);
 
 	/* exit(EXIT_SUCCESS); */
+}
+
+/* cleanup for initialisation */
+void init_cleanup(int err)
+{
+	bpf_xdp_detach(ifindex, xdp_flags, NULL);
+
+	if (xdp_rb) {
+		ring_buffer__free(xdp_rb);
+	}
+
+	/* NOTE: common_ports currently not used
+	if (common_ports) {
+		free(common_ports);
+	}
+	*/
+
+	if (packet_table) {
+		g_hash_table_destroy(packet_table);
+	}
+
+	/* close log file if open */
+	if (LOG)
+		fclose(LOG);
+	if (LOG_FD != -1)
+		close(LOG_FD);
+
+	exit(-err);
 }
 
 void cleanup_handler(int signum)
@@ -239,11 +268,52 @@ int get_bpf_map_fd(struct bpf_object *obj, char *name) {
 	map = bpf_object__find_map_by_name(obj, name);
 	if (!map) {
 		log_error("cannot find map by name %s\n", name);
-		return -1;
+		init_cleanup(-1);
 	}
 	return bpf_map__fd(map);
 }
 
+void init_kernel_rb(struct ring_buffer **rb, int fd, void *callback)
+{
+	*rb = ring_buffer__new(fd, callback, NULL, NULL);
+	if (!*rb) {
+		err = -1;
+		log_error("failed to create kernel ring buffer (fd %d)\n", fd);
+		init_cleanup(err);
+	}
+}
+
+void init_user_rb(struct user_ring_buffer **rb, int fd)
+{
+	*rb = user_ring_buffer__new(fd, NULL);
+	if (!*rb) {
+		err = -1;
+		log_error("failed to create user ring buffer (fd %d)\n", fd);
+		init_cleanup(err);
+	}
+}
+
+void init_db_thread(void *function, struct db_thread_args *args)
+{
+		int res = pthread_create(&db_worker, NULL,
+				function , args);
+		if (res != 0) {
+			log_error("%s\n", "db_worker pthread_create failed");
+			cleanup();
+			exit(res);
+		}
+}
+
+void init_inotify_thread(void *function, struct inotify_thread_args *args)
+{
+	int res = pthread_create(&inotify_worker, NULL,
+			function, &args);
+	if (res != 0) {
+		log_error("%s\n", "config_worker pthread_create failed");
+		cleanup();
+		exit(res);
+	}
+}
 
 char *procnum_to_str(int protocol)
 {
@@ -771,22 +841,22 @@ void inotify_thread_work(void *args)
 
 int main(int argc, char *argv[])
 {
-	struct bpf_map *map = NULL;
-
     /* map file descriptors */
 	int ip_list_fd, subnet_list_fd, config_hash_fd;
 
     /* ring buffers */
     int xdp_rb_fd, ip_rb_fd, subnet_rb_fd, config_rb_fd;
-	int res = 0;
 
 	cJSON *config_json;
 
+	/* arguments to pass to database and inotify worker threads */
 	struct db_thread_args db_worker_args;
+	struct inotify_thread_args inotify_worker_args;
+
 	struct uretprobe_opts ip_uretprobe_args,
 						  subnet_uretprobe_args, config_uretprobe_args;
 
-	/* TODO replace hardcoded filenames (take arguments) */
+	/* TODO replace hardcoded filenames (take arguments using getopt) */
 	const char *BPF_FILENAME = "src/packet.bpf.o";
 	const char *CONFIG_PATH = "config/config.json";
 
@@ -834,16 +904,7 @@ int main(int argc, char *argv[])
 	/* get IP hash map file descriptor so it can be shared with the
 	 * corresponding uretprobe */
 	ip_list_fd = get_bpf_map_fd(xdp_obj, "ip_list");
-	if (ip_list_fd == -1) {
-		err = -1;
-		goto cleanup;
-	}
-
 	subnet_list_fd = get_bpf_map_fd(xdp_obj, "subnet_list");
-    if (subnet_list_fd == -1) {
-        err = -1;
-        goto cleanup;
-    }
 
     /* load and attach IP list uretprobe */
 	ip_uretprobe_args.uretprobe_obj = &ip_uretprobe_obj;
@@ -855,7 +916,7 @@ int main(int argc, char *argv[])
 	if (init_uretprobe(&ip_uretprobe_args) <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 		err = -1;
-		goto cleanup;
+		init_cleanup(err);
 	}
 
     /* load and attach subnet list uretprobe */
@@ -868,16 +929,12 @@ int main(int argc, char *argv[])
 	if (init_uretprobe(&subnet_uretprobe_args) <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 		err = -1;
-		goto cleanup;
+		init_cleanup(err);
 	}
 
 	/* get config hash map file descriptor so it can be shared with the
 	 * corresponding uretprobe */
 	config_hash_fd = get_bpf_map_fd(xdp_obj, "config");
-	if (config_hash_fd == -1) {
-		err = -1;
-		goto cleanup;
-	}
 
 	/* load and attach config uretprobe */
 	config_uretprobe_args.uretprobe_obj = &config_uretprobe_obj;
@@ -889,14 +946,14 @@ int main(int argc, char *argv[])
 	if (init_uretprobe(&config_uretprobe_args) <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 		err = -1;
-		goto cleanup;
+		init_cleanup(err);
 	}
 
 	/* set up database */
 	db_conn = connect_db("root", "alerts");
 	if (!db_conn) {
 		err = -1;
-		goto cleanup;
+		init_cleanup(err);
 	}
 
 	/* create hash table
@@ -915,65 +972,26 @@ int main(int argc, char *argv[])
 
 	/* find kernel ring buffer */
 	xdp_rb_fd = get_bpf_map_fd(xdp_obj, "xdp_rb");
-	if (xdp_rb_fd == -1) {
-		goto cleanup;
-	}
 
 	/* set up kernel ring buffer */
-	xdp_rb = ring_buffer__new(xdp_rb_fd, handle_event, NULL, NULL);
-	if (!xdp_rb) {
-		err = -1;
-		log_error("%s\n", "failed to create kernel ring buffer");
-		goto cleanup;
-	}
-
-	/* find IP user ring buffer */
-	ip_rb_fd = get_bpf_map_fd(ip_uretprobe_obj, "ip_rb");
-	if (ip_rb_fd == -1) {
-		err = -1;
-		goto cleanup;
-	}
+	init_kernel_rb(&xdp_rb, xdp_rb_fd, handle_event);
 
 	/* set up IP list user ring buffer */
-	ip_rb = user_ring_buffer__new(ip_rb_fd, NULL);
-	if (!ip_rb) {
-		err = -1;
-		log_error("%s\n", "failed to create IP list user ring buffer");
-		goto cleanup;
-	}
+	ip_rb_fd = get_bpf_map_fd(ip_uretprobe_obj, "ip_rb");
+	init_user_rb(&ip_rb, ip_rb_fd);
 
-    /* find subnet user ring buffer */
+    /* set up subnet user ring buffer */
 	subnet_rb_fd = get_bpf_map_fd(subnet_uretprobe_obj, "subnet_rb");
-    if (subnet_rb_fd == -1) {
-        goto cleanup;
-    }
-
-    /* set up subnet list user ring buffer */
-    subnet_rb = user_ring_buffer__new(subnet_rb_fd, NULL);
-    if (!subnet_rb) {
-        err = -1;
-        log_error("%s\n", "failed to create subnet list user ring buffer");
-        goto cleanup;
-    }
-
-	/* find config user ring buffer */
-	config_rb_fd = get_bpf_map_fd(config_uretprobe_obj,"config_rb");
-	if (config_rb_fd == -1) {
-		goto cleanup;
-	}
+	init_user_rb(&subnet_rb, subnet_rb_fd);
 
 	/* set up config user ring buffer */
-	config_rb = user_ring_buffer__new(config_rb_fd, NULL);
-	if (!config_rb) {
-		err = -1;
-		log_error("%s\n", "failed to create config user ring buffer");
-		goto cleanup;
-	}
+	config_rb_fd = get_bpf_map_fd(config_uretprobe_obj,"config_rb");
+	init_user_rb(&config_rb, config_rb_fd);
 
-	/* submit initial config */
-	submit_action_config();
-	submit_ip_list();
-    submit_subnet_list();
+	/* submit initial config to BPF program */
+	submit_action_config(); /* block/redirect blacklisted IPs */
+	submit_ip_list(); /* IP blacklist + whitelist */
+    submit_subnet_list(); /* subnet blacklist + whitelist */
 
 	/* create database worker thread
 	 *
@@ -984,29 +1002,16 @@ int main(int argc, char *argv[])
 		db_worker_args.head = &task_queue_head;
 		db_worker_args.task_queue_lock = &task_queue_lock;
 		db_worker_args.task_queue_cond = &task_queue_cond;
-		res = pthread_create(&db_worker, NULL,
-				(void *) db_thread_work, &db_worker_args);
-		if (res != 0) {
-			log_error("%s\n", "db_worker pthread_create failed");
-			cleanup();
-			exit(res);
-		}
+
+		init_db_thread((void *) db_thread_work, &db_worker_args);
 	}
 
 	/* create config file worker thread
 	 *
 	 * (pass config structure as argument to work function) */
-	struct inotify_thread_args inotify_worker_args;
 	inotify_worker_args.current_config = &current_config;
 	inotify_worker_args.lock = &config_lock;
-
-	res = pthread_create(&inotify_worker, NULL,
-			(void *) inotify_thread_work, &inotify_worker_args);
-	if (res != 0) {
-		log_error("%s\n", "config_worker pthread_create failed");
-		cleanup();
-		exit(res);
-	}
+	init_inotify_thread((void *) inotify_thread_work, &inotify_worker_args);
 
 	/* poll ring buffer */
 	while (!exiting) {
@@ -1025,26 +1030,6 @@ int main(int argc, char *argv[])
 
 	cleanup();
 	return 0;
-
-cleanup:
-	/* redirect cleanup-related errors to /dev/null */
-	freopen("/dev/null", "r", stderr);
-
-	bpf_xdp_detach(ifindex, xdp_flags, NULL);
-
-	if (xdp_rb) {
-		ring_buffer__free(xdp_rb);
-	}
-
-	if (common_ports) {
-		free(common_ports);
-	}
-
-	if (packet_table) {
-		g_hash_table_destroy(packet_table);
-	}
-
-	return -err;
 
 fail:
 	switch (-err) {

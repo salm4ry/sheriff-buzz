@@ -4,6 +4,7 @@
 #include <string.h>
 #include <time.h>
 
+#include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <signal.h>
@@ -31,8 +32,8 @@
 
 #define XDP_RB_TIMEOUT 100  /* XDP ring buffer poll timeout (ms) */
 
-struct bpf_object *xdp_obj, *ip_uretprobe_obj, \
-                      *subnet_uretprobe_obj, *config_uretprobe_obj;
+struct bpf_object *xdp_obj, *ip_uretprobe_obj,
+                  *subnet_uretprobe_obj, *config_uretprobe_obj;
 
 uint32_t xdp_flags;
 int ifindex;
@@ -62,11 +63,12 @@ const int MAX_ADDR_LEN = 16;
 bool exiting = false;
 bool use_db_thread = false;
 
-#ifdef DEBUG
-long total_handle_time = 0.0;
-#endif
+/* total time spent in handle_event() */
+unsigned long total_handle_time = 0;
+unsigned long total_packet_count = 0;
 
 FILE *LOG;
+int LOG_FD;
 
 void cleanup()
 {
@@ -99,23 +101,37 @@ void cleanup()
 	}
 
 	fclose(LOG);
+	close(LOG_FD);
 
 	/* terminate database and inotify worker threads */
 	pthread_kill(db_worker, SIGKILL);
 	pthread_kill(inotify_worker, SIGKILL);
 
+	/* exit(EXIT_SUCCESS); */
+}
+
+void cleanup_handler(int signum)
+{
+	cleanup();
 	exit(EXIT_SUCCESS);
 }
 
-/* TODO switch signal() to sigaction()
-void handle_signal(int signum) {
-	if (signum == SIGINT || signum == SIGTERM) {
-		signal(signum, cleanup);
-	}
-	return;
-}
-*/
+void print_stats(int signum)
+{
+	char buf[MAX_LOG_MSG];
+	/*
+	char prefix[MAX_PREFIX];
+	char fmt[MAX_LOG_MSG];
 
+	make_prefix(prefix, "stats: ");
+	strncpy(fmt, prefix, MAX_LOG_MSG);
+	strncat(fmt, "%ld packets per second\n", MAX_LOG_MSG - (strlen(prefix)+1));
+	*/
+
+	snprintf(buf, MAX_LOG_MSG, "stats: %ld packets per second\n",
+			packet_rate(&total_packet_count, &total_handle_time));
+	write(LOG_FD, buf, strlen(buf));
+}
 
 int load_bpf_xdp(const char *filename)
 
@@ -350,35 +366,30 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 	bool is_alert = false; /* did this packet cause an alert? */
 	bool flagged = false;  /* did this IP get flagged? */
 
-#ifdef DEBUG
 	/* measure start time */
 	struct timespec start_time, end_time, delta;
+	/* TODO separate time measurement into function */
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
-#endif
-
-	/* packet timestamp */
-	timestamp = time(NULL);
 
 	/* extract data from IP and TCP headers */
 	/* source IP address */
 	current_key.src_ip = ntohl(src_addr(&e->ip_header));
 
-
 	/* destination TCP port */
 	dst_port = get_dst_port(&e->tcp_header);
 
 	ip_to_str(current_key.src_ip, address);
-	time_to_str(timestamp, time_string, 32, "%H:%M:%S");
 
 	/* update hash table */
 	/* look up hash table entry */
 	res = g_hash_table_lookup(packet_table, (gconstpointer) &current_key.src_ip);
 
+	/* TODO replace with function */
 	if (res) {
 		/* entry already exists: update count and timestamp */
 		struct value *current_val = (struct value*) res;
 		new_val.first = current_val->first;
-		new_val.latest = timestamp;
+		new_val.latest = time(NULL);
 		new_val.total_packet_count = current_val->total_packet_count + 1;
 		new_val.total_port_count = current_val->total_port_count;
 
@@ -398,7 +409,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 		new_val.ports[dst_port]++;
 	} else {
 		/* set up new entry */
-		new_val.first = timestamp;
+		new_val.first = time(NULL);
 		new_val.latest = new_val.first;
 
 		/* explicitly zero port count array */
@@ -507,7 +518,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 
 		/* check current number of alerts */
 #ifdef DEBUG
-		log_debug("alert count: %d\n", new_val.alert_count);
+		log_debug("alert count for %s: %d\n", address, new_val.alert_count);
 #endif
 
 		/* flag IP if config threshold reached */
@@ -536,22 +547,28 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 				g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
 	}
 
-#ifdef DEBUG
 	/* measure end time */
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
-	delta = diff(&start_time, &end_time);
+	delta = time_diff(&start_time, &end_time);
 	total_handle_time += delta.tv_sec + delta.tv_nsec;
+	/* update total packet count */
+	total_packet_count++;
 
+#ifdef DEBUG
+	/* avoid printing out handle_event() time for every SSH packet! */
 	if (dst_port != 22) {
 		log_debug("time taken: %ld ns\n", delta.tv_nsec);
 		log_debug("total handle_event time: %ld ns\n", total_handle_time);
+		printf("total handle_event time: %ld ns, total packets: %ld\n", 
+				total_handle_time, total_packet_count);
+		printf("packet rate: %ld\n", packet_rate(&total_packet_count, &total_handle_time));
 	}
 #endif
 
 	return 0;
 }
 
-static void handle_inotify_events(int fd, const char *target_filename,
+void handle_inotify_events(int fd, const char *target_filename,
 		struct config *current_config, pthread_rwlock_t *lock)
 {
 	/* buffer used for reading from inotify fd should have same alignment as
@@ -658,11 +675,14 @@ void inotify_thread_work(void *args)
 		 *     -> -1 means block until an event occurs */
 		poll_num = poll(&poll_fd, nfds, -1);
 		if (poll_num == -1) {
-			if (errno != EINTR)
-				continue;
-
-			log_error("inotify poll: %s\n", strerror(errno));
-			return;
+			switch (errno) {
+				case EINTR:
+					continue;
+					break;
+				default:
+					log_error("inotify poll: %s\n", strerror(errno));
+					break;
+			}
 		}
 
 		/*
@@ -694,24 +714,36 @@ int main(int argc, char *argv[])
 
 	struct db_thread_args db_worker_args;
 
-	const char *BPF_FILENAME = "src/packet.bpf.o";
+	/* const char *BPF_FILENAME = "src/packet.bpf.o"; */
+	/* TODO replace hardcoded filenames */
+	const char *BPF_FILENAME = "src/foo";
 	const char *CONFIG_PATH = "config/config.json";
+
+	struct sigaction cleanup_action;
+	struct sigaction stats_action;
 
 	char *log_filename = malloc(24 * sizeof(char));
 	if (!log_filename) {
 		pr_err("memory allocation failed: %s\n:", strerror(errno));
-		return 1;
+		return EXIT_FAILURE;
 	}
 
 	time_to_str(time(NULL), log_filename, 24, "log/%Y-%m-%d_%H-%M-%S");
 
 	LOG = fopen(log_filename, "a");
-	free(log_filename);
-
 	if (!LOG) {
 		pr_err("%s\n", strerror(errno));
-		return -1;
+		exit(errno);
 	}
+
+	LOG_FD = open(log_filename, O_RDWR | O_APPEND);
+	if (LOG_FD == -1) {
+		pr_err("%s\n", strerror(errno));
+		exit(errno);
+	}
+
+	free(log_filename);
+
 
 	/* apply default config */
 	set_default_config(&current_config, &config_lock);
@@ -726,15 +758,31 @@ int main(int argc, char *argv[])
 	}
 
 
-	/* catch SIGINT (e.g. Ctrl+C, kill) */
-	if (signal(SIGINT, cleanup) == SIG_ERR) {
+	/* set up signal handlers
+	 *
+	 * SIGINT, SIGTERM: cleanup and exit
+	 * USR1: print performance statistics (similar to the dd command)
+	 */
+	cleanup_action.sa_handler = cleanup_handler;
+	sigemptyset(&cleanup_action.sa_mask);
+	cleanup_action.sa_flags = 0;
+
+	stats_action.sa_handler = print_stats;
+	sigemptyset(&stats_action.sa_mask);
+	stats_action.sa_flags = SA_RESTART;
+
+	if (sigaction(SIGINT, &cleanup_action, NULL) == -1) {
 		log_error("%s\n", "failed to set up SIGINT handler");
-		return 1;
+		return EXIT_FAILURE;
 	}
 
-	if (signal(SIGTERM, cleanup) == SIG_ERR) {
+	if (sigaction(SIGTERM, &cleanup_action, NULL) == -1) {
 		log_error("%s\n", "failed to set up SIGTERM handler");
-		return 1;
+		return EXIT_FAILURE;
+	}
+
+	if (sigaction(SIGUSR1, &stats_action, NULL) == -1) {
+		log_error("%s\n", "failed to set up SIGUSR1 handler");
 	}
 
 	/* check we have the second argument */
@@ -777,26 +825,10 @@ int main(int argc, char *argv[])
 	}
 
     /* load and attach XDP program */
-    err = load_and_attach_xdp(&xdp_obj, BPF_FILENAME, "process_packet",
+    err = init_xdp_prog(&xdp_obj, BPF_FILENAME, "process_packet",
             ifindex, xdp_flags);
-	if (err < 0) {
-		log_error("XDP attach on %s failed %d: %s\n",
-				argv[1], -err, strerror(-err));
-		switch (-err) {
-			case EBUSY:
-			case EEXIST:
-				log_error("XDP already loaded on device %s\n", argv[1]);
-				break;
-			case ENOMEM:
-			case EOPNOTSUPP:
-				log_error("native XDP not supported on device %s, try --skb-mode\n",
-						argv[1]);
-				break;
-			default:
-				break;
-		}
-		goto cleanup;
-	}
+	if (err < 0)
+		goto fail;
 
 	/* get IP hash map file descriptor so it can be shared with the
 	 * corresponding uretprobe */
@@ -819,7 +851,7 @@ int main(int argc, char *argv[])
     subnet_list_fd = bpf_map__fd(map);
 
     /* load and attach IP list uretprobe */
-	if (load_and_attach_bpf_uretprobe(&ip_uretprobe_obj, BPF_FILENAME,
+	if (init_uretprobe(&ip_uretprobe_obj, BPF_FILENAME,
 				"read_ip_rb", "submit_ip_entry",
 				ip_list_fd, "ip_list") <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
@@ -828,7 +860,7 @@ int main(int argc, char *argv[])
 	}
 
     /* load and attach subnet list uretprobe */
-	if (load_and_attach_bpf_uretprobe(&subnet_uretprobe_obj, BPF_FILENAME,
+	if (init_uretprobe(&subnet_uretprobe_obj, BPF_FILENAME,
 				"read_subnet_rb", "submit_subnet_entry",
 				subnet_list_fd, "subnet_list") <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
@@ -847,7 +879,7 @@ int main(int argc, char *argv[])
 	config_hash_fd = bpf_map__fd(map);
 
 	/* load and attach config uretprobe */
-	if (load_and_attach_bpf_uretprobe(&config_uretprobe_obj, BPF_FILENAME,
+	if (init_uretprobe(&config_uretprobe_obj, BPF_FILENAME,
 				"read_config_rb", "submit_action_config",
 				config_hash_fd, "config") <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
@@ -951,7 +983,7 @@ int main(int argc, char *argv[])
 		if (res != 0) {
 			log_error("%s\n", "db_worker pthread_create failed");
 			cleanup();
-			return 1;
+			exit(res);
 		}
 	}
 
@@ -967,9 +999,8 @@ int main(int argc, char *argv[])
 	if (res != 0) {
 		log_error("%s\n", "config_worker pthread_create failed");
 		cleanup();
-		return 1;
+		exit(res);
 	}
-
 
 	/* poll ring buffer */
 	while (!exiting) {
@@ -977,14 +1008,11 @@ int main(int argc, char *argv[])
 
 		/* EINTR = interrupted syscall */
 		if (err == -EINTR) {
-			err = 0;
-			cleanup();
-			break;
+			continue;
 		}
 
 		if (err < 0) {
 			log_error("ring buffer polling failed: %d\n", err);
-			cleanup();
 			break;
 		}
 	}
@@ -1010,5 +1038,24 @@ cleanup:
 		g_hash_table_destroy(packet_table);
 	}
 
-	return err < 0 ? err : 0;
+	return -err;
+
+fail:
+	switch (-err) {
+		case EBUSY:
+		case EEXIST:
+			log_error("XDP already loaded on device %s\n", argv[1]);
+			break;
+		case ENOMEM:
+		case EOPNOTSUPP:
+			log_error("native XDP not supported on device %s, try --skb-mode\n",
+					argv[1]);
+			break;
+		default:
+			log_error("XDP attach on %s failed %d: %s\n",
+				argv[1], err, strerror(-err));
+			break;
+	}
+
+	return -err;
 }

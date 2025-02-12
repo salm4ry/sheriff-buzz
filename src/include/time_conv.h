@@ -43,7 +43,7 @@ void time_to_str(time_t time, char *time_string, int size, char *format)
 	strftime(time_string, size, format, tm);
 }
 
-struct timespec diff(struct timespec *start, struct timespec *end)
+struct timespec time_diff(struct timespec *start, struct timespec *end)
 {
 	/* tv_nsec describes nanoseconds within the current second */
 	struct timespec res;
@@ -58,4 +58,15 @@ struct timespec diff(struct timespec *start, struct timespec *end)
 	}
 
 	return res;
+}
+
+/**
+ * Calculate number of packets processed per second
+ *
+ * - total_packets: total packet count
+ * - total_time: total packet processing time
+ */
+unsigned long packet_rate(unsigned long *total_packets, unsigned long *total_time)
+{
+	return (double) *total_packets / *total_time * REV_NANO;
 }

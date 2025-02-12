@@ -30,6 +30,7 @@
 #include "include/time_conv.h"
 #include "include/parse_config.h"
 #include "include/log.h"
+#include "include/args.h"
 
 #define XDP_RB_TIMEOUT 100  /* XDP ring buffer poll timeout (ms) */
 #define LOG_FILENAME_LENGTH 24
@@ -861,6 +862,9 @@ int main(int argc, char *argv[])
 	const char *BPF_FILENAME = "src/packet.bpf.o";
 	const char *CONFIG_PATH = "config/config.json";
 
+	/* NOTE testing */
+	parse_args(argc, argv);
+
 	switch (argc) {
 		case 2:
 			ifindex = if_nametoindex(argv[1]);
@@ -878,6 +882,7 @@ int main(int argc, char *argv[])
 			return EXIT_FAILURE;
 			break;
 	}
+
 
 	/* initialise and open log file */
 	init_log_file();

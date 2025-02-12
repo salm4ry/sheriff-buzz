@@ -7,9 +7,20 @@
 
 FILE *LOG;
 
+struct uretprobe_opts {
+	struct bpf_object **uretprobe_obj;
+	const char *filename;
+	const char *program_name;
+	const char *uprobe_func;
+	int bpf_map_fd;
+	const char *map_name;
+};
+
+/* TODO make these a struct of functions (see bpf_map_ops in the kernel) */
+
 /* load XDP program */
 int init_xdp_prog(struct bpf_object **xdp_obj,
-		const char *filename, const char *name, int netidx, uint32_t flags)
+		const char *filename, const char *name, int ifindex, uint32_t flags)
 {
 	int bpf_prog_fd = -1;
 	int err = 0;
@@ -51,7 +62,7 @@ int init_xdp_prog(struct bpf_object **xdp_obj,
 		goto fail;
 	}
 
-    err = bpf_xdp_attach(netidx, bpf_prog_fd, flags, NULL);
+    err = bpf_xdp_attach(ifindex, bpf_prog_fd, flags, NULL);
 
 fail:
 	return err;
@@ -67,9 +78,7 @@ fail:
  * map_fd: file descriptor of map to share
  * map_name: name of map to share
  */
-int init_uretprobe(struct bpf_object **uretprobe_obj,
-		const char *filename, const char *name, const char *uprobe_func,
-        int bpf_map_fd, char *map_name)
+int init_uretprobe(struct uretprobe_opts *args)
 {
 	int bpf_prog_fd = -1;
 	int err = 0;
@@ -77,14 +86,14 @@ int init_uretprobe(struct bpf_object **uretprobe_obj,
 	struct bpf_program *uretprobe_prog;
 	struct bpf_map *bpf_shared_map;
 
-	*uretprobe_obj = bpf_object__open_file(filename, NULL);
-	if (libbpf_get_error(uretprobe_obj)) {
+	*args->uretprobe_obj = bpf_object__open_file(args->filename, NULL);
+	if (libbpf_get_error(args->uretprobe_obj)) {
 		log_error("open object file failed: %s\n", strerror(errno));
 		err = -errno;
 		goto fail;
 	}
 
-	uretprobe_prog = bpf_object__find_program_by_name(*uretprobe_obj, name);
+	uretprobe_prog = bpf_object__find_program_by_name(*args->uretprobe_obj, args->program_name);
 	if (uretprobe_prog == NULL) {
 		log_error(msg, "find program in object failed: %s\n", strerror(errno));
 		err = -errno;
@@ -93,15 +102,15 @@ int init_uretprobe(struct bpf_object **uretprobe_obj,
 
     /* both XDP and uretprobe need to access the flagged_ips hash map (uretprobe
      * for writing, XDP for reading) so we reuse the file descriptor */
-	bpf_shared_map = bpf_object__find_map_by_name(*uretprobe_obj, map_name);
-	err = bpf_map__reuse_fd(bpf_shared_map, bpf_map_fd);
+	bpf_shared_map = bpf_object__find_map_by_name(*args->uretprobe_obj, args->map_name);
+	err = bpf_map__reuse_fd(bpf_shared_map, args->bpf_map_fd);
 	if (err) {
 		log_error("failed to reuse map fd: %s\n", strerror(errno));
 		err = -errno;
 		goto fail;
 	}
 
-	err = bpf_object__load(*uretprobe_obj);
+	err = bpf_object__load(*args->uretprobe_obj);
 	if (err) {
 		log_error("load bpf object failed: %s\n", strerror(errno));
 		err = -errno;
@@ -111,11 +120,11 @@ int init_uretprobe(struct bpf_object **uretprobe_obj,
 	bpf_prog_fd = bpf_program__fd(uretprobe_prog);
 	if (!bpf_prog_fd) {
 		log_error("failed to load bpf object file(%s) (%d): %s\n",
-				filename, err, strerror(-err));
+				args->filename, err, strerror(-err));
 	}
 
 	/* name of function to attach to */
-	uprobe_opts.func_name = uprobe_func;
+	uprobe_opts.func_name = args->uprobe_func;
 	/* uretprobe = attach to function exit (we want to read the ring buffer
 	 * after we're done submitting) */
 	uprobe_opts.retprobe = true;

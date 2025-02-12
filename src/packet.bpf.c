@@ -90,6 +90,16 @@ struct {
 	__uint(max_entries, 256 * 1024); /* 256 KB */
 } config_rb SEC(".maps");
 
+
+#ifdef DEBUG
+	#define bpf_debug(fmt, ...)  \
+	bpf_printk(fmt, ##__VA_ARGS__);
+#else
+	#define bpf_debug(fmt, ...) \
+		;
+#endif
+
+
 /**
  * User ring buffer callback
  *
@@ -110,10 +120,8 @@ static long ip_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 		return 0;
 	}
 
-#ifdef DEBUG
-	bpf_printk("ip %ld, blacklist = %d", sample->src_ip,
+	bpf_debug("ip %ld, blacklist = %d", sample->src_ip,
 			sample->type == BLACKLIST);
-#endif
 
 	/* insert hash map entry for new black/whitelisted IP */
 	bpf_map_update_elem(&ip_list, &sample->src_ip, &sample->type, 0);
@@ -130,10 +138,8 @@ static long subnet_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
         return 0;
     }
 
-#ifdef DEBUG
-    bpf_printk("subnet index %d, blacklist = %d", sample->index,
+    bpf_debug("subnet index %d, blacklist = %d", sample->index,
             sample->type == BLACKLIST);
-#endif
 
     /* insert array entry (using provided index) for new black/whitelisted
      * subnet */
@@ -155,9 +161,7 @@ static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 	}
 
 	/* update config map entry */
-#ifdef DEBUG
-	bpf_printk("updating block/redirect config");
-#endif
+	bpf_debug("updating block/redirect config");
 	bpf_map_update_elem(&config, &index, sample, 0);
 	return 0;
 }
@@ -262,9 +266,7 @@ int process_packet(struct xdp_md *ctx)
 	/* look up source IP */
 	ip_list_type = bpf_map_lookup_elem(&ip_list, &src_ip);
 	if (ip_list_type) {
-#ifdef DEBUG
-		bpf_printk("%lu -> blacklist = %d", src_ip, *ip_list_type == BLACKLIST);
-#endif
+		bpf_debug("%lu -> blacklist = %d", src_ip, *ip_list_type == BLACKLIST);
 
 		switch (*ip_list_type) {
 			case BLACKLIST:
@@ -275,16 +277,12 @@ int process_packet(struct xdp_md *ctx)
 				if (current_config) {
 					/* block source IP */
 					if (current_config->block_src) {
-#ifdef DEBUG
-						bpf_printk("action for %lu = block", src_ip);
-#endif
+						bpf_debug("action for %lu = block", src_ip);
 						/* NOTE "soft block"
 						result = XDP_DROP;
 						*/
 					} else {
-#ifdef DEBUG
-						bpf_printk("action for %lu = redirect", src_ip);
-#endif
+						bpf_debug("action for %lu = redirect", src_ip);
 
 						/* XDP_TX = send packet back on the same interface it
 						 * came from */
@@ -303,9 +301,7 @@ int process_packet(struct xdp_md *ctx)
 			default:
 				/* whitelisted: pass packet on (result is already set to
 				 * XDP_PASS) */
-#ifdef DEBUG
-				bpf_printk("%ld whitelisted", src_ip);
-#endif
+				bpf_debug("%ld whitelisted", src_ip);
 				break;
 		}
 	}     /* look up subnet */
@@ -323,17 +319,13 @@ int process_packet(struct xdp_md *ctx)
             current_config = bpf_map_lookup_elem(&config, &CONFIG_INDEX);
             if (current_config) {
                 if (current_config->block_src) {
-#ifdef DEBUG
-                    bpf_printk("action for %lu = block", src_ip);
-#endif
+                    bpf_debug("action for %lu = block", src_ip);
 
                     /* NOTE "soft block"
                     result = XDP_DROP
                     */
                 } else {
-#ifdef DEBUG
-                    bpf_printk("action for %lu = redirect", src_ip);
-#endif
+                    bpf_debug("action for %lu = redirect", src_ip);
                     /* XDP_TX = send packet back on the same interface it came
                      * from */
 
@@ -351,9 +343,7 @@ int process_packet(struct xdp_md *ctx)
             break;
         case WHITELIST:
             /* whitelisted: pass packet on */
-#ifdef DEBUG
-				bpf_printk("%ld belongs to whitelisted subnet", src_ip);
-#endif
+				bpf_debug("%ld belongs to whitelisted subnet", src_ip);
             return XDP_PASS;
         default:
             /* submit TCP headers to ring buffer for user space processing (if

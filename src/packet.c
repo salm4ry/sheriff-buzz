@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdio.h>
 
 #include <errno.h>
@@ -31,12 +32,13 @@
 #include "include/log.h"
 
 #define XDP_RB_TIMEOUT 100  /* XDP ring buffer poll timeout (ms) */
+#define LOG_FILENAME_LENGTH 24
+
+uint32_t xdp_flags = XDP_FLAGS_UPDATE_IF_NOEXIST;
+int ifindex;
 
 struct bpf_object *xdp_obj, *ip_uretprobe_obj,
                   *subnet_uretprobe_obj, *config_uretprobe_obj;
-
-uint32_t xdp_flags;
-int ifindex;
 
 struct ring_buffer *xdp_rb = NULL;
 struct user_ring_buffer *ip_rb = NULL;
@@ -133,46 +135,115 @@ void print_stats(int signum)
 	write(LOG_FD, buf, strlen(buf));
 }
 
-int load_bpf_xdp(const char *filename)
-
+int skb_mode(char *arg)
 {
-	int prog_fd = -1;
-	int err;
-	struct bpf_program *prog;
-
-	xdp_obj = bpf_object__open_file(filename, NULL);
-	if (libbpf_get_error(xdp_obj)) {
-		log_error("open object file failed: %s\n", strerror(errno));
-		return -1;
-	}
-
-	prog = bpf_object__find_program_by_name(xdp_obj, "process_packet");
-	if (prog == NULL) {
-		log_error("find program in object failed: %s\n", strerror(errno));
-		return -1;
-	}
-
-	/* set to XDP */
-	if (bpf_program__set_type(prog, BPF_PROG_TYPE_XDP) < 0) {
-		log_error("set bpf type to xdp failed: %s\n", strerror(errno));
-		return -1;
-	}
-
-	err = bpf_object__load(xdp_obj);
-	if (err) {
-		log_error("load bpf object failed: %s\n", strerror(errno));
-		return -1;
-	}
-
-	prog_fd = bpf_program__fd(prog);
-	if (!prog_fd) {
-		log_error("failed to load bpf object file (%s)- %d: %s\n",
-				filename, errno, strerror(errno));
-		return -1;
-	}
-
-	return prog_fd;
+	/* set SKB mode with bitwise OR */
+	/* TODO fix */
+	return strncmp(arg, "--skb-mode", strlen(arg)) == 0;
 }
+
+void gen_log_name(char *name)
+{
+	time_to_str(time(NULL), name,
+			LOG_FILENAME_LENGTH, "log/%Y-%m-%d_%H-%M-%S");
+}
+
+void open_file(char *name, FILE **file)
+{
+	*file = fopen(name, "a");
+	if (!(*file)) {
+		pr_err("error opening %s: %s\n", name, strerror(errno));
+		exit(errno);
+	}
+}
+
+void get_fd(char *name, int *fd)
+{
+	*fd = open(name, O_RDWR | O_APPEND);
+	if (*fd == -1) {
+		pr_err("error getting %s fd: %s\n", name, strerror(errno));
+		exit(errno);
+	}
+}
+
+void init_log_file()
+{
+	/* TODO: replace with char[]? */
+	char *filename = malloc(24 * sizeof(char));
+	if (!filename) {
+		pr_err("memory allocation failed: %s\n:", strerror(errno));
+		exit(errno);
+	}
+	gen_log_name(filename);
+
+	open_file(filename, &LOG);
+	get_fd(filename, &LOG_FD);
+
+	free(filename);
+}
+
+void setup_signal_handlers()
+{
+	struct sigaction cleanup_action, stats_action;
+
+	/* set up signal handlers
+	 *
+	 * SIGINT, SIGTERM: cleanup and exit
+	 * USR1: print performance statistics (similar to the dd command)
+	 */
+	cleanup_action.sa_handler = cleanup_handler;
+	sigemptyset(&cleanup_action.sa_mask);
+	cleanup_action.sa_flags = 0;
+
+	stats_action.sa_handler = print_stats;
+	sigemptyset(&stats_action.sa_mask);
+	stats_action.sa_flags = SA_RESTART;
+
+	/* sigaction() returns 0 on success, -1 on error and sets errno to indicate
+	 * the error */
+	if (sigaction(SIGINT, &cleanup_action, NULL) == -1) {
+		log_error("SIGINT handler: %s\n", strerror(errno));
+		exit(errno);
+	}
+
+	if (sigaction(SIGTERM, &cleanup_action, NULL) == -1) {
+		log_error("SIGTERM handler: %s\n", strerror(errno));
+		exit(errno);
+	}
+
+	if (sigaction(SIGUSR1, &stats_action, NULL) == -1) {
+		log_error("SIGUSR handler: %s\n", strerror(errno));
+		exit(errno);
+	}
+}
+
+void get_thread_env(bool *use_db_thread) {
+	/* check if we're using the database worker thread */
+	char *thread_env = getenv("DB_THREAD");
+
+	if (thread_env) {
+		/* strncmp() returns 0 if strings are equal */
+		*use_db_thread = strncmp(getenv("DB_THREAD"), "true", 5) == 0;
+	} else {
+		*use_db_thread = true;
+	}
+
+#ifdef DEBUG
+	log_debug("use database worker thread: %d\n", use_db_thread);
+#endif
+}
+
+int get_bpf_map_fd(struct bpf_object *obj, char *name) {
+	struct bpf_map *map;
+
+	map = bpf_object__find_map_by_name(obj, name);
+	if (!map) {
+		log_error("cannot find map by name %s\n", name);
+		return -1;
+	}
+	return bpf_map__fd(map);
+}
+
 
 char *procnum_to_str(int protocol)
 {
@@ -709,45 +780,40 @@ int main(int argc, char *argv[])
     int xdp_rb_fd, ip_rb_fd, subnet_rb_fd, config_rb_fd;
 	int res = 0;
 
-	char *thread_env;
+	cJSON *config_json;
 
 	struct db_thread_args db_worker_args;
+	struct uretprobe_opts ip_uretprobe_args,
+						  subnet_uretprobe_args, config_uretprobe_args;
 
-	/* TODO replace hardcoded filenames */
+	/* TODO replace hardcoded filenames (take arguments) */
 	const char *BPF_FILENAME = "src/packet.bpf.o";
 	const char *CONFIG_PATH = "config/config.json";
 
-	struct sigaction cleanup_action;
-	struct sigaction stats_action;
+	switch (argc) {
+		case 2:
+			ifindex = if_nametoindex(argv[1]);
+			break;
+		case 3:
+			ifindex = if_nametoindex(argv[1]);
 
-	char *log_filename = malloc(24 * sizeof(char));
-	if (!log_filename) {
-		pr_err("memory allocation failed: %s\n:", strerror(errno));
-		return EXIT_FAILURE;
+			/* set SKB mode with bitwise OR */
+			if (skb_mode(argv[2])) {
+				xdp_flags |= XDP_FLAGS_SKB_MODE;
+			}
+			break;
+		default:
+			pr_err("usage: %s <interface name> [--skb-mode]\n", argv[0]);
+			return EXIT_FAILURE;
+			break;
 	}
 
-	time_to_str(time(NULL), log_filename, 24, "log/%Y-%m-%d_%H-%M-%S");
+	/* initialise and open log file */
+	init_log_file();
 
-	LOG = fopen(log_filename, "a");
-	if (!LOG) {
-		pr_err("%s\n", strerror(errno));
-		exit(errno);
-	}
-
-	LOG_FD = open(log_filename, O_RDWR | O_APPEND);
-	if (LOG_FD == -1) {
-		pr_err("%s\n", strerror(errno));
-		exit(errno);
-	}
-
-	free(log_filename);
-
-
-	/* apply default config */
+	/* set up config file */
 	set_default_config(&current_config, &config_lock);
-
-	/* get config options */
-	cJSON *config_json = json_config(CONFIG_PATH);
+	config_json = json_config(CONFIG_PATH);
 	if (!config_json) {
 		log_debug("no config file found at %s\n", CONFIG_PATH);
 	} else {
@@ -755,72 +821,9 @@ int main(int argc, char *argv[])
 		apply_config(config_json, &current_config, &config_lock);
 	}
 
+	setup_signal_handlers();
 
-	/* set up signal handlers
-	 *
-	 * SIGINT, SIGTERM: cleanup and exit
-	 * USR1: print performance statistics (similar to the dd command)
-	 */
-	cleanup_action.sa_handler = cleanup_handler;
-	sigemptyset(&cleanup_action.sa_mask);
-	cleanup_action.sa_flags = 0;
-
-	stats_action.sa_handler = print_stats;
-	sigemptyset(&stats_action.sa_mask);
-	stats_action.sa_flags = SA_RESTART;
-
-	if (sigaction(SIGINT, &cleanup_action, NULL) == -1) {
-		log_error("%s\n", "failed to set up SIGINT handler");
-		return EXIT_FAILURE;
-	}
-
-	if (sigaction(SIGTERM, &cleanup_action, NULL) == -1) {
-		log_error("%s\n", "failed to set up SIGTERM handler");
-		return EXIT_FAILURE;
-	}
-
-	if (sigaction(SIGUSR1, &stats_action, NULL) == -1) {
-		log_error("%s\n", "failed to set up SIGUSR1 handler");
-	}
-
-	/* check we have the second argument */
-	if (argc < 2) {
-		log_error("usage: %s <interface name> [--skb-mode]\n", argv[0]);
-		return -1;
-	}
-
-	/* check if we're using the database worker thread */
-	thread_env = getenv("DB_THREAD");
-
-	if (thread_env) {
-		/* strncmp() returns 0 if strings are equal */
-		use_db_thread = strncmp(getenv("DB_THREAD"), "true", 5) == 0;
-	} else {
-		use_db_thread = true;
-	}
-
-#ifdef DEBUG
-	log_debug("use database worker thread: %d\n", use_db_thread);
-#endif
-
-    /*
-	xdp_prog_fd = load_bpf_xdp(BPF_FILENAME);
-	if (xdp_prog_fd <= 0) {
-		log_error("failed to load XDP program from file: %s\n", BPF_FILENAME);
-		return -1;
-	}
-    */
-
-	ifindex = if_nametoindex(argv[1]);
-	xdp_flags = XDP_FLAGS_UPDATE_IF_NOEXIST;  /* from linux/if_link.h */
-
-	/* set skb mode if third option present using bitwise OR */
-	if (argc >= 3) {
-		if (strncmp(argv[2], "--skb-mode", strlen(argv[2])) == 0) {
-			xdp_flags |= XDP_FLAGS_SKB_MODE;
-		} else {
-		}
-	}
+	get_thread_env(&use_db_thread);
 
     /* load and attach XDP program */
     err = init_xdp_prog(&xdp_obj, BPF_FILENAME, "process_packet",
@@ -830,37 +833,39 @@ int main(int argc, char *argv[])
 
 	/* get IP hash map file descriptor so it can be shared with the
 	 * corresponding uretprobe */
-	map = bpf_object__find_map_by_name(xdp_obj, "ip_list");
-	if (!map) {
-		log_error("cannot find map by name %s\n", "ip_list");
+	ip_list_fd = get_bpf_map_fd(xdp_obj, "ip_list");
+	if (ip_list_fd == -1) {
 		err = -1;
 		goto cleanup;
 	}
-	ip_list_fd = bpf_map__fd(map);
 
-    /* get subnet array file descriptor so it can be shared with the
-     * corresponding uretprobe */
-    map = bpf_object__find_map_by_name(xdp_obj, "subnet_list");
-    if (!map) {
-        log_error("cannot find map by name: %s\n", "subnet_list");
+	subnet_list_fd = get_bpf_map_fd(xdp_obj, "subnet_list");
+    if (subnet_list_fd == -1) {
         err = -1;
         goto cleanup;
     }
-    subnet_list_fd = bpf_map__fd(map);
 
     /* load and attach IP list uretprobe */
-	if (init_uretprobe(&ip_uretprobe_obj, BPF_FILENAME,
-				"read_ip_rb", "submit_ip_entry",
-				ip_list_fd, "ip_list") <= 0) {
+	ip_uretprobe_args.uretprobe_obj = &ip_uretprobe_obj;
+	ip_uretprobe_args.filename = BPF_FILENAME;
+	ip_uretprobe_args.program_name = "read_ip_rb";
+	ip_uretprobe_args.uprobe_func = "submit_ip_entry";
+	ip_uretprobe_args.bpf_map_fd = ip_list_fd;
+	ip_uretprobe_args.map_name = "ip_list";
+	if (init_uretprobe(&ip_uretprobe_args) <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 		err = -1;
 		goto cleanup;
 	}
 
     /* load and attach subnet list uretprobe */
-	if (init_uretprobe(&subnet_uretprobe_obj, BPF_FILENAME,
-				"read_subnet_rb", "submit_subnet_entry",
-				subnet_list_fd, "subnet_list") <= 0) {
+	subnet_uretprobe_args.uretprobe_obj = &subnet_uretprobe_obj;
+	subnet_uretprobe_args.filename = BPF_FILENAME;
+	subnet_uretprobe_args.program_name = "read_subnet_rb";
+	subnet_uretprobe_args.uprobe_func = "submit_subnet_entry";
+	subnet_uretprobe_args.bpf_map_fd = subnet_list_fd;
+	subnet_uretprobe_args.map_name = "subnet_list";
+	if (init_uretprobe(&subnet_uretprobe_args) <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
 		err = -1;
 		goto cleanup;
@@ -868,23 +873,31 @@ int main(int argc, char *argv[])
 
 	/* get config hash map file descriptor so it can be shared with the
 	 * corresponding uretprobe */
-	map = bpf_object__find_map_by_name(xdp_obj, "config");
-	if (!map) {
-		log_error("cannot find map by name %s\n", "config");
+	config_hash_fd = get_bpf_map_fd(xdp_obj, "config");
+	if (config_hash_fd == -1) {
 		err = -1;
 		goto cleanup;
 	}
-	config_hash_fd = bpf_map__fd(map);
 
 	/* load and attach config uretprobe */
-	if (init_uretprobe(&config_uretprobe_obj, BPF_FILENAME,
-				"read_config_rb", "submit_action_config",
-				config_hash_fd, "config") <= 0) {
+	config_uretprobe_args.uretprobe_obj = &config_uretprobe_obj;
+	config_uretprobe_args.filename = BPF_FILENAME;
+	config_uretprobe_args.program_name = "read_config_rb";
+	config_uretprobe_args.uprobe_func = "submit_action_config";
+	config_uretprobe_args.bpf_map_fd = config_hash_fd;
+	config_uretprobe_args.map_name = "config";
+	if (init_uretprobe(&config_uretprobe_args) <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
+		err = -1;
+		goto cleanup;
 	}
 
 	/* set up database */
 	db_conn = connect_db("root", "alerts");
+	if (!db_conn) {
+		err = -1;
+		goto cleanup;
+	}
 
 	/* create hash table
 	 *
@@ -893,18 +906,18 @@ int main(int argc, char *argv[])
 	 */
 	packet_table = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, g_free);
 
+	/* initialise database task queue */
 	TAILQ_INIT(&task_queue_head);
 
-	/* extract common TCP ports from file */
-	common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS);
+	/* extract common TCP ports from file 
+	 * NOTE currently unused */
+	/* common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS); */
 
 	/* find kernel ring buffer */
-	map = bpf_object__find_map_by_name(xdp_obj, "xdp_rb");
-	if (!map) {
-		log_error("cannot find map by name: %s\n", "xdp_rb");
+	xdp_rb_fd = get_bpf_map_fd(xdp_obj, "xdp_rb");
+	if (xdp_rb_fd == -1) {
 		goto cleanup;
 	}
-	xdp_rb_fd = bpf_map__fd(map);
 
 	/* set up kernel ring buffer */
 	xdp_rb = ring_buffer__new(xdp_rb_fd, handle_event, NULL, NULL);
@@ -915,12 +928,11 @@ int main(int argc, char *argv[])
 	}
 
 	/* find IP user ring buffer */
-	map = bpf_object__find_map_by_name(ip_uretprobe_obj, "ip_rb");
-	if (!map) {
-		log_error("cannot find map by name: %s\n", "ip_rb");
+	ip_rb_fd = get_bpf_map_fd(ip_uretprobe_obj, "ip_rb");
+	if (ip_rb_fd == -1) {
+		err = -1;
 		goto cleanup;
 	}
-	ip_rb_fd = bpf_map__fd(map);
 
 	/* set up IP list user ring buffer */
 	ip_rb = user_ring_buffer__new(ip_rb_fd, NULL);
@@ -931,12 +943,10 @@ int main(int argc, char *argv[])
 	}
 
     /* find subnet user ring buffer */
-    map = bpf_object__find_map_by_name(subnet_uretprobe_obj, "subnet_rb");
-    if (!map) {
-        log_error("cannot find map by name: %s\n", "subnet_rb");
+	subnet_rb_fd = get_bpf_map_fd(subnet_uretprobe_obj, "subnet_rb");
+    if (subnet_rb_fd == -1) {
         goto cleanup;
     }
-    subnet_rb_fd = bpf_map__fd(map);
 
     /* set up subnet list user ring buffer */
     subnet_rb = user_ring_buffer__new(subnet_rb_fd, NULL);
@@ -947,12 +957,10 @@ int main(int argc, char *argv[])
     }
 
 	/* find config user ring buffer */
-	map = bpf_object__find_map_by_name(config_uretprobe_obj, "config_rb");
-	if (!map) {
-		log_error("cannot find map by name: %s\n", "config_rb");
+	config_rb_fd = get_bpf_map_fd(config_uretprobe_obj,"config_rb");
+	if (config_rb_fd == -1) {
 		goto cleanup;
 	}
-	config_rb_fd = bpf_map__fd(map);
 
 	/* set up config user ring buffer */
 	config_rb = user_ring_buffer__new(config_rb_fd, NULL);

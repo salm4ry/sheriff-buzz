@@ -303,19 +303,20 @@ int db_flagged(PGconn *conn, struct key *key, struct value *value)
  */
 PGconn *connect_db(char *user, char *dbname)
 {
-	char query[1024];
+	char query[MAX_QUERY];
 
-	sprintf(query, "user=%s dbname=%s", user, dbname);
-	PGconn *conn = PQconnectdb(query);
-	if (PQstatus(conn) != CONNECTION_OK) {
-		log_error("connection to database failed: %s\n", PQerrorMessage(conn));
+	snprintf(query, MAX_QUERY, "user=%s dbname=%s", user, dbname);
+	PGconn *db = PQconnectdb(query);
+	if (PQstatus(db) != CONNECTION_OK) {
+		log_error("connection to database failed: %s\n", PQerrorMessage(db));
 
-		PQfinish(conn);
-		/* return NULL on error */
+		/* clean up connection */
+		PQfinish(db);
+
 		return NULL;
 	}
 
-	return conn;
+	return db;
 }
 
 /**

@@ -774,6 +774,7 @@ void inotify_thread_work(void *args)
 	struct config *current_config = ctx->current_config;
 	pthread_rwlock_t *lock = ctx->lock;
 
+	/* TODO split provided config path on slash to get directory and filename */
 	const char *CONFIG_FILENAME = "config.json"; /* 12 bytes */
 	const char *CONFIG_DIR = "config";           /* 7 bytes */
 

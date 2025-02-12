@@ -6,7 +6,7 @@
 
 #include <unistd.h>
 
-static __always_inline __u16 fold(__u64 sum)
+__always_inline __u16 fold(__u64 sum)
 {
 	for (int i = 0; i < 4; i++) {
 		if (sum >> 16)
@@ -48,7 +48,7 @@ void ip_checksum(struct iphdr *iph)
  * iph: IP header to patch
  * dst_ip: destination IP to use
  */
-static inline void change_dst_addr(struct iphdr *iph, __be32 dst_ip)
+inline void change_dst_addr(struct iphdr *iph, __be32 dst_ip)
 {
 	iph->daddr = dst_ip;
 	/* bpf_printk("new destination address: %u", iph->daddr); */

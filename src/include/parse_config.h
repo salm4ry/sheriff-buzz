@@ -66,7 +66,7 @@ char config_path[CONFIG_PATH_LEN];
 /**
  * Convert a string to lowercase
  */
-static char *str_lower(char *str)
+char *str_lower(char *str)
 {
 	for (int i = 0; str[i]; i++) {
 		str[i] = tolower(str[i]);
@@ -76,7 +76,7 @@ static char *str_lower(char *str)
 }
 
 /* get network address and subnet mask given CIDR (slash notation) string */
-static void cidr_to_subnet(char *cidr, struct subnet *subnet)
+void cidr_to_subnet(char *cidr, struct subnet *subnet)
 {
 	int bits;
 
@@ -98,7 +98,7 @@ static void cidr_to_subnet(char *cidr, struct subnet *subnet)
  *
  * return parsed JSON object on success, NULL on error
  */
-static cJSON *json_config(const char *filename)
+cJSON *json_config(const char *filename)
 {
 	FILE *config_file;
 	long file_size;
@@ -136,7 +136,7 @@ static cJSON *json_config(const char *filename)
 	return obj;
 }
 
-static char *str_json_value(cJSON *obj, const char *item_name)
+char *str_json_value(cJSON *obj, const char *item_name)
 {
 	char *value = NULL;
 	cJSON *item;
@@ -161,7 +161,7 @@ static char *str_json_value(cJSON *obj, const char *item_name)
  *
  * return parsed IP on success, -1 on error
  */
-static in_addr_t ip_json_value(cJSON *obj, const char *item_name)
+in_addr_t ip_json_value(cJSON *obj, const char *item_name)
 {
 	in_addr_t ip = 0;
 	int res;
@@ -229,7 +229,7 @@ struct ip_list *ip_list_json(cJSON *obj, const char *item_name)
 	return list;
 }
 
-static struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name)
+struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name)
 {
 	int index = 0;
 	cJSON *array, *elem;
@@ -277,7 +277,7 @@ static struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name)
  *
  * return 0/1 (false/true) on success, -1 on error
  */
-static int check_action(cJSON *json_obj, const char *item_name)
+int check_action(cJSON *json_obj, const char *item_name)
 {
 	int action = -1;
 	char *value = str_json_value(json_obj, item_name);
@@ -305,7 +305,7 @@ static int check_action(cJSON *json_obj, const char *item_name)
  * Threshold value must be > 0 and <= MAX_THRESHOLD
  * return integer value on success, -1 on error
  */
-static long threshold_json_value(
+long threshold_json_value(
 		cJSON *json_obj, const char *item_name, const int MAX_THRESHOLD)
 {
 	long value = 0;
@@ -323,7 +323,7 @@ static long threshold_json_value(
 	return value;
 }
 
-static void free_ip_list(struct ip_list *list)
+void free_ip_list(struct ip_list *list)
 {
 	if (list) {
 		if (list->entries) {
@@ -333,7 +333,7 @@ static void free_ip_list(struct ip_list *list)
 	}
 }
 
-static void free_subnet_list(struct subnet_list *list)
+void free_subnet_list(struct subnet_list *list)
 {
 	if (list) {
 		if (list->entries) {
@@ -343,7 +343,7 @@ static void free_subnet_list(struct subnet_list *list)
 	}
 }
 
-static void set_default_config(struct config *config, pthread_rwlock_t *lock)
+void set_default_config(struct config *config, pthread_rwlock_t *lock)
 {
 	pthread_rwlock_wrlock(lock);
 	config->packet_threshold = 5;
@@ -361,7 +361,7 @@ static void set_default_config(struct config *config, pthread_rwlock_t *lock)
 	pthread_rwlock_unlock(lock);
 }
 
-static void apply_config(cJSON *config_json, struct config *current_config,
+void apply_config(cJSON *config_json, struct config *current_config,
 		pthread_rwlock_t *lock)
 {
 	int packet_threshold, flag_threshold, block_src;

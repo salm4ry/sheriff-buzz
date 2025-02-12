@@ -9,7 +9,7 @@
 #define MAX_PACKETS 1024
 
 /*
-static bool is_port_scan(bool *ports_scanned, int threshold)
+bool is_port_scan(bool *ports_scanned, int threshold)
 {
 	int port_count = count_ports_scanned(ports_scanned);
 
@@ -27,7 +27,7 @@ static bool is_port_scan(bool *ports_scanned, int threshold)
 */
 
 /* detect nmap -sF: FIN only */
-static bool is_fin_scan(struct tcphdr *tcph)
+bool is_fin_scan(struct tcphdr *tcph)
 {
 	/* check if FIN enabled */
 	if (!get_tcp_flag(tcph, TCP_FLAG_FIN)) {
@@ -45,12 +45,12 @@ static bool is_fin_scan(struct tcphdr *tcph)
 }
 
 /* detect nmap -sX: FIN + PSH + URG */
-static int is_xmas_scan(struct tcphdr *tcph) {
+int is_xmas_scan(struct tcphdr *tcph) {
 	return (get_tcp_flag(tcph, FIN) && get_tcp_flag(tcph, PSH) && get_tcp_flag(tcph, URG));
 }
 
 /* no flags set */
-static int is_null_scan(struct tcphdr *tcph) {
+int is_null_scan(struct tcphdr *tcph) {
 	for (int i = FIN; i <= CWR; i++) {
 		if (get_tcp_flag(tcph, i)) {
 			return false;

@@ -74,7 +74,7 @@ struct config_rb_event {
 
 /* return the protocol byte for an IP packet, 0 for anything else
  * adapted from: https://github.com/lizrice/ebpf-beginners/blob/main/packet.h */
-static __always_inline __u8 lookup_protocol(struct xdp_md *ctx)
+__always_inline __u8 lookup_protocol(struct xdp_md *ctx)
 {
 	__u8 protocol = 0;
 	void *data = (void *)(long)ctx->data;
@@ -97,7 +97,7 @@ static __always_inline __u8 lookup_protocol(struct xdp_md *ctx)
 	return protocol;
 }
 
-static __always_inline struct iphdr *parse_ip_headers(struct xdp_md *ctx) {
+__always_inline struct iphdr *parse_ip_headers(struct xdp_md *ctx) {
 	struct ethhdr *eth_header = NULL;
 	struct iphdr *ip_header = NULL;
 
@@ -119,7 +119,7 @@ fail:
 	return ip_header;
 }
 
-static __always_inline struct tcphdr *parse_tcp_headers(struct xdp_md *ctx) {
+__always_inline struct tcphdr *parse_tcp_headers(struct xdp_md *ctx) {
 	struct tcphdr *tcph = NULL;
 
 	void *data = (void *) (long) ctx->data;

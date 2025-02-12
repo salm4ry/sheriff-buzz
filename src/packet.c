@@ -713,9 +713,8 @@ int main(int argc, char *argv[])
 
 	struct db_thread_args db_worker_args;
 
-	/* const char *BPF_FILENAME = "src/packet.bpf.o"; */
 	/* TODO replace hardcoded filenames */
-	const char *BPF_FILENAME = "src/foo";
+	const char *BPF_FILENAME = "src/packet.bpf.o";
 	const char *CONFIG_PATH = "config/config.json";
 
 	struct sigaction cleanup_action;

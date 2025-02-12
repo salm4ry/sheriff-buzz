@@ -110,7 +110,7 @@ struct db_thread_args {
  *
  * Return -1 on error
  */
-static int min_port(unsigned long *ports)
+int min_port(unsigned long *ports)
 {
 	for (int i = 0; i < NUM_PORTS; i++) {
 		if (ports[i] != 0) {
@@ -129,7 +129,7 @@ static int min_port(unsigned long *ports)
  *
  * Return -1 on error
  */
-static int max_port(unsigned long *ports)
+int max_port(unsigned long *ports)
 {
 	for (int i = NUM_PORTS - 1; i >= 0; i--) {
 		if (ports[i] != 0) {

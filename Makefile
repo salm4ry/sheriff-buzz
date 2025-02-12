@@ -66,7 +66,7 @@ unload:
 ######################################
 .PHONY: run
 run:
-	sudo ./$(USR_TARGET) $(INTERFACE)
+	@ sudo ./$(USR_TARGET) $(INTERFACE)
 
 ######################################
 # Clean 

@@ -352,11 +352,10 @@ __attribute__((noinline)) int submit_action_config()
 }
 
 /* called for each packet sent through the ring buffer */
-static int handle_event(void *ctx, void *data, size_t data_sz)
+int handle_event(void *ctx, void *data, size_t data_sz)
 {
 	struct xdp_rb_event *e = data;
-	time_t timestamp;
-    char address[MAX_ADDR_LEN], time_string[32];
+    char address[MAX_ADDR_LEN];
 	int dst_port;
 
 	struct key current_key;

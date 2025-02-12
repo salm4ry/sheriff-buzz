@@ -2,17 +2,26 @@
 #include <time.h>
 
 #define MAX_LOG_MSG 512
+#include <stdio.h>
+
 #define MAX_TIME_STR 20
 #define MAX_PREFIX 28
 #define TIME_FMT "%Y-%m-%d %H-%M-%S"
 
-#define make_prefix(prefix, base) \
-	char time_str[MAX_TIME_STR]; \
-	time_t current_time = time(NULL); \
-	struct tm *tm = localtime(&current_time); \
-	\
-	strftime(time_str, MAX_TIME_STR, TIME_FMT, tm); \
+#ifndef _log_h
+#define _log_h
+
+void make_prefix(char *prefix, char *base)
+{
+	char time_str[MAX_TIME_STR];
+	time_t current_time = time(NULL);
+	struct tm tm;
+	localtime_r(&current_time, &tm);
+
+	strftime(time_str, MAX_TIME_STR, TIME_FMT, &tm);
 	snprintf(prefix, MAX_PREFIX, "%s %s", time_str, base);
+}
+#endif
 
 #define make_msg(msg, fmt, ...) \
 	snprintf(msg, MAX_LOG_MSG, fmt, ##__VA_ARGS__);
@@ -40,6 +49,13 @@
 { \
 	char prefix[MAX_PREFIX]; \
 	make_prefix(prefix, "debug: "); \
+	log(prefix, fmt, ##__VA_ARGS__); \
+}
+
+#define log_info(fmt, ...) \
+{ \
+	char prefix[MAX_PREFIX]; \
+	make_prefix(prefix, "info: "); \
 	log(prefix, fmt, ##__VA_ARGS__); \
 }
 

@@ -8,51 +8,56 @@
 FILE *LOG;
 
 /* load XDP program */
-int load_and_attach_xdp(struct bpf_object **xdp_obj,
-		const char *filename, const char *progname, int ifindex, uint32_t flags)
+int init_xdp_prog(struct bpf_object **xdp_obj,
+		const char *filename, const char *name, int netidx, uint32_t flags)
 {
-	int prog_fd = -1;
-	int err;
+	int bpf_prog_fd = -1;
+	int err = 0;
 
-	struct bpf_program *prog;
+	struct bpf_program *xdp_prog;
 
 	*xdp_obj = bpf_object__open_file(filename, NULL);
-	if (libbpf_get_error(xdp_obj)) {
+	if (*xdp_obj == NULL) {
 		log_error("open object file failed: %s\n", strerror(errno));
-		return -1;
+		err = -errno;
+		goto fail;
 	}
 
-	prog = bpf_object__find_program_by_name(*xdp_obj, progname);
-	if (prog == NULL) {
+	xdp_prog = bpf_object__find_program_by_name(*xdp_obj, name);
+	if (xdp_prog == NULL) {
 		log_error("find program in object failed: %s\n", strerror(errno));
-		return -1;
+		err = -errno;
+		goto fail;
 	}
 
 	/* set to XDP */
-	if (bpf_program__set_type(prog, BPF_PROG_TYPE_XDP) < 0) {
+	if (bpf_program__set_type(xdp_prog, BPF_PROG_TYPE_XDP) < 0) {
 		log_error("set bpf type to xdp failed: %s\n", strerror(errno));
-		return -1;
+		err = -errno;
+		goto fail;
 	}
 
-	err = bpf_object__load(*xdp_obj);
-	if (err) {
+	if (bpf_object__load(*xdp_obj)) {
 		log_error("load bpf object failed: %s\n", strerror(errno));
-		return -1;
+		err = -errno;
+		goto fail;
 	}
 
-	prog_fd = bpf_program__fd(prog);
-	if (prog_fd <= 0) {
+	bpf_prog_fd = bpf_program__fd(xdp_prog);
+	if (bpf_prog_fd <= 0) {
 		log_error("failed to load XDP program from file (%s): %s\n",
 				filename, strerror(errno));
-		return -1;
+		err = -errno;
+		goto fail;
 	}
 
-    err = bpf_xdp_attach(ifindex, prog_fd, flags, NULL);
+    err = bpf_xdp_attach(netidx, bpf_prog_fd, flags, NULL);
 
+fail:
 	return err;
 }
 
-/*
+/**
  * Load and attach BPF uretprobe with a shared (already loaded) map
  *
  * uretprobe_obj: BPF object to load program into
@@ -62,45 +67,49 @@ int load_and_attach_xdp(struct bpf_object **xdp_obj,
  * map_fd: file descriptor of map to share
  * map_name: name of map to share
  */
-int load_and_attach_bpf_uretprobe(struct bpf_object **uretprobe_obj,
-		const char *filename, const char *prog_name, const char *uprobe_func,
-        int map_fd, char *map_name)
+int init_uretprobe(struct bpf_object **uretprobe_obj,
+		const char *filename, const char *name, const char *uprobe_func,
+        int bpf_map_fd, char *map_name)
 {
-	int prog_fd = -1;
-	int err;
+	int bpf_prog_fd = -1;
+	int err = 0;
 	LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts);
-	struct bpf_program *prog;
-	struct bpf_map *shared_map;
+	struct bpf_program *uretprobe_prog;
+	struct bpf_map *bpf_shared_map;
 
 	*uretprobe_obj = bpf_object__open_file(filename, NULL);
 	if (libbpf_get_error(uretprobe_obj)) {
 		log_error("open object file failed: %s\n", strerror(errno));
-		return -1;
+		err = -errno;
+		goto fail;
 	}
 
-	prog = bpf_object__find_program_by_name(*uretprobe_obj, prog_name);
-	if (prog == NULL) {
+	uretprobe_prog = bpf_object__find_program_by_name(*uretprobe_obj, name);
+	if (uretprobe_prog == NULL) {
 		log_error(msg, "find program in object failed: %s\n", strerror(errno));
-		return -1;
+		err = -errno;
+		goto fail;
 	}
 
     /* both XDP and uretprobe need to access the flagged_ips hash map (uretprobe
      * for writing, XDP for reading) so we reuse the file descriptor */
-	shared_map = bpf_object__find_map_by_name(*uretprobe_obj, map_name);
-	err = bpf_map__reuse_fd(shared_map, map_fd);
+	bpf_shared_map = bpf_object__find_map_by_name(*uretprobe_obj, map_name);
+	err = bpf_map__reuse_fd(bpf_shared_map, bpf_map_fd);
 	if (err) {
 		log_error("failed to reuse map fd: %s\n", strerror(errno));
-		return -1;
+		err = -errno;
+		goto fail;
 	}
 
 	err = bpf_object__load(*uretprobe_obj);
 	if (err) {
 		log_error("load bpf object failed: %s\n", strerror(errno));
-		return -1;
+		err = -errno;
+		goto fail;
 	}
 
-	prog_fd = bpf_program__fd(prog);
-	if (!prog_fd) {
+	bpf_prog_fd = bpf_program__fd(uretprobe_prog);
+	if (!bpf_prog_fd) {
 		log_error("failed to load bpf object file(%s) (%d): %s\n",
 				filename, err, strerror(-err));
 	}
@@ -111,6 +120,7 @@ int load_and_attach_bpf_uretprobe(struct bpf_object **uretprobe_obj,
 	 * after we're done submitting) */
 	uprobe_opts.retprobe = true;
 
+	/* TODO: move to doc comment at the top */
 	/* Attach BPF uprobe
      *
 	 * prog: BPF program to attach
@@ -120,10 +130,13 @@ int load_and_attach_bpf_uretprobe(struct bpf_object **uretprobe_obj,
 	 * 				name in uprobe_otps)
 	 * opts: options
 	 */
-	if (!bpf_program__attach_uprobe_opts(prog, 0, 
+	if (!bpf_program__attach_uprobe_opts(uretprobe_prog, 0,
 				"/proc/self/exe", 0, &uprobe_opts)) {
 		log_error("uprobe attach failed: %s\n", strerror(errno));
 	}
 
-	return prog_fd;
+	return bpf_prog_fd;
+
+fail:
+	return err;
 }

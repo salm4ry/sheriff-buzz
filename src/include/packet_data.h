@@ -301,13 +301,13 @@ int db_flagged(PGconn *conn, struct key *key, struct value *value)
  *
  * Return the database connection object on success, NULL on error
  */
-static PGconn *connect_db(char *user, char *dbname)
+PGconn *connect_db(char *user, char *dbname)
 {
 	char query[1024];
 
 	sprintf(query, "user=%s dbname=%s", user, dbname);
 	PGconn *conn = PQconnectdb(query);
-	if (PQstatus(conn) == CONNECTION_BAD) {
+	if (PQstatus(conn) != CONNECTION_OK) {
 		log_error("connection to database failed: %s\n", PQerrorMessage(conn));
 
 		PQfinish(conn);

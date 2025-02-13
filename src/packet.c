@@ -182,7 +182,7 @@ void open_file(char *name, FILE **file)
 {
 	*file = fopen(name, "a");
 	if (!(*file)) {
-		pr_err("error opening %s: %s\n", name, strerror(errno));
+		perror("memory allocation failed");
 		exit(errno);
 	}
 }
@@ -191,7 +191,7 @@ void get_fd(char *name, int *fd)
 {
 	*fd = open(name, O_RDWR | O_APPEND);
 	if (*fd == -1) {
-		pr_err("error getting %s fd: %s\n", name, strerror(errno));
+		perror("memory allocation failed");
 		exit(errno);
 	}
 }
@@ -201,7 +201,7 @@ void init_log_file()
 	/* TODO: replace with char[]? */
 	char *filename = malloc(24 * sizeof(char));
 	if (!filename) {
-		pr_err("memory allocation failed: %s\n:", strerror(errno));
+		perror("memory allocation failed");
 		exit(errno);
 	}
 	gen_log_name(filename);
@@ -843,6 +843,8 @@ void inotify_thread_work(void *args)
 
 int main(int argc, char *argv[])
 {
+	struct args init_args;
+
     /* map file descriptors */
 	int ip_list_fd, subnet_list_fd, config_hash_fd;
 
@@ -859,39 +861,33 @@ int main(int argc, char *argv[])
 						  subnet_uretprobe_args, config_uretprobe_args;
 
 	/* TODO replace hardcoded filenames (take arguments using getopt) */
-	const char *BPF_FILENAME = "src/packet.bpf.o";
-	const char *CONFIG_PATH = "config/config.json";
-
 	/* NOTE testing */
-	parse_args(argc, argv);
+	parse_args(argc, argv, &init_args);
 
-	switch (argc) {
-		case 2:
-			ifindex = if_nametoindex(argv[1]);
-			break;
-		case 3:
-			ifindex = if_nametoindex(argv[1]);
-
-			/* set SKB mode with bitwise OR */
-			if (skb_mode(argv[2])) {
-				xdp_flags |= XDP_FLAGS_SKB_MODE;
-			}
-			break;
-		default:
-			pr_err("usage: %s <interface name> [--skb-mode]\n", argv[0]);
-			return EXIT_FAILURE;
-			break;
+	if (!init_args.interface) {
+		print_usage(argv[0]);
+		exit(EXIT_FAILURE);
 	}
 
+	if (init_args.skb_mode) {
+		xdp_flags |= XDP_FLAGS_SKB_MODE;
+	}
+
+	ifindex = if_nametoindex(init_args.interface);
+	if (ifindex == 0) {
+		/* TODO better error message */
+		perror("error setting up interface");
+		exit(errno);
+	}
 
 	/* initialise and open log file */
 	init_log_file();
 
 	/* set up config file */
 	set_default_config(&current_config, &config_lock);
-	config_json = json_config(CONFIG_PATH);
+	config_json = json_config(init_args.config);
 	if (!config_json) {
-		log_debug("no config file found at %s\n", CONFIG_PATH);
+		log_debug("no config file found at %s\n", init_args.config);
 	} else {
 		/* apply initial config */
 		apply_config(config_json, &current_config, &config_lock);
@@ -902,7 +898,7 @@ int main(int argc, char *argv[])
 	get_thread_env(&use_db_thread);
 
     /* load and attach XDP program */
-    err = init_xdp_prog(&xdp_obj, BPF_FILENAME, "process_packet",
+    err = init_xdp_prog(&xdp_obj, init_args.bpf_obj_file, "process_packet",
             ifindex, xdp_flags);
 	if (err < 0)
 		goto fail;
@@ -914,26 +910,28 @@ int main(int argc, char *argv[])
 
     /* load and attach IP list uretprobe */
 	ip_uretprobe_args.uretprobe_obj = &ip_uretprobe_obj;
-	ip_uretprobe_args.filename = BPF_FILENAME;
+	ip_uretprobe_args.filename = init_args.bpf_obj_file;
 	ip_uretprobe_args.program_name = "read_ip_rb";
 	ip_uretprobe_args.uprobe_func = "submit_ip_entry";
 	ip_uretprobe_args.bpf_map_fd = ip_list_fd;
 	ip_uretprobe_args.map_name = "ip_list";
 	if (init_uretprobe(&ip_uretprobe_args) <= 0) {
-		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
+		log_error("failed to load uretprobe program from file: %s\n",
+				init_args.bpf_obj_file);
 		err = -1;
 		init_cleanup(err);
 	}
 
     /* load and attach subnet list uretprobe */
 	subnet_uretprobe_args.uretprobe_obj = &subnet_uretprobe_obj;
-	subnet_uretprobe_args.filename = BPF_FILENAME;
+	subnet_uretprobe_args.filename = init_args.bpf_obj_file;
 	subnet_uretprobe_args.program_name = "read_subnet_rb";
 	subnet_uretprobe_args.uprobe_func = "submit_subnet_entry";
 	subnet_uretprobe_args.bpf_map_fd = subnet_list_fd;
 	subnet_uretprobe_args.map_name = "subnet_list";
 	if (init_uretprobe(&subnet_uretprobe_args) <= 0) {
-		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
+		log_error("failed to load uretprobe program from file: %s\n",
+				init_args.bpf_obj_file);
 		err = -1;
 		init_cleanup(err);
 	}
@@ -944,13 +942,14 @@ int main(int argc, char *argv[])
 
 	/* load and attach config uretprobe */
 	config_uretprobe_args.uretprobe_obj = &config_uretprobe_obj;
-	config_uretprobe_args.filename = BPF_FILENAME;
+	config_uretprobe_args.filename = init_args.bpf_obj_file;
 	config_uretprobe_args.program_name = "read_config_rb";
 	config_uretprobe_args.uprobe_func = "submit_action_config";
 	config_uretprobe_args.bpf_map_fd = config_hash_fd;
 	config_uretprobe_args.map_name = "config";
 	if (init_uretprobe(&config_uretprobe_args) <= 0) {
-		log_error("failed to load uretprobe program from file: %s\n", BPF_FILENAME);
+		log_error("failed to load uretprobe program from file: %s\n",
+				init_args.bpf_obj_file);
 		err = -1;
 		init_cleanup(err);
 	}

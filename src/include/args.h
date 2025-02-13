@@ -1,7 +1,9 @@
 #include <stdio.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <getopt.h>
 
+#include "bits/getopt_core.h"
 #include "pr.h"
 
 /**
@@ -25,46 +27,71 @@ static struct option long_opts[] = {
 	{0, 0, 0, 0}
 };
 
+struct args {
+	char *config;
+	char *bpf_obj_file;
+	char *interface;
+	bool skb_mode;
+};
+
+const struct args DEFAULT_ARGS = {
+	.config = "config/config.json",
+	.bpf_obj_file = "src/packet.bpf.o",
+	.skb_mode = false,
+	.interface = NULL /* interface is a required argument */
+};
+
+void set_default_args(struct args *args)
+{
+	args->config = DEFAULT_ARGS.config;
+	args->bpf_obj_file = DEFAULT_ARGS.bpf_obj_file;
+	args->skb_mode = DEFAULT_ARGS.skb_mode;
+}
+
+void print_usage(const char *prog_name)
+{
+	pr_err("usage: %s -i <interface>\n", prog_name);
+	/* TODO usage for long + short options */
+}
+
 /**
  * Short options characters (followed by a colon = requires an argument)
  */
 const char *short_opts = "c:si:b:";
 
 /* TODO save argument values */
-void parse_args(int argc, char *argv[])
+void parse_args(int argc, char *argv[], struct args *args)
 {
-	int c = 0, option_index = 0;
+	int opt = 0, option_index = 0;
+
+	set_default_args(args);
 
 	/* -1 = no more arguments to parse */
 	while (1) {
-		c = getopt_long(argc, argv, short_opts, long_opts, &option_index);
+		opt = getopt_long(argc, argv, short_opts, long_opts, &option_index);
 
-		if (c == -1)
+		if (opt == -1)
 			break;
 
-		switch (c) {
+		switch (opt) {
 			case 'c':
 				/* config file path */
-				printf("config path: %s\n", optarg);
+				args->config = optarg;
 				break;
 
 			case 's':
-				printf("skb mode set\n");
 				break;
 
 			case 'i':
-				printf("interface: %s\n", optarg);
+				args->interface = optarg;
 				break;
 
 			case 'b':
-				printf("BPF object path: %s\n", optarg);
-				break;
-
-			case '?':
+				args->bpf_obj_file = optarg;
 				break;
 
 			default:
-				printf("c = %d\n", c);
+				/* unrecognised argument */
 				break;
 		}
 	}

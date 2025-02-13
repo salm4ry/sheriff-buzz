@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
+
 #include <unistd.h>
 #include <getopt.h>
 
@@ -14,9 +16,16 @@
  * }
  */
 
+struct args {
+	char *config_file;
+	char *bpf_obj_file;
+	bool skb_mode;
+};
+
+
 int main(int argc, char *argv[])
 {
-	int c = 0;
+	int opt = 0;
 	int option_index = 0;
 
 	static struct option long_opts[] = {
@@ -33,13 +42,13 @@ int main(int argc, char *argv[])
 	const char *short_opts = "c:si:b:";
 
 	/* -1 = no more arguments to parse */
-	while (c != -1) {
-		c = getopt_long(argc, argv, short_opts, long_opts, &option_index);
+	while (opt != -1) {
+		opt = getopt_long(argc, argv, short_opts, long_opts, &option_index);
 
-		if (c == -1)
+		if (opt == -1)
 			break;
 
-		switch (c) {
+		switch (opt) {
 			case 0:
 				/* long options with val unset */
 				printf("option %s", long_opts[option_index].name);

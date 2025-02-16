@@ -98,40 +98,37 @@ void cidr_to_subnet(char *cidr, struct subnet *subnet)
  */
 cJSON *json_config(const char *filename)
 {
-	FILE *config_file;
-	long file_size;
-	cJSON *obj = NULL;
-	char *file_contents;
-	const char *error;
+	FILE *cfg;
+	long cfg_size;
+	cJSON *cfg_json = NULL;
 
-	config_file = fopen(filename, "r");
-	if (config_file) {
+	cfg = fopen(filename, "r");
+
+	if (cfg) {
 		/* get file size before reading */
-		fseek(config_file, 0L, SEEK_END);
+		fseek(cfg, 0L, SEEK_END);
 		/* +1 for EOF */
-		file_size = ftell(config_file) + 1;
+		cfg_size = ftell(cfg) + 1;
 		/* rewind file pointer back to start */
-		rewind(config_file);
+		rewind(cfg);
 
 		/* read file contents */
-		file_contents = (char *) calloc(file_size, sizeof(char));
-		fread(file_contents, sizeof(char), file_size, config_file);
+		char *tmp = (char *) calloc(cfg_size, sizeof(char));
+		fread(tmp, sizeof(char), cfg_size, cfg);
 
-		fclose(config_file);
+		fclose(cfg);
 
-		obj = cJSON_Parse(file_contents);
-		free(file_contents);
-		if (!obj) {
-			error = cJSON_GetErrorPtr();
-			if (error) {
-				fprintf(stderr, "cjson: %s\n", error);
-			}
-			cJSON_Delete(obj);
+		cfg_json = cJSON_Parse(tmp);
+		free(tmp);
+
+		if (!cfg_json) {
+			log_error("cjson: %s\n", cJSON_GetErrorPtr());
+			cJSON_Delete(cfg_json);
 			return NULL;
 		}
 	}
 
-	return obj;
+	return cfg_json;
 }
 
 char *str_json_value(cJSON *obj, const char *item_name)
@@ -206,8 +203,6 @@ struct ip_list *ip_list_json(cJSON *obj, const char *item_name)
 			exit(1);
 		}
 
-		log_debug("%s size = %d\n", item_name, list->size);
-
 		/* extract IP addresses from array */
 		cJSON_ArrayForEach(elem, array)
 		{
@@ -245,8 +240,6 @@ struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name)
 			pr_err("memory allocation failed: %s\n", strerror(errno));
 			exit(1);
 		}
-
-		log_debug("%s size = %d\n", item_name, list->size);
 
 		/* extract subnets from array */
 		cJSON_ArrayForEach(elem, array)
@@ -384,16 +377,15 @@ void apply_config(cJSON *config_json, struct config *current_config,
 		current_config->block_src = false;
 		current_config->redirect_ip = redirect_ip;
 		pthread_rwlock_unlock(lock);
-#ifdef DEBUG
+
 		char ip_str[16];
 		inet_ntop(AF_INET, &redirect_ip, ip_str, 16);
-		log_debug("config: action = redirect to %s\n", ip_str);
-#endif
+		log_info("config: action = redirect to %s\n", ip_str);
 	} else {
 		pthread_rwlock_wrlock(lock);
 		current_config->block_src = true;
 		pthread_rwlock_unlock(lock);
-		log_debug("config: %s\n", "action = block");
+		log_info("config: %s\n", "action = block");
 	}
 
 	/* apply thresholds if valid */
@@ -401,19 +393,19 @@ void apply_config(cJSON *config_json, struct config *current_config,
 		pthread_rwlock_wrlock(lock);
 		current_config->packet_threshold = packet_threshold;
 		pthread_rwlock_unlock(lock);
-		log_debug("config: packet_threshold = %d\n", packet_threshold);
+		log_info("config: packet_threshold = %d\n", packet_threshold);
 	}
 	if (port_threshold != -1) {
 		pthread_rwlock_wrlock(lock);
 		current_config->port_threshold = port_threshold;
 		pthread_rwlock_unlock(lock);
-		log_debug("config: port_threshold = %d\n", port_threshold);
+		log_info("config: port_threshold = %d\n", port_threshold);
 	}
 	if (flag_threshold != -1) {
 		pthread_rwlock_wrlock(lock);
 		current_config->flag_threshold = flag_threshold;
 		pthread_rwlock_unlock(lock);
-		log_debug("config: flag_threshold = %d\n", flag_threshold);
+		log_info("config: flag_threshold = %d\n", flag_threshold);
 	}
 
 	/* IP blacklist and whitelist */

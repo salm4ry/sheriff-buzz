@@ -3,7 +3,8 @@
 NUM_PORTS=65536
 
 HOST=${1:-k0ibian}
-ROOT_DIR=/home/gamek0i/port-scan-detector
+USER=${2:-gamek0i}
+ROOT_DIR="/home/$USER/port-scan-detector"
 LOG_DIR="$ROOT_DIR"/log
 CONFIG_PATH="$ROOT_DIR"/config
 CONFIG_FILE=config.json

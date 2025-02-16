@@ -1,10 +1,8 @@
-#include <stdint.h>
 #include <stdio.h>
-
+#include <stdint.h>
 #include <errno.h>
 #include <string.h>
 #include <time.h>
-
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -41,6 +39,25 @@ int ifindex;
 struct bpf_object *xdp_obj, *ip_uretprobe_obj,
                   *subnet_uretprobe_obj, *config_uretprobe_obj;
 
+struct uretprobe_opts ip_uretprobe_args = {
+	.program_name = "read_ip_rb",
+	.uprobe_func = "submit_ip_entry",
+	.map_name = "ip_list"
+};
+
+
+struct uretprobe_opts subnet_uretprobe_args = {
+	.program_name = "read_subnet_rb",
+	.uprobe_func = "submit_subnet_entry",
+	.map_name = "subnet_list"
+};
+
+struct uretprobe_opts config_uretprobe_args =  {
+	.program_name = "read_config_rb",
+	.uprobe_func = "submit_action_config",
+	.map_name = "config"
+};
+
 struct ring_buffer *xdp_rb = NULL;
 struct user_ring_buffer *ip_rb = NULL;
 struct user_ring_buffer *subnet_rb = NULL;
@@ -55,6 +72,7 @@ pthread_cond_t task_queue_cond = PTHREAD_COND_INITIALIZER;
 PGconn *db_conn;
 pthread_t db_worker;
 
+char *config_path;
 struct config current_config;
 pthread_rwlock_t config_lock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_t inotify_worker;
@@ -108,9 +126,15 @@ void cleanup()
 
 	/* terminate database and inotify worker threads */
 	/* TODO merge with init_cleanup() by checking if threads are running */
+	/*
 	pthread_kill(db_worker, SIGKILL);
 	pthread_kill(inotify_worker, SIGKILL);
+	*/
 
+	pthread_cancel(db_worker);
+	pthread_cancel(inotify_worker);
+
+	PQfinish(db_conn);
 	/* exit(EXIT_SUCCESS); */
 }
 
@@ -212,6 +236,19 @@ void init_log_file()
 	free(filename);
 }
 
+void init_config_path(const char *config_dir, char *config_filename, char **config_path)
+{
+	int config_len = strlen(config_filename) + strlen(config_dir) + 2;
+	*config_path = malloc(config_len * sizeof(char));
+	if (!config_path) {
+		perror("memory allocation failed");
+		exit(errno);
+	}
+
+	/* set up config path */
+	snprintf(*config_path, config_len, "%s/%s", config_dir, config_filename);
+}
+
 void setup_signal_handlers()
 {
 	struct sigaction cleanup_action, stats_action;
@@ -257,11 +294,9 @@ void get_thread_env(bool *use_db_thread) {
 	} else {
 		*use_db_thread = true;
 	}
-
-#ifdef DEBUG
-	log_debug("use database worker thread: %d\n", use_db_thread);
-#endif
+	log_debug("use database worker thread: %d\n", *use_db_thread);
 }
+
 
 int get_bpf_map_fd(struct bpf_object *obj, char *name) {
 	struct bpf_map *map;
@@ -308,13 +343,54 @@ void init_db_thread(void *function, struct db_thread_args *args)
 void init_inotify_thread(void *function, struct inotify_thread_args *args)
 {
 	int res = pthread_create(&inotify_worker, NULL,
-			function, &args);
+			function, args);
 	if (res != 0) {
 		log_error("%s\n", "config_worker pthread_create failed");
 		cleanup();
 		exit(res);
 	}
 }
+
+void log_flag_based_alert(int alert_type, struct key *key, struct value *val,
+		char *ip_str, int dst_port)
+{
+	switch (alert_type) {
+		case XMAS_SCAN:
+			log_alert("nmap Xmas scan detected from %s (port %d)!\n",
+					ip_str, dst_port);
+			break;
+		case FIN_SCAN:
+			log_alert("nmap FIN scan detected from %s (port %d)!\n",
+					ip_str, dst_port);
+			break;
+		case NULL_SCAN:
+			log_alert("nmap NULL scan detected from %s (port %d)!\n",
+					ip_str, dst_port);
+			break;
+	}
+
+	if (use_db_thread) {
+		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
+				 alert_type, key, val, dst_port);
+	} else {
+		db_alert(db_conn, alert_type, key, val, dst_port);
+	}
+}
+
+void log_port_based_alert(int alert_type, struct key *key, struct value *val,
+		char *ip_str, int port_threshold)
+{
+	log_alert("nmap (%d or more ports) detected from %s!\n",
+			port_threshold, ip_str);
+
+	if (use_db_thread) {
+		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
+				alert_type, key, val, 0);
+	} else {
+		db_alert(db_conn, alert_type, key, val, 0);
+	}
+}
+
 
 char *procnum_to_str(int protocol)
 {
@@ -423,6 +499,20 @@ void submit_ip_list()
 	pthread_rwlock_unlock(&config_lock);
 }
 
+void log_flagged_ip(struct key *key, struct value *val, char *ip_str)
+{
+	log_alert("flagging %s\n", ip_str);
+	submit_ip_entry(key->src_ip, BLACKLIST);
+
+	if (use_db_thread) {
+		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
+				0, key, val, 0);
+	} else {
+		db_flagged(db_conn, key, val);
+	}
+}
+
+
 __attribute__((noinline)) int submit_subnet_entry(struct subnet *entry,
         int index, int type)
 {
@@ -478,9 +568,7 @@ __attribute__((noinline)) int submit_action_config()
 		return err;
 	}
 
-#ifdef DEBUG
 	log_debug("%s\n", "submitting config");
-#endif
 
 	/* fill out ring buffer sample */
 	pthread_rwlock_rdlock(&config_lock);
@@ -499,212 +587,94 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	struct xdp_rb_event *e = data;
     char address[MAX_ADDR_LEN];
 	int dst_port;
+	int err;
 
-	struct key current_key;
-	struct value new_val;
-	gpointer res;
+	struct key *current_key = malloc(sizeof(struct key));
+	struct value *new_val = malloc(sizeof(struct value));
 
-	bool is_alert = false; /* did this packet cause an alert? */
+	if (!current_key || !new_val) {
+		perror("memory allocation failed");
+		err = errno;
+		cleanup();
+		exit(err);
+	}
+
+	int port_threshold, packet_threshold, flag_threshold;
+
+	int scan_type;
+
+	/* did this packet cause an alert? (used to determine whether to check alert
+	 * threshold) */
+	bool is_alert = false;
 	bool flagged = false;  /* did this IP get flagged? */
 
 	/* measure start time */
-	struct timespec start_time, end_time, delta;
-	/* TODO separate time measurement into function */
-	clock_gettime(CLOCK_MONOTONIC, &start_time);
+	struct timespec start_time, end_time;
+	get_clock_time(&start_time);
 
 	/* extract data from IP and TCP headers */
 	/* source IP address */
-	current_key.src_ip = ntohl(src_addr(&e->ip_header));
-
+	current_key->src_ip = ntohl(src_addr(&e->ip_header));
+	ip_to_str(current_key->src_ip, address);
 	/* destination TCP port */
 	dst_port = get_dst_port(&e->tcp_header);
 
-	ip_to_str(current_key.src_ip, address);
+	/* set up hash table entry */
+	setup_entry(packet_table, current_key, new_val, dst_port);
 
-	/* update hash table */
-	/* look up hash table entry */
-	res = g_hash_table_lookup(packet_table, (gconstpointer) &current_key.src_ip);
-
-	/* TODO replace with function */
-	if (res) {
-		/* entry already exists: update count and timestamp */
-		struct value *current_val = (struct value*) res;
-		new_val.first = current_val->first;
-		new_val.latest = time(NULL);
-		new_val.total_packet_count = current_val->total_packet_count + 1;
-		new_val.total_port_count = current_val->total_port_count;
-
-		/* copy per-port counts */
-		memcpy(new_val.ports, current_val->ports, NUM_PORTS * sizeof(unsigned long));
-
-		/* increment port count if this is a new port */
-		if (new_val.ports[dst_port] == 0) {
-			new_val.total_port_count++;
-		}
-
-#ifdef DEBUG
-		log_debug("total port count for %s = %d\n", address, new_val.total_port_count);
-#endif
-
-		/* increment packet count for current destination port */
-		new_val.ports[dst_port]++;
-	} else {
-		/* set up new entry */
-		new_val.first = time(NULL);
-		new_val.latest = new_val.first;
-
-		/* explicitly zero port count array */
-		memset(new_val.ports, 0, NUM_PORTS * sizeof(unsigned long));
-		/* set up total packete and port counts */
-		new_val.total_packet_count = 1;
-		new_val.total_port_count = 1;
-		new_val.ports[dst_port] = 1;
-	}
-
-
-	/* detect flag-based scans */
-	if (is_xmas_scan(&e->tcp_header)) {
-		pthread_rwlock_rdlock(&config_lock);
-		int packet_threshold = current_config.packet_threshold;
-		pthread_rwlock_unlock(&config_lock);
-
-		if (new_val.total_packet_count >= packet_threshold) {
-			is_alert = true;
-
-			log_alert("nmap Xmas scan detected from %s (port %d)!\n",
-					address, dst_port);
-
-			if (use_db_thread) {
-				queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-						 XMAS_SCAN, &current_key, &new_val, dst_port);
-			} else {
-				db_alert(db_conn, XMAS_SCAN,
-						&current_key, &new_val, dst_port);
-			}
-		}
-	}
-
-	if (is_fin_scan(&e->tcp_header)) {
-		pthread_rwlock_rdlock(&config_lock);
-		int packet_threshold = current_config.packet_threshold;
-		pthread_rwlock_unlock(&config_lock);
-
-		if (new_val.total_packet_count >= packet_threshold) {
-			is_alert = true;
-
-			log_alert("nmap FIN scan detected from %s (port %d)!\n",
-					address, dst_port);
-
-			if (use_db_thread) {
-				queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-						 FIN_SCAN, &current_key, &new_val, dst_port);
-			} else {
-				db_alert(db_conn, FIN_SCAN, &current_key, &new_val, dst_port);
-			}
-		}
-
-	}
-
-	if (is_null_scan(&e->tcp_header)) {
-		pthread_rwlock_rdlock(&config_lock);
-		int packet_threshold = current_config.packet_threshold;
-		pthread_rwlock_unlock(&config_lock);
-
-		if (new_val.total_packet_count >= packet_threshold) {
-			is_alert = true;
-
-			log_alert("nmap NULL scan detected from %s (port %d)!\n",
-					address, dst_port);
-
-			if (use_db_thread) {
-				queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-						 NULL_SCAN, &current_key, &new_val, dst_port);
-			} else {
-				db_alert(db_conn, NULL_SCAN, &current_key, &new_val, dst_port);
-			}
-		}
-	}
-
-	/* NOTE avoids logging every time we send an SSH packet */
-	/*
-	char **port_fingerprints = ip_fingerprint(current_key.src_ip);
-	free_ip_fingerprint(port_fingerprints);
-	*/
-
-	/* read port threshold from config */
+	/* read packet and port thresholds from config file */
 	pthread_rwlock_rdlock(&config_lock);
-	long port_threshold = current_config.port_threshold;
+	port_threshold = current_config.port_threshold;
+	packet_threshold = current_config.packet_threshold;
+	flag_threshold = current_config.flag_threshold;
 	pthread_rwlock_unlock(&config_lock);
 
-	if (new_val.total_port_count >= port_threshold) {
-		is_alert = true;
-		log_alert("nmap (%d or more ports) detected from %s!\n",
-				port_threshold, address);
-
-		if (use_db_thread) {
-			queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-				PORT_SCAN, &current_key, &new_val, 0);
-		} else {
-			db_alert(db_conn, PORT_SCAN, &current_key, &new_val, 0);
+	/* detect flag-based scans */
+	scan_type = flag_based_scan(&e->tcp_header);
+	/* check packet threshold */
+	if (scan_type) {
+		if (new_val->total_packet_count >= packet_threshold) {
+			log_flag_based_alert(scan_type, current_key, new_val, address, dst_port);
+			is_alert = true;
 		}
+	}
+
+#ifdef DEBUG
+	if (dst_port != 22) {
+		log_debug("total port count for %s: %d (current port: %d)\n", 
+				address, new_val->total_port_count, dst_port);
+	}
+#endif
+
+	if (new_val->total_port_count >= port_threshold) {
+		is_alert = true;
+		log_port_based_alert(PORT_SCAN, current_key, new_val, address, port_threshold);
 	}
 
 	if (is_alert) {
-		/* incrment alert count */
-		new_val.alert_count++;
-
-		pthread_rwlock_rdlock(&config_lock);
-		int flag_threshold = current_config.flag_threshold;
-		pthread_rwlock_unlock(&config_lock);
-
+		/* increment alert count */
+		new_val->alert_count++;
 		/* check current number of alerts */
-#ifdef DEBUG
-		log_debug("alert count for %s: %d\n", address, new_val.alert_count);
-#endif
+		log_debug("alert count for %s: %d\n", address, new_val->alert_count);
 
-		/* flag IP if config threshold reached */
-		if (new_val.alert_count >= flag_threshold) {
-			log_alert("flagging %s\n", address);
+		/* flag IP if alert threshold reached */
+		if (new_val->alert_count >= flag_threshold) {
 			flagged = true;
-			submit_ip_entry(current_key.src_ip, BLACKLIST);
-
-            if (use_db_thread) {
-				queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-					0, &current_key, &new_val, 0);
-            } else {
-                db_flagged(db_conn, &current_key, &new_val);
-            }
+			log_flagged_ip(current_key, new_val, address);
 		}
 	}
 
 	/* update hash table */
-	if (flagged) {
-        /* flagged: remove IP entry from hash table */
-		g_hash_table_remove(packet_table, (gconstpointer) &current_key.src_ip);
-	} else {
-		/* insert/update entry */
-		g_hash_table_replace(packet_table,
-				g_memdup2((gconstpointer) &current_key.src_ip, sizeof(in_addr_t)),
-				g_memdup2((gconstpointer) &new_val, sizeof(struct value)));
-	}
+	update_entry(packet_table, current_key, new_val, flagged);
 
 	/* measure end time */
-	clock_gettime(CLOCK_MONOTONIC, &end_time);
-	delta = time_diff(&start_time, &end_time);
-	total_handle_time += delta.tv_sec + delta.tv_nsec;
+	get_clock_time(&end_time);
+	update_total_time(&start_time, &end_time, &total_handle_time);
 	/* update total packet count */
 	total_packet_count++;
 
-#ifdef DEBUG
-	/* avoid printing out handle_event() time for every SSH packet! */
-	if (dst_port != 22) {
-		log_debug("time taken: %ld ns\n", delta.tv_nsec);
-		log_debug("total handle_event time: %ld ns\n", total_handle_time);
-		printf("total handle_event time: %ld ns, total packets: %ld\n", 
-				total_handle_time, total_packet_count);
-		printf("packet rate: %ld\n", packet_rate(&total_packet_count, &total_handle_time));
-	}
-#endif
+	free(current_key);
+	free(new_val);
 
 	return 0;
 }
@@ -775,15 +745,10 @@ void inotify_thread_work(void *args)
 	struct config *current_config = ctx->current_config;
 	pthread_rwlock_t *lock = ctx->lock;
 
-	/* TODO split provided config path on slash to get directory and filename */
-	const char *CONFIG_FILENAME = "config.json"; /* 12 bytes */
-	const char *CONFIG_DIR = "config";           /* 7 bytes */
-
-	/* set up config path */
-	snprintf(config_path, CONFIG_PATH_LEN, "%s/%s", CONFIG_DIR, CONFIG_FILENAME);
-#ifdef DEBUG
-	log_debug("config path: %s\n", config_path);
-#endif
+	/* TODO decide whether we're forcing config dir or allowing user-provided
+	 * directory */
+	const char *CONFIG_DIR = ctx->config_dir;
+	const char *CONFIG_FILENAME = ctx->config_filename;
 
 	/* create inotify file descriptor */
 	inotify_fd = inotify_init();
@@ -844,6 +809,7 @@ void inotify_thread_work(void *args)
 int main(int argc, char *argv[])
 {
 	struct args init_args;
+	char *CONFIG_DIR = "config"; /* TODO change */
 
     /* map file descriptors */
 	int ip_list_fd, subnet_list_fd, config_hash_fd;
@@ -857,11 +823,7 @@ int main(int argc, char *argv[])
 	struct db_thread_args db_worker_args;
 	struct inotify_thread_args inotify_worker_args;
 
-	struct uretprobe_opts ip_uretprobe_args,
-						  subnet_uretprobe_args, config_uretprobe_args;
-
-	/* TODO replace hardcoded filenames (take arguments using getopt) */
-	/* NOTE testing */
+	/* parse command-line arguments */
 	parse_args(argc, argv, &init_args);
 
 	if (!init_args.interface) {
@@ -882,16 +844,19 @@ int main(int argc, char *argv[])
 
 	/* initialise and open log file */
 	init_log_file();
+	/* TODO get dir from args */
+	init_config_path(CONFIG_DIR, init_args.config, &config_path);
 
 	/* set up config file */
 	set_default_config(&current_config, &config_lock);
-	config_json = json_config(init_args.config);
+	config_json = json_config(config_path);
 	if (!config_json) {
 		log_debug("no config file found at %s\n", init_args.config);
 	} else {
 		/* apply initial config */
 		apply_config(config_json, &current_config, &config_lock);
 	}
+	cJSON_Delete(config_json);
 
 	setup_signal_handlers();
 
@@ -911,10 +876,7 @@ int main(int argc, char *argv[])
     /* load and attach IP list uretprobe */
 	ip_uretprobe_args.uretprobe_obj = &ip_uretprobe_obj;
 	ip_uretprobe_args.filename = init_args.bpf_obj_file;
-	ip_uretprobe_args.program_name = "read_ip_rb";
-	ip_uretprobe_args.uprobe_func = "submit_ip_entry";
 	ip_uretprobe_args.bpf_map_fd = ip_list_fd;
-	ip_uretprobe_args.map_name = "ip_list";
 	if (init_uretprobe(&ip_uretprobe_args) <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n",
 				init_args.bpf_obj_file);
@@ -925,10 +887,7 @@ int main(int argc, char *argv[])
     /* load and attach subnet list uretprobe */
 	subnet_uretprobe_args.uretprobe_obj = &subnet_uretprobe_obj;
 	subnet_uretprobe_args.filename = init_args.bpf_obj_file;
-	subnet_uretprobe_args.program_name = "read_subnet_rb";
-	subnet_uretprobe_args.uprobe_func = "submit_subnet_entry";
 	subnet_uretprobe_args.bpf_map_fd = subnet_list_fd;
-	subnet_uretprobe_args.map_name = "subnet_list";
 	if (init_uretprobe(&subnet_uretprobe_args) <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n",
 				init_args.bpf_obj_file);
@@ -943,10 +902,7 @@ int main(int argc, char *argv[])
 	/* load and attach config uretprobe */
 	config_uretprobe_args.uretprobe_obj = &config_uretprobe_obj;
 	config_uretprobe_args.filename = init_args.bpf_obj_file;
-	config_uretprobe_args.program_name = "read_config_rb";
-	config_uretprobe_args.uprobe_func = "submit_action_config";
 	config_uretprobe_args.bpf_map_fd = config_hash_fd;
-	config_uretprobe_args.map_name = "config";
 	if (init_uretprobe(&config_uretprobe_args) <= 0) {
 		log_error("failed to load uretprobe program from file: %s\n",
 				init_args.bpf_obj_file);
@@ -1014,8 +970,19 @@ int main(int argc, char *argv[])
 	/* create config file worker thread
 	 *
 	 * (pass config structure as argument to work function) */
+	inotify_worker_args.config_dir = malloc((strlen(CONFIG_DIR)+1) * sizeof(char));
+	/* TODO error handling */
+	strncpy(inotify_worker_args.config_dir, CONFIG_DIR, strlen(CONFIG_DIR)+1);
+	// inotify_worker_args.config_dir = CONFIG_DIR;
+
+	inotify_worker_args.config_filename = malloc((strlen(init_args.config)+1) * sizeof(char));
+	/* TODO error handling */
+	strncpy(inotify_worker_args.config_filename, init_args.config, strlen(init_args.config)+1);
+	// inotify_worker_args.config_filename = init_args.config;
+
 	inotify_worker_args.current_config = &current_config;
 	inotify_worker_args.lock = &config_lock;
+
 	init_inotify_thread((void *) inotify_thread_work, &inotify_worker_args);
 
 	/* poll ring buffer */

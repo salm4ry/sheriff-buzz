@@ -45,12 +45,17 @@ void make_prefix(char *prefix, char *base)
 	free(new_fmt); \
 }
 
-#define log_debug(fmt, ...) \
-{ \
-	char prefix[MAX_PREFIX]; \
-	make_prefix(prefix, "debug: "); \
-	log(prefix, fmt, ##__VA_ARGS__); \
-}
+#ifdef DEBUG
+	#define log_debug(fmt, ...) \
+	{ \
+		char prefix[MAX_PREFIX]; \
+		make_prefix(prefix, "debug: "); \
+		log(prefix, fmt, ##__VA_ARGS__); \
+	}
+#else
+	#define log_debug(fmt, ...) \
+		;
+#endif
 
 #define log_info(fmt, ...) \
 { \

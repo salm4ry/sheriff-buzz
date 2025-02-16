@@ -35,7 +35,7 @@ struct args {
 };
 
 const struct args DEFAULT_ARGS = {
-	.config = "config/config.json",
+	.config = "config.json",
 	.bpf_obj_file = "src/packet.bpf.o",
 	.skb_mode = false,
 	.interface = NULL /* interface is a required argument */

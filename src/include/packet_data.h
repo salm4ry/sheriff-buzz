@@ -61,7 +61,7 @@ struct value {
 	time_t first;
 	time_t latest;
 	int total_port_count;
-	int total_packet_count;
+	unsigned long total_packet_count;
 	int alert_count;
 	unsigned long ports[NUM_PORTS];
 };
@@ -170,6 +170,60 @@ int count_entries(GHashTable *table)
     return count;
 }
 
+/* initialise hash table entry either based on existing entry or new */
+void setup_entry(GHashTable *table, struct key *key, struct value *val, int dst_port)
+{
+	gpointer res = g_hash_table_lookup(table, (gconstpointer) &key->src_ip);
+	if (res) {
+		/* entry already exists: update count and timestamp */
+		struct value *current_val = (struct value*) res;
+
+		val->first = current_val->first;
+		val->latest = time(NULL);
+		val->total_packet_count = current_val->total_packet_count + 1;
+		val->total_port_count = current_val->total_port_count;
+		val->alert_count = current_val->alert_count;
+
+		/* copy per-port counts */
+		memcpy(val->ports, current_val->ports, NUM_PORTS * sizeof(unsigned long));
+
+		/* increment port count if this is a new port */
+		if (val->ports[dst_port] == 0) {
+			val->total_port_count++;
+		}
+		val->ports[dst_port]++;
+
+		if (dst_port != 22) {
+			log_debug("port count for %d = %ld (old: %ld)\n",
+					dst_port, val->ports[dst_port], current_val->ports[dst_port]);
+		}
+	} else {
+		/* set up new entry */
+		val->first = time(NULL);
+		val->latest = val->first;
+
+		memset(val->ports, 0, NUM_PORTS * sizeof(unsigned long));
+		/* set up total packet and port counts */
+		val->total_port_count = 1;
+		val->total_packet_count = 1;
+		val->ports[dst_port] = 1;
+	}
+}
+
+void update_entry(GHashTable *table, struct key *key, struct value *val,
+		bool flagged)
+{
+	if (flagged) {
+        /* flagged: remove IP entry from hash table */
+		g_hash_table_remove(table, (gconstpointer) &key->src_ip);
+	} else {
+		/* insert/update entry */
+		g_hash_table_replace(table,
+				g_memdup2((gconstpointer) &key->src_ip, sizeof(in_addr_t)),
+				g_memdup2((gconstpointer) val, sizeof(struct value)));
+	}
+}
+
 /**
  *
  * Log alert to database (upsert)
@@ -243,9 +297,7 @@ int db_alert(PGconn *conn, int alert_type,
 	}
 
 
-#ifdef DEBUG
 	log_debug("%s\n", query);
-#endif
 
 	db_res = PQexec(conn, query);
 

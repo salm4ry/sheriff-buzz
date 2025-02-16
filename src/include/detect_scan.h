@@ -2,6 +2,7 @@
 #include <linux/tcp.h>
 #include <linux/types.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include "packet_data.h"
 
@@ -25,6 +26,8 @@ bool is_port_scan(bool *ports_scanned, int threshold)
 	return (port_count >= threshold);
 }
 */
+
+bool use_db_thread;
 
 /* detect nmap -sF: FIN only */
 bool is_fin_scan(struct tcphdr *tcph)
@@ -57,4 +60,19 @@ int is_null_scan(struct tcphdr *tcph) {
 		}
 	}
 	return true;
+}
+
+int flag_based_scan(struct tcphdr *tcp_header)
+{
+	int scan_type = 0;
+
+	if (is_xmas_scan(tcp_header)) {
+		scan_type = XMAS_SCAN;
+	} else if (is_fin_scan(tcp_header)) {
+		scan_type = FIN_SCAN;
+	} else if (is_null_scan(tcp_header)) {
+		scan_type = NULL_SCAN;
+	}
+
+	return scan_type;
 }

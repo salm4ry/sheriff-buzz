@@ -121,6 +121,8 @@ int init_uretprobe(struct uretprobe_opts *args)
 	if (!bpf_prog_fd) {
 		log_error("failed to load bpf object file(%s) (%d): %s\n",
 				args->filename, err, strerror(-err));
+		err = -errno;
+		goto fail;
 	}
 
 	/* name of function to attach to */
@@ -142,6 +144,8 @@ int init_uretprobe(struct uretprobe_opts *args)
 	if (!bpf_program__attach_uprobe_opts(uretprobe_prog, 0,
 				"/proc/self/exe", 0, &uprobe_opts)) {
 		log_error("uprobe attach failed: %s\n", strerror(errno));
+		err = -errno;
+		goto fail;
 	}
 
 	return bpf_prog_fd;

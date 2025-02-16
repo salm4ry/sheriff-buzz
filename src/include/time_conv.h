@@ -1,3 +1,4 @@
+#include "bits/time.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -26,6 +27,11 @@ time_t get_boot_time()
 	time(&current_time);
 
 	return current_time - get_uptime();
+}
+
+void get_clock_time(struct timespec *time)
+{
+	clock_gettime(CLOCK_MONOTONIC, time);
 }
 
 /* calculate real time from nanoseconds since boot */
@@ -58,6 +64,13 @@ struct timespec time_diff(struct timespec *start, struct timespec *end)
 	}
 
 	return res;
+}
+
+void update_total_time(struct timespec *start, struct timespec *end,
+		unsigned long *total_time)
+{
+	struct timespec delta = time_diff(start, end);
+	*total_time += delta.tv_sec + delta.tv_nsec;
 }
 
 /**

@@ -19,8 +19,6 @@
 
 FILE *LOG;
 
-#define CONFIG_PATH_LEN 20 /* number of bytes for config file path */
-
 #define MAX_PACKET_THRESHOLD 1000
 #define MAX_PORT_THRESHOLD 65536
 #define MAX_FLAG_THRESHOLD 10
@@ -45,7 +43,7 @@ struct subnet_list {
 struct config {
 	int packet_threshold;
 	int flag_threshold;
-	long port_threshold;
+	int port_threshold;
 	in_addr_t redirect_ip;
 	bool block_src;
 
@@ -57,11 +55,11 @@ struct config {
 };
 
 struct inotify_thread_args {
+	char *config_dir;
+	char *config_filename;
 	struct config *current_config;
 	pthread_rwlock_t *lock;
 };
-
-char config_path[CONFIG_PATH_LEN];
 
 /**
  * Convert a string to lowercase
@@ -208,9 +206,7 @@ struct ip_list *ip_list_json(cJSON *obj, const char *item_name)
 			exit(1);
 		}
 
-#ifdef DEBUG
 		log_debug("%s size = %d\n", item_name, list->size);
-#endif
 
 		/* extract IP addresses from array */
 		cJSON_ArrayForEach(elem, array)
@@ -250,9 +246,7 @@ struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name)
 			exit(1);
 		}
 
-#ifdef DEBUG
 		log_debug("%s size = %d\n", item_name, list->size);
-#endif
 
 		/* extract subnets from array */
 		cJSON_ArrayForEach(elem, array)
@@ -305,10 +299,10 @@ int check_action(cJSON *json_obj, const char *item_name)
  * Threshold value must be > 0 and <= MAX_THRESHOLD
  * return integer value on success, -1 on error
  */
-long threshold_json_value(
+int threshold_json_value(
 		cJSON *json_obj, const char *item_name, const int MAX_THRESHOLD)
 {
-	long value = 0;
+	int value = 0;
 	cJSON *item;
 
 	item = cJSON_GetObjectItemCaseSensitive(json_obj, item_name);
@@ -345,6 +339,7 @@ void free_subnet_list(struct subnet_list *list)
 
 void set_default_config(struct config *config, pthread_rwlock_t *lock)
 {
+	/* TODO read defaults from file instead of storing in the binary */
 	pthread_rwlock_wrlock(lock);
 	config->packet_threshold = 5;
 	config->port_threshold = 100;
@@ -366,7 +361,7 @@ void apply_config(cJSON *config_json, struct config *current_config,
 {
 	int packet_threshold, flag_threshold, block_src;
 	in_addr_t redirect_ip;
-	long port_threshold;
+	int port_threshold;
 
 	struct ip_list *blacklist_ip, *whitelist_ip;
 	struct subnet_list *blacklist_subnet, *whitelist_subnet;
@@ -398,9 +393,7 @@ void apply_config(cJSON *config_json, struct config *current_config,
 		pthread_rwlock_wrlock(lock);
 		current_config->block_src = true;
 		pthread_rwlock_unlock(lock);
-#ifdef DEBUG
 		log_debug("config: %s\n", "action = block");
-#endif
 	}
 
 	/* apply thresholds if valid */
@@ -408,25 +401,19 @@ void apply_config(cJSON *config_json, struct config *current_config,
 		pthread_rwlock_wrlock(lock);
 		current_config->packet_threshold = packet_threshold;
 		pthread_rwlock_unlock(lock);
-#ifdef DEBUG
 		log_debug("config: packet_threshold = %d\n", packet_threshold);
-#endif
 	}
 	if (port_threshold != -1) {
 		pthread_rwlock_wrlock(lock);
 		current_config->port_threshold = port_threshold;
 		pthread_rwlock_unlock(lock);
-#ifdef DEBUG
 		log_debug("config: port_threshold = %d\n", port_threshold);
-#endif
 	}
 	if (flag_threshold != -1) {
 		pthread_rwlock_wrlock(lock);
 		current_config->flag_threshold = flag_threshold;
 		pthread_rwlock_unlock(lock);
-#ifdef DEBUG
 		log_debug("config: flag_threshold = %d\n", flag_threshold);
-#endif
 	}
 
 	/* IP blacklist and whitelist */

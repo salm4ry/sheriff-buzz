@@ -473,7 +473,7 @@ __attribute__((noinline)) int submit_ip_entry(__u32 src_ip, int type)
 	}
 
 	/* fill out ring buffer sample */
-	e->src_ip = src_ip;
+	e->src_ip = htonl(src_ip);
 	e->type = type;
 
 	/* submit ring buffer event */
@@ -618,7 +618,6 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	ip_to_str(current_key->src_ip, address);
 	/* destination TCP port */
 	dst_port = get_dst_port(&e->tcp_header);
-
 	/* set up hash table entry */
 	setup_entry(packet_table, current_key, new_val, dst_port);
 

@@ -13,6 +13,7 @@
 
 /* TODO #define all map maximum sizes */
 #define MAX_SUBNET 256
+#define _XDP_STATE_UNKNOWN -1
 
 char LICENSE[] SEC("license") = "GPL";
 
@@ -120,7 +121,7 @@ static long ip_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 		return 0;
 	}
 
-	bpf_debug("ip %ld, blacklist = %d", sample->src_ip,
+	bpf_debug("submitting ip %ld, blacklist = %d", sample->src_ip,
 			sample->type == BLACKLIST);
 
 	/* insert hash map entry for new black/whitelisted IP */
@@ -209,6 +210,90 @@ static long subnet_loop_callback(__u64 index, void *ctx)
     }
 }
 
+int handle_blacklist(__u32 src_ip, struct iphdr *ip_headers, const int CONFIG_INDEX)
+{
+	/* block by default */
+	int result = XDP_DROP;
+
+	struct config_rb_event *current_config;
+
+	current_config = bpf_map_lookup_elem(&config, &CONFIG_INDEX);
+
+	if (current_config) {
+		if (current_config->block_src) {
+			bpf_debug("block %lu", src_ip);
+			result = XDP_DROP;
+		} else {
+			/* NOTE: ip_headers NULL check required to pass verifier checks */
+			if (ip_headers) {
+				bpf_debug("redirect %lu to %lu", src_ip, current_config->redirect_ip);
+				change_dst_addr(ip_headers, current_config->redirect_ip);
+				result = XDP_TX;
+			}
+		}
+	}
+
+	return result;
+}
+
+int src_ip_state(__u32 src_ip, struct iphdr *ip_headers, const int CONFIG_INDEX)
+{
+	__u16 *ip_list_type;
+	int packet_action = _XDP_STATE_UNKNOWN;
+
+	/* look up source IP */
+	ip_list_type = bpf_map_lookup_elem(&ip_list, &src_ip);
+
+	if (ip_list_type) {
+		switch (*ip_list_type) {
+			case BLACKLIST:
+				bpf_debug("IP lookup: %ld blacklisted", src_ip);
+				packet_action = handle_blacklist(src_ip, ip_headers, CONFIG_INDEX);
+				break;
+			default:
+				bpf_debug("IP lookup: %ld whitelisted", src_ip);
+				packet_action = XDP_PASS;
+				break;
+		}
+	}
+
+	return packet_action;
+}
+
+int subnet_state(__u32 src_ip)
+{
+	/* set up loop callback args */
+	struct subnet_loop_ctx ctx = {
+		.src_ip = src_ip,
+		.type = -1
+	};
+
+	bpf_loop(MAX_SUBNET, &subnet_loop_callback, &ctx, 0);
+	return ctx.type;
+}
+
+void submit_headers(struct iphdr *ip_headers, struct tcphdr *tcp_headers)
+{
+	struct xdp_rb_event *e;
+
+	if (ip_headers && tcp_headers) {
+	/* IP not black/whitelisted- send TCP headers to user space */
+
+	/* reserve ring buffer sample */
+	e = bpf_ringbuf_reserve(&xdp_rb, sizeof(*e), 0);
+	if (!e) {
+		bpf_debug("XDP ring buffer allocation failed");
+		return;
+	}
+
+	/* fill out ring buffer sample */
+	e->ip_header = *ip_headers;
+	e->tcp_header = *tcp_headers;
+
+	/* submit ring buffer event */
+	bpf_ringbuf_submit(e, 0);
+	}
+}
 
 SEC("uretprobe")
 int read_ip_rb()
@@ -235,140 +320,64 @@ SEC("xdp")
 int process_packet(struct xdp_md *ctx)
 {
 	__u8 protocol_number;
-	__u16 *ip_list_type;
 	__u32 src_ip;
 
-    struct subnet_loop_ctx loop_ctx;
-
-	int result = XDP_PASS;
-
-	struct xdp_rb_event *e;
+	int packet_action = XDP_PASS;
+	int subnet_type;
 
 	const __u32 CONFIG_INDEX = 0; /* index 0 */
-	struct config_rb_event *current_config;
 
 	protocol_number = lookup_protocol(ctx);
 
 	struct iphdr *ip_headers = parse_ip_headers(ctx);
-	if (!ip_headers)
-		return result;
+	if (!ip_headers) {
+		return packet_action;
+	}
 
 	src_ip = src_addr(ip_headers);
+	switch (protocol_number) {
+		case ICMP_PNUM:
+			bpf_debug("ICMP from %ld", src_ip);
+			break;
+		case TCP_PNUM:
+			bpf_debug("TCP from %ld", src_ip);
+			break;
+	}
 
-	/* NOTE: test if IP belongs to subnet 192.168.66.0/24
-	__u32 example_network = 4368576;
-	__u32 example_mask = 16777215;
+	packet_action = src_ip_state(src_ip, ip_headers, CONFIG_INDEX);
+	if (packet_action != _XDP_STATE_UNKNOWN) {
+		/* block/redirect without checking subnet */
+		bpf_debug("return after IP lookup: pass = %d, drop = %d, tx  = %d",
+				packet_action == XDP_PASS, packet_action == XDP_DROP, packet_action == XDP_TX);
+	} else {
+		/* reset back to passing */
+		packet_action = XDP_PASS;
 
-	bpf_printk("IP %u belongs to subnet: %d",
-			src_ip, in_subnet(src_ip, example_network, example_mask));
-	*/
-
-	/* look up source IP */
-	ip_list_type = bpf_map_lookup_elem(&ip_list, &src_ip);
-	if (ip_list_type) {
-		bpf_debug("%lu -> blacklist = %d", src_ip, *ip_list_type == BLACKLIST);
-
-		switch (*ip_list_type) {
+		/* does the IP belong to blacklisted/whitelisted subnet? */
+		subnet_type = subnet_state(src_ip);
+		switch (subnet_type) {
 			case BLACKLIST:
-                /* look up config to check block/redirect action */
-                current_config = bpf_map_lookup_elem(&config, &CONFIG_INDEX);
-
-				/* check config for action */
-				if (current_config) {
-					/* block source IP */
-					if (current_config->block_src) {
-						bpf_debug("action for %lu = block", src_ip);
-						/* NOTE "soft block"
-						result = XDP_DROP;
-						*/
-					} else {
-						bpf_debug("action for %lu = redirect", src_ip);
-
-						/* XDP_TX = send packet back on the same interface it
-						 * came from */
-						/* NOTE "soft redirect"
-						change_dst_addr(ip_headers, current_config->redirect_ip);
-						result = XDP_TX;
-						*/
-					}
-				} else {
-					/* otherwise block by default */
-					/* NOTE "soft block"
-					return XDP_DROP;
-					*/
-				}
+				bpf_debug("%ld belongs to blacklisted subnet", src_ip);
+				packet_action = handle_blacklist(src_ip, ip_headers, CONFIG_INDEX);
+				bpf_debug("subnet lookup result: drop = %d, tx = %d",
+						packet_action == XDP_DROP, packet_action == XDP_TX);
+				break;
+			case WHITELIST:
+				/* whitelisted: pass packet on */
+				bpf_debug("%ld belongs to whitelisted subnet", src_ip);
 				break;
 			default:
-				/* whitelisted: pass packet on (result is already set to
-				 * XDP_PASS) */
-				bpf_debug("%ld whitelisted", src_ip);
+				/* submit IP & TCP headers to ring buffer for user space
+				 * processing (if applicable) */
+				if (protocol_number == TCP_PNUM) {
+					struct tcphdr *tcp_headers = parse_tcp_headers(ctx);
+					submit_headers(ip_headers, tcp_headers);
+			    }
 				break;
 		}
-	}     /* look up subnet */
+	}
 
-    /* set up arguments for loop callback function */
-    loop_ctx.src_ip = src_ip;
-    loop_ctx.type = -1;
-
-    /* iterate through populated portion of subnet array */
-    bpf_loop(MAX_SUBNET, &subnet_loop_callback, &loop_ctx, 0);
-
-    switch (loop_ctx.type) {
-        case BLACKLIST:
-            /* blacklisted- block/redirect based on config action */
-            current_config = bpf_map_lookup_elem(&config, &CONFIG_INDEX);
-            if (current_config) {
-                if (current_config->block_src) {
-                    bpf_debug("action for %lu = block", src_ip);
-
-                    /* NOTE "soft block"
-                    result = XDP_DROP
-                    */
-                } else {
-                    bpf_debug("action for %lu = redirect", src_ip);
-                    /* XDP_TX = send packet back on the same interface it came
-                     * from */
-
-                    /* NOTE "soft redirect"
-                    change_dst_addr(ip_headers, current_config->redirect_ip);
-                    result = XDP_TX;
-                    */
-                }
-            } else {
-                /* block by default */
-                /* NOTE "soft block"
-                return XDP_DROP;
-                */
-            }
-            break;
-        case WHITELIST:
-            /* whitelisted: pass packet on */
-				bpf_debug("%ld belongs to whitelisted subnet", src_ip);
-            return XDP_PASS;
-        default:
-            /* submit TCP headers to ring buffer for user space processing (if
-             * applicable) */
-			if (protocol_number == TCP_PNUM) {
-				/* IP not black/whitelisted- send TCP headers to user space */
-				struct tcphdr *tcp_headers = parse_tcp_headers(ctx);
-				if (!tcp_headers)
-					return result;
-
-				/* reserve ring buffer sample */
-				e = bpf_ringbuf_reserve(&xdp_rb, sizeof(*e), 0);
-				if (!e) {
-					/* BPF ring buffer allocation failed */
-					return result;
-				}
-
-				/* fill out ring buffer sample */
-				e->ip_header = *ip_headers;
-				e->tcp_header = *tcp_headers;
-
-				/* submit ring buffer event */
-				bpf_ringbuf_submit(e, 0);
-		    }
-		}
-
-	return result;
+	bpf_debug("%ld, pass = %d drop = %d, tx  = %d",
+			src_ip, packet_action == XDP_PASS, packet_action == XDP_DROP, packet_action == XDP_TX);
+	return packet_action;
 }

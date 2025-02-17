@@ -19,10 +19,10 @@ __always_inline __u16 fold(__u64 sum)
 /**
  * Set checksum of IP header
  */
-void ip_checksum(struct iphdr *iph)
+void ip_checksum(struct iphdr *ip_headers)
 {
 	/* bpf_printk("original checksum = 0x%04x\n", bpf_htons(iph->check)); */
-	iph->check = 0;
+	ip_headers->check = 0;
 
 	/*
 	 * compute a checksum difference from raw buffer pointed to by from (size
@@ -32,10 +32,10 @@ void ip_checksum(struct iphdr *iph)
 	 * bpf_csum_diff(__be32 *from, __u32 from_size,
 	 * 				 __be32 *to, __u32 to_size, __wsum seed)
 	 */
-	__u64 sum = bpf_csum_diff(0, 0, (unsigned int *) iph, sizeof(struct iphdr), 0);
+	__u64 sum = bpf_csum_diff(0, 0, (unsigned int *) ip_headers, sizeof(struct iphdr), 0);
 	__u16 csum = fold(sum);
 
-	iph->check = csum;
+	ip_headers->check = csum;
 
 	/* ihl = Internet Header Length */
 	/* iph->check = calc_checksum((__u16 *)iph, iph->ihl<<2); */
@@ -48,12 +48,12 @@ void ip_checksum(struct iphdr *iph)
  * iph: IP header to patch
  * dst_ip: destination IP to use
  */
-inline void change_dst_addr(struct iphdr *iph, __be32 dst_ip)
+inline void change_dst_addr(struct iphdr *ip_headers, __be32 dst_ip)
 {
-	iph->daddr = dst_ip;
+	ip_headers->daddr = dst_ip;
 	/* bpf_printk("new destination address: %u", iph->daddr); */
 
 	/* set checksum to 0 before calculation */
-	iph->check = 0;
-	ip_checksum(iph);
+	ip_headers->check = 0;
+	ip_checksum(ip_headers);
 }

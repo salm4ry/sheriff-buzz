@@ -15,6 +15,7 @@
 #include <sys/cdefs.h>
 
 #define TCP_PNUM 6 /* TCP protocol number */
+#define ICMP_PNUM 1
 #define NUM_PORTS 65536
 
 /* TODO figure out why black/whitelisting fails when these are set to 0 and 1 */

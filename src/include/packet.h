@@ -14,11 +14,15 @@
 #include <bpf/bpf_endian.h>
 #include <sys/cdefs.h>
 
+/**
+ * Shared definitions between user space and BPF program
+ */
+
 #define TCP_PNUM 6 /* TCP protocol number */
 #define ICMP_PNUM 1
 #define NUM_PORTS 65536
 
-/* TODO figure out why black/whitelisting fails when these are set to 0 and 1 */
+/* TODO change back to 0 and 1/other sensible values */
 enum ip_types {
 	BLACKLIST = 0xdead,
 	WHITELIST = 0xbeef
@@ -66,10 +70,12 @@ struct subnet_rb_event {
  * Config user ring buffer event
  *
  * block_src: true = block flagged IPs, false = redirect flagged IPs
+ * dry_run: should we actually block/redirect flagged IPs?
  * redirect_ip: IP address to redirect traffic from flagged IPs to
  */
 struct config_rb_event {
 	bool block_src;
+	bool dry_run;
 	__u32 redirect_ip;
 };
 

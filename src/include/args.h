@@ -23,6 +23,7 @@ static struct option long_opts[] = {
 	{"bpf-obj", required_argument, 0, 'b'},
 	{"skb-mode", no_argument, 0, 's'},
 	{"interface", required_argument, 0, 'i'},
+	{"dry-run", no_argument, 0, 'd'},
 	/* terminate with zeroed struct */
 	{0, 0, 0, 0}
 };
@@ -32,13 +33,16 @@ struct args {
 	char *bpf_obj_file;
 	char *interface;
 	bool skb_mode;
+	bool dry_run;
 };
 
+/* TODO replace with default config file */
 const struct args DEFAULT_ARGS = {
 	.config = "config.json",
 	.bpf_obj_file = "src/packet.bpf.o",
 	.skb_mode = false,
-	.interface = NULL /* interface is a required argument */
+	.interface = NULL, /* interface is a required argument */
+	.dry_run = false   /* TODO: should dry run be true or false by default? */
 };
 
 void set_default_args(struct args *args)
@@ -88,6 +92,10 @@ void parse_args(int argc, char *argv[], struct args *args)
 
 			case 'b':
 				args->bpf_obj_file = optarg;
+				break;
+
+			case 'd':
+				args->dry_run = true;
 				break;
 
 			default:

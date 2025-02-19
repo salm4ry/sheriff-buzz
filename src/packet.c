@@ -54,7 +54,7 @@ struct uretprobe_opts subnet_uretprobe_args = {
 
 struct uretprobe_opts config_uretprobe_args =  {
 	.program_name = "read_config_rb",
-	.uprobe_func = "submit_action_config",
+	.uprobe_func = "submit_config",
 	.map_name = "config"
 };
 
@@ -557,7 +557,7 @@ void submit_subnet_list()
     pthread_rwlock_unlock(&config_lock);
 }
 
-__attribute__((noinline)) int submit_action_config()
+__attribute__((noinline)) int submit_config()
 {
 	int err = 0;
 	struct config_rb_event *e;
@@ -574,6 +574,7 @@ __attribute__((noinline)) int submit_action_config()
 	pthread_rwlock_rdlock(&config_lock);
 	e->block_src = current_config.block_src;
 	e->redirect_ip = current_config.redirect_ip;
+	e->dry_run = current_config.dry_run;
 	pthread_rwlock_unlock(&config_lock);
 
 	user_ring_buffer__submit(config_rb, e);
@@ -721,7 +722,7 @@ void handle_inotify_events(int fd, const char *target_filename,
 					apply_config(config_json, current_config, lock);
 
 					/* submit config: action, and black/whitelisted IPs */
-					submit_action_config();
+					submit_config();
 					submit_ip_list();
                     submit_subnet_list();
 
@@ -848,13 +849,18 @@ int main(int argc, char *argv[])
 
 	/* set up config file */
 	set_default_config(&current_config, &config_lock);
+	/* apply dry run setting from command-line arguments */
+	current_config.dry_run = init_args.dry_run;
+
 	config_json = json_config(config_path);
 	if (!config_json) {
-		log_debug("no config file found at %s\n", init_args.config);
+		log_info("no config file found at %s\n", init_args.config);
 	} else {
 		/* apply initial config */
 		apply_config(config_json, &current_config, &config_lock);
 	}
+
+	log_debug("dry run = %d\n", current_config.dry_run);
 	cJSON_Delete(config_json);
 
 	setup_signal_handlers();
@@ -949,7 +955,7 @@ int main(int argc, char *argv[])
 	init_user_rb(&config_rb, config_rb_fd);
 
 	/* submit initial config to BPF program */
-	submit_action_config(); /* block/redirect blacklisted IPs */
+	submit_config(); /* block/redirect blacklisted IPs + dry run mode */
 	submit_ip_list(); /* IP blacklist + whitelist */
     submit_subnet_list(); /* subnet blacklist + whitelist */
 

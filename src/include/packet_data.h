@@ -193,10 +193,12 @@ void setup_entry(GHashTable *table, struct key *key, struct value *val, int dst_
 		}
 		val->ports[dst_port]++;
 
+		/*
 		if (dst_port != 22) {
 			log_debug("port count for %d = %ld (old: %ld)\n",
 					dst_port, val->ports[dst_port], current_val->ports[dst_port]);
 		}
+		*/
 	} else {
 		/* set up new entry */
 		val->first = time(NULL);

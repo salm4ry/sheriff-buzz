@@ -11,6 +11,8 @@
 #ifndef _log_h
 #define _log_h
 
+/* TODO rewrite as functions that take variable arguments */
+
 void make_prefix(char *prefix, char *base)
 {
 	char time_str[MAX_TIME_STR];
@@ -71,6 +73,7 @@ void make_prefix(char *prefix, char *base)
 	log(prefix, fmt, ##__VA_ARGS__); \
 }
 
+/* TODO rewrite to check for dry run */
 #define log_alert(fmt, ...) \
 { \
 	char prefix[MAX_PREFIX]; \

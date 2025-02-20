@@ -95,7 +95,7 @@ int init_uretprobe(struct uretprobe_opts *args)
 
 	uretprobe_prog = bpf_object__find_program_by_name(*args->uretprobe_obj, args->program_name);
 	if (uretprobe_prog == NULL) {
-		log_error(msg, "find program in object failed: %s\n", strerror(errno));
+		log_error("find program in object failed: %s\n", strerror(errno));
 		err = -errno;
 		goto fail;
 	}

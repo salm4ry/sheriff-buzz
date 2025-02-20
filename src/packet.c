@@ -264,6 +264,12 @@ void setup_signal_handlers()
 	 */
 	cleanup_action.sa_handler = cleanup_handler;
 	sigemptyset(&cleanup_action.sa_mask);
+
+    /* block other signals while in the cleanup handler */
+    sigaddset(&cleanup_action.sa_mask, SIGINT);
+    sigaddset(&cleanup_action.sa_mask, SIGTERM);
+    sigaddset(&cleanup_action.sa_mask, SIGUSR1);
+
 	cleanup_action.sa_flags = 0;
 
 	stats_action.sa_handler = print_stats;

@@ -134,6 +134,10 @@ void cleanup()
 	pthread_cancel(db_worker);
 	pthread_cancel(inotify_worker);
 
+    /* wait for threads to finish */
+    pthread_join(db_worker, 0);
+    pthread_join(inotify_worker, 0);
+
 	PQfinish(db_conn);
 	/* exit(EXIT_SUCCESS); */
 }

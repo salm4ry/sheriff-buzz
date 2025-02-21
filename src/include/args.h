@@ -54,7 +54,7 @@ void set_default_args(struct args *args)
 
 void print_usage(const char *prog_name)
 {
-	pr_err("usage: %s -i <interface>\n", prog_name);
+	printf("usage: %s -i <interface>\n", prog_name);
 	/* TODO usage for long + short options */
 }
 

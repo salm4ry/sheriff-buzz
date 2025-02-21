@@ -10,14 +10,12 @@
 #define MAX_PREFIX 28
 #define TIME_FMT "%Y-%m-%d %H-%M-%S"
 
-FILE *LOG;
-
 #ifndef _log_h
 #define _log_h
 
 /* TODO inline? */
 
-char *make_prefix(char *base)
+char *format_prefix(char *base)
 {
 	char time_str[MAX_TIME_STR];
 	time_t current_time;
@@ -37,12 +35,12 @@ char *make_prefix(char *base)
     return prefix;
 }
 
-void make_msg(char *msg, char *fmt, va_list args)
+void format_msg(char *msg, char *fmt, va_list args)
 {
     vsnprintf(msg, MAX_LOG_MSG, fmt, args);
 }
 
-void log_to_file(char *prefix, char *fmt, va_list args)
+void log_msg(FILE *file, char *prefix, char *fmt, va_list args)
 {
     char *msg = malloc(MAX_LOG_MSG * sizeof(char));
     char *new_fmt = malloc(MAX_LOG_MSG * sizeof(char));
@@ -54,57 +52,55 @@ void log_to_file(char *prefix, char *fmt, va_list args)
 
     strncpy(new_fmt, prefix, MAX_LOG_MSG);
     strncat(new_fmt, fmt, MAX_LOG_MSG - (strlen(new_fmt)+1));
-    make_msg(msg, new_fmt, args);
-    fputs(msg, LOG);
-    fflush(LOG);
+    format_msg(msg, new_fmt, args);
+    fputs(msg, file);
+    fflush(file);
 
     free(msg);
     free(new_fmt);
 }
 
-void log_with_prefix(char *log_type, char *fmt, va_list args)
+void log_with_prefix(FILE *file, char *log_type, char *fmt, va_list args)
 {
-    char *prefix = make_prefix(log_type);
-    log_to_file(prefix, fmt, args);
+    char *prefix = format_prefix(log_type);
+    log_msg(file, prefix, fmt, args);
     free(prefix);
 }
 
-/*
 #ifdef DEBUG
-    void log_debug(char *fmt, ...)
+    void log_debug(FILE *file, char *fmt, ...)
     {
         va_list args;
         va_start(args, fmt);
-        log_with_prefix("debug: ", fmt, args);
+        log_with_prefix(file, "debug: ", fmt, args);
         va_end(args);
     }
 #else
-*/
-   void log_debug(char *fmt, ...) { }
-// #endif
+   void log_debug(FILE *file, char *fmt, ...) { }
+#endif
 
-void log_info(char *fmt, ...)
+void log_info(FILE *file, char *fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    log_with_prefix("info: ", fmt, args);
+    log_with_prefix(file, "info: ", fmt, args);
     va_end(args);
 }
 
-void log_error(char *fmt, ...)
+void log_error(FILE *file, char *fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    log_with_prefix("error: ", fmt, args);
+    log_with_prefix(file, "error: ", fmt, args);
     va_end(args);
 }
 
 /* TODO check for dry run */
-void log_alert(char *fmt, ...)
+void log_alert(FILE *file, char *fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    log_with_prefix("alert: ", fmt, args);
+    log_with_prefix(file, "alert: ", fmt, args);
     va_end(args);
 }
 #endif

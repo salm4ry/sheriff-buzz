@@ -123,7 +123,7 @@ cJSON *json_config(const char *filename)
 		free(tmp);
 
 		if (!cfg_json) {
-			log_error("cjson: %s\n", cJSON_GetErrorPtr());
+			log_error(LOG,  "cjson: %s\n", cJSON_GetErrorPtr());
 			cJSON_Delete(cfg_json);
 			return NULL;
 		}
@@ -383,12 +383,12 @@ void apply_config(cJSON *config_json, struct config *current_config,
 
 		char ip_str[16];
 		inet_ntop(AF_INET, &redirect_ip, ip_str, 16);
-		log_info("config: action = redirect to %s\n", ip_str);
+		log_info(LOG, "config: action = redirect to %s\n", ip_str);
 	} else {
 		pthread_rwlock_wrlock(lock);
 		current_config->block_src = true;
 		pthread_rwlock_unlock(lock);
-		log_info("config: %s\n", "action = block");
+		log_info(LOG, "config: %s\n", "action = block");
 	}
 
 	/* apply thresholds if valid */
@@ -396,19 +396,19 @@ void apply_config(cJSON *config_json, struct config *current_config,
 		pthread_rwlock_wrlock(lock);
 		current_config->packet_threshold = packet_threshold;
 		pthread_rwlock_unlock(lock);
-		log_info("config: packet_threshold = %d\n", packet_threshold);
+		log_info(LOG, "config: packet_threshold = %d\n", packet_threshold);
 	}
 	if (port_threshold != -1) {
 		pthread_rwlock_wrlock(lock);
 		current_config->port_threshold = port_threshold;
 		pthread_rwlock_unlock(lock);
-		log_info("config: port_threshold = %d\n", port_threshold);
+		log_info(LOG, "config: port_threshold = %d\n", port_threshold);
 	}
 	if (flag_threshold != -1) {
 		pthread_rwlock_wrlock(lock);
 		current_config->flag_threshold = flag_threshold;
 		pthread_rwlock_unlock(lock);
-		log_info("config: flag_threshold = %d\n", flag_threshold);
+		log_info(LOG, "config: flag_threshold = %d\n", flag_threshold);
 	}
 
 	/* IP blacklist and whitelist */

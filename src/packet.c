@@ -206,20 +206,21 @@ void gen_log_name(char *name)
 			LOG_FILENAME_LENGTH, "log/%Y-%m-%d_%H-%M-%S");
 }
 
+/* TODO replace perror() with file, function, line etc. macro */
 void open_file(char *name, FILE **file)
 {
 	*file = fopen(name, "a");
 	if (!(*file)) {
-		perror("memory allocation failed");
+		perror("invalid file handle");
 		exit(errno);
 	}
 }
 
-void get_fd(char *name, int *fd)
+void open_fd(char *name, int *fd)
 {
 	*fd = open(name, O_RDWR | O_APPEND);
 	if (*fd == -1) {
-		perror("memory allocation failed");
+		perror("invalid file descriptor");
 		exit(errno);
 	}
 }
@@ -235,7 +236,7 @@ void init_log_file()
 	gen_log_name(filename);
 
 	open_file(filename, &LOG);
-	get_fd(filename, &LOG_FD);
+	open_fd(filename, &LOG_FD);
 
 	free(filename);
 }
@@ -279,17 +280,17 @@ void setup_signal_handlers()
 	/* sigaction() returns 0 on success, -1 on error and sets errno to indicate
 	 * the error */
 	if (sigaction(SIGINT, &cleanup_action, NULL) == -1) {
-		log_error("SIGINT handler: %s\n", strerror(errno));
+		log_error(LOG, "SIGINT handler: %s\n", strerror(errno));
 		exit(errno);
 	}
 
 	if (sigaction(SIGTERM, &cleanup_action, NULL) == -1) {
-		log_error("SIGTERM handler: %s\n", strerror(errno));
+		log_error(LOG, "SIGTERM handler: %s\n", strerror(errno));
 		exit(errno);
 	}
 
 	if (sigaction(SIGUSR1, &stats_action, NULL) == -1) {
-		log_error("SIGUSR handler: %s\n", strerror(errno));
+		log_error(LOG, "SIGUSR handler: %s\n", strerror(errno));
 		exit(errno);
 	}
 }
@@ -304,7 +305,7 @@ void get_thread_env(bool *use_db_thread) {
 	} else {
 		*use_db_thread = true;
 	}
-	log_debug("use database worker thread: %d\n", *use_db_thread);
+	log_debug(LOG, "use database worker thread: %d\n", *use_db_thread);
 }
 
 
@@ -313,7 +314,7 @@ int get_bpf_map_fd(struct bpf_object *obj, char *name) {
 
 	map = bpf_object__find_map_by_name(obj, name);
 	if (!map) {
-		log_error("cannot find map by name %s\n", name);
+		log_error(LOG, "cannot find map by name %s\n", name);
 		init_cleanup(-1);
 	}
 	return bpf_map__fd(map);
@@ -324,7 +325,7 @@ void init_kernel_rb(struct ring_buffer **rb, int fd, void *callback)
 	*rb = ring_buffer__new(fd, callback, NULL, NULL);
 	if (!*rb) {
 		err = -1;
-		log_error("failed to create kernel ring buffer (fd %d)\n", fd);
+		log_error(LOG, "failed to create kernel ring buffer (fd %d)\n", fd);
 		init_cleanup(err);
 	}
 }
@@ -334,7 +335,7 @@ void init_user_rb(struct user_ring_buffer **rb, int fd)
 	*rb = user_ring_buffer__new(fd, NULL);
 	if (!*rb) {
 		err = -1;
-		log_error("failed to create user ring buffer (fd %d)\n", fd);
+		log_error(LOG, "failed to create user ring buffer (fd %d)\n", fd);
 		init_cleanup(err);
 	}
 }
@@ -344,7 +345,7 @@ void init_db_thread(void *function, struct db_thread_args *args)
 		int res = pthread_create(&db_worker, NULL,
 				function , args);
 		if (res != 0) {
-			log_error("%s\n", "db_worker pthread_create failed");
+			log_error(LOG, "%s\n", "db_worker pthread_create failed");
 			cleanup();
 			exit(res);
 		}
@@ -355,7 +356,7 @@ void init_inotify_thread(void *function, struct inotify_thread_args *args)
 	int res = pthread_create(&inotify_worker, NULL,
 			function, args);
 	if (res != 0) {
-		log_error("%s\n", "config_worker pthread_create failed");
+		log_error(LOG, "%s\n", "config_worker pthread_create failed");
 		cleanup();
 		exit(res);
 	}
@@ -366,15 +367,15 @@ void log_flag_based_alert(int alert_type, struct key *key, struct value *val,
 {
 	switch (alert_type) {
 		case XMAS_SCAN:
-			log_alert("nmap Xmas scan detected from %s (port %d)!\n",
+			log_alert(LOG, "nmap Xmas scan detected from %s (port %d)!\n",
 					ip_str, dst_port);
 			break;
 		case FIN_SCAN:
-			log_alert("nmap FIN scan detected from %s (port %d)!\n",
+			log_alert(LOG, "nmap FIN scan detected from %s (port %d)!\n",
 					ip_str, dst_port);
 			break;
 		case NULL_SCAN:
-			log_alert("nmap NULL scan detected from %s (port %d)!\n",
+			log_alert(LOG, "nmap NULL scan detected from %s (port %d)!\n",
 					ip_str, dst_port);
 			break;
 	}
@@ -390,7 +391,7 @@ void log_flag_based_alert(int alert_type, struct key *key, struct value *val,
 void log_port_based_alert(int alert_type, struct key *key, struct value *val,
 		char *ip_str, int port_threshold)
 {
-	log_alert("nmap (%d or more ports) detected from %s!\n",
+	log_alert(LOG, "nmap (%d or more ports) detected from %s!\n",
 			port_threshold, ip_str);
 
 	if (use_db_thread) {
@@ -449,7 +450,7 @@ int *get_port_list(char *filename, int num_ports) {
 		/* allocate memory for final port list */
 		port_list = malloc(num_ports * sizeof(int));
 		if (!port_list) {
-			pr_err("memory allocation failed: %s\n", strerror(errno));
+			perror("memory allocation failed");
 			cleanup();
 			exit(1);
 		}
@@ -461,7 +462,7 @@ int *get_port_list(char *filename, int num_ports) {
 		}
 		free(buffer);
 	} else {
-		log_error("failed to open file %s\n", filename);
+		log_error(LOG, "failed to open file %s\n", filename);
 		exit(1);
 	}
 
@@ -511,7 +512,7 @@ void submit_ip_list()
 
 void log_flagged_ip(struct key *key, struct value *val, char *ip_str)
 {
-	log_alert("flagging %s\n", ip_str);
+	log_alert(LOG, "flagging %s\n", ip_str);
 	submit_ip_entry(key->src_ip, BLACKLIST);
 
 	if (use_db_thread) {
@@ -578,7 +579,7 @@ __attribute__((noinline)) int submit_config()
 		return err;
 	}
 
-	log_debug("%s\n", "submitting config");
+	log_debug(LOG, "%s\n", "submitting config");
 
 	/* fill out ring buffer sample */
 	pthread_rwlock_rdlock(&config_lock);
@@ -651,7 +652,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 
 #ifdef DEBUG
 	if (dst_port != 22) {
-		log_debug("total port count for %s: %d (current port: %d)\n", 
+		log_debug(LOG, "total port count for %s: %d (current port: %d)\n", 
 				address, new_val->total_port_count, dst_port);
 	}
 #endif
@@ -665,7 +666,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 		/* increment alert count */
 		new_val->alert_count++;
 		/* check current number of alerts */
-		log_debug("alert count for %s: %d\n", address, new_val->alert_count);
+		log_debug(LOG, "alert count for %s: %d\n", address, new_val->alert_count);
 
 		/* flag IP if alert threshold reached */
 		if (new_val->alert_count >= flag_threshold) {
@@ -708,7 +709,7 @@ void handle_inotify_events(int fd, const char *target_filename,
 		len = read(fd, buf, sizeof(buf));
 		if (len == -1 && errno != EAGAIN) {
 			/* read failed */
-			log_error("read inotify fd failed: %s\n", strerror(errno));
+			log_error(LOG, "read inotify fd failed: %s\n", strerror(errno));
 			break;
 		}
 
@@ -727,7 +728,7 @@ void handle_inotify_events(int fd, const char *target_filename,
 			if (event->len && strcmp(event->name, target_filename) == 0) {
 				cJSON *config_json = json_config(config_path);
 				if (!config_json) {
-					log_error("%s\n", "invalid JSON");
+					log_error(LOG, "%s\n", "invalid JSON");
 				} else {
 					apply_config(config_json, current_config, lock);
 
@@ -763,14 +764,14 @@ void inotify_thread_work(void *args)
 	/* create inotify file descriptor */
 	inotify_fd = inotify_init();
 	if (inotify_fd == -1) {
-		log_error("inotify_init: %s\n", strerror(errno));
+		log_error(LOG, "inotify_init: %s\n", strerror(errno));
 	}
 
 	/* watch for changes to files in the config directory
 	 * wd = watch file descriptor */
 	wd = inotify_add_watch(inotify_fd, CONFIG_DIR, IN_CLOSE_WRITE);
 	if (wd == -1) {
-		log_error("inotify: cannot watch '%s': %s\n",
+		log_error(LOG, "inotify: cannot watch '%s': %s\n",
 				CONFIG_DIR, strerror(errno));
 		return;
 	}
@@ -797,7 +798,7 @@ void inotify_thread_work(void *args)
 					continue;
 					break;
 				default:
-					log_error("inotify poll: %s\n", strerror(errno));
+					log_error(LOG, "inotify poll: %s\n", strerror(errno));
 					break;
 			}
 		}
@@ -864,13 +865,13 @@ int main(int argc, char *argv[])
 
 	config_json = json_config(config_path);
 	if (!config_json) {
-		log_info("no config file found at %s\n", init_args.config);
+		log_info(LOG, "no config file found at %s\n", init_args.config);
 	} else {
 		/* apply initial config */
 		apply_config(config_json, &current_config, &config_lock);
 	}
 
-	log_debug("dry run = %d\n", current_config.dry_run);
+	log_info(LOG, "dry run = %d\n", current_config.dry_run);
 	cJSON_Delete(config_json);
 
 	setup_signal_handlers();
@@ -893,7 +894,7 @@ int main(int argc, char *argv[])
 	ip_uretprobe_args.filename = init_args.bpf_obj_file;
 	ip_uretprobe_args.bpf_map_fd = ip_list_fd;
 	if (init_uretprobe(&ip_uretprobe_args) <= 0) {
-		log_error("failed to load uretprobe program from file: %s\n",
+		log_error(LOG, "failed to load uretprobe program from file: %s\n",
 				init_args.bpf_obj_file);
 		err = -1;
 		init_cleanup(err);
@@ -904,7 +905,7 @@ int main(int argc, char *argv[])
 	subnet_uretprobe_args.filename = init_args.bpf_obj_file;
 	subnet_uretprobe_args.bpf_map_fd = subnet_list_fd;
 	if (init_uretprobe(&subnet_uretprobe_args) <= 0) {
-		log_error("failed to load uretprobe program from file: %s\n",
+		log_error(LOG, "failed to load uretprobe program from file: %s\n",
 				init_args.bpf_obj_file);
 		err = -1;
 		init_cleanup(err);
@@ -919,7 +920,7 @@ int main(int argc, char *argv[])
 	config_uretprobe_args.filename = init_args.bpf_obj_file;
 	config_uretprobe_args.bpf_map_fd = config_hash_fd;
 	if (init_uretprobe(&config_uretprobe_args) <= 0) {
-		log_error("failed to load uretprobe program from file: %s\n",
+		log_error(LOG, "failed to load uretprobe program from file: %s\n",
 				init_args.bpf_obj_file);
 		err = -1;
 		init_cleanup(err);
@@ -1010,7 +1011,7 @@ int main(int argc, char *argv[])
 		}
 
 		if (err < 0) {
-			log_error("ring buffer polling failed: %d\n", err);
+			log_error(LOG, "ring buffer polling failed: %d\n", err);
 			break;
 		}
 	}
@@ -1022,15 +1023,15 @@ fail:
 	switch (-err) {
 		case EBUSY:
 		case EEXIST:
-			log_error("XDP already loaded on device %s\n", argv[1]);
+			log_error(LOG, "XDP already loaded on device %s\n", argv[1]);
 			break;
 		case ENOMEM:
 		case EOPNOTSUPP:
-			log_error("native XDP not supported on device %s, try --skb-mode\n",
+			log_error(LOG, "native XDP not supported on device %s, try --skb-mode\n",
 					argv[1]);
 			break;
 		default:
-			log_error("XDP attach on %s failed %d: %s\n",
+			log_error(LOG, "XDP attach on %s failed %d: %s\n",
 				argv[1], err, strerror(-err));
 			break;
 	}

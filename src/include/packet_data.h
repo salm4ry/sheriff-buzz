@@ -299,13 +299,13 @@ int db_alert(PGconn *conn, int alert_type,
 	}
 
 
-	log_debug("%s\n", query);
+	log_debug(LOG, "%s\n", query);
 
 	db_res = PQexec(conn, query);
 
 	err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
 	if (err) {
-		log_error("postgres: %s\n", PQerrorMessage(conn));
+		log_error(LOG, "postgres: %s\n", PQerrorMessage(conn));
 	}
 
 	PQclear(db_res);
@@ -340,7 +340,7 @@ int db_flagged(PGconn *conn, struct key *key, struct value *value)
 
     err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
     if (err) {
-        log_error("postgres: %s\n", PQerrorMessage(conn));
+        log_error(LOG, "postgres: %s\n", PQerrorMessage(conn));
     }
 
     return err;
@@ -362,7 +362,7 @@ PGconn *connect_db(char *user, char *dbname)
 	snprintf(query, MAX_QUERY, "user=%s dbname=%s", user, dbname);
 	PGconn *db = PQconnectdb(query);
 	if (PQstatus(db) != CONNECTION_OK) {
-		log_error("connection to database failed: %s\n", PQerrorMessage(db));
+		log_error(LOG, "connection to database failed: %s\n", PQerrorMessage(db));
 
 		/* clean up connection */
 		PQfinish(db);

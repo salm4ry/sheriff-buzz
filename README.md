@@ -51,9 +51,7 @@ Configuration is stored in `./config/config.json`
 ```
 
 ### Defaults
-All configuration is optional; defaults are:
-
-> [!todo]
+All configuration is optional; defaults are in `./config/default.json`
 
 ### Options
 

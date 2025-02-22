@@ -38,7 +38,7 @@ all: $(KRN_TARGET) $(USR_TARGET)
 # compile and link
 # BPF: generate vmlinux.h then compile BPF object
 # user space: compile program, tracking changes to includes
-$(KRN_TARGET):
+$(KRN_TARGET): $(KRN_SRC)
 	bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
 	$(CC) $(CFLAGS) -target bpf -c $(KRN_SRC) -o $(KRN_TARGET)
 

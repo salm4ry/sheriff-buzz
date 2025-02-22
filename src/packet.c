@@ -928,7 +928,8 @@ int main(int argc, char *argv[])
 	}
 
 	/* set up database */
-	db_conn = connect_db("root", "alerts");
+	/* TODO rename database to program name */
+	db_conn = connect_db("root", "packet");
 	if (!db_conn) {
 		err = -1;
 		init_cleanup(err);

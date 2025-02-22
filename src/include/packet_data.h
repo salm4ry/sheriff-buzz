@@ -279,11 +279,11 @@ int db_write_scan_alert(PGconn *conn, int alert_type,
 			 * destination port is a string colon-delimited range
 			 * packet_count = total packet count from src_ip
 			 */
-			cmd = "INSERT INTO log (dst_port, alert_type, src_ip, port_count, packet_count, first, latest) "
+			cmd = "INSERT INTO scan_alerts (dst_port, alert_type, src_ip, port_count, packet_count, first, latest) "
 				  "VALUES ('%s', %d, '%s', %d, %d, to_timestamp(%ld), to_timestamp(%ld)) "
-				  "ON CONFLICT (src_ip, alert_type) "
+				  "ON CONFLICT (src_ip, dst_port, alert_type) "
 				  "DO UPDATE SET port_count=%d, dst_port='%s', latest=to_timestamp(%ld) "
-				  "WHERE %d > log.packet_count AND to_timestamp(%ld) > log.latest";
+				  "WHERE %d > scan_alerts.packet_count AND to_timestamp(%ld) > scan_alerts.latest";
 
 			char port_range[MAX_PORT_RANGE];
 			int port_count = value->total_port_count;
@@ -306,11 +306,11 @@ int db_write_scan_alert(PGconn *conn, int alert_type,
 			 * destination is a single port
 			 * packet_count = total packet count from src_ip to dst_port
 			 */
-			cmd = "INSERT INTO log (dst_port, alert_type, src_ip, packet_count, first, latest) "
+			cmd = "INSERT INTO scan_alerts (dst_port, alert_type, src_ip, packet_count, first, latest) "
 		   		  "VALUES ('%d', %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
-				  "ON CONFLICT (src_ip, alert_type) "
+				  "ON CONFLICT (src_ip, dst_port, alert_type) "
 				  "DO UPDATE SET packet_count=%d, latest=to_timestamp(%ld) "
-				  "WHERE %d > log.packet_count AND to_timestamp(%ld) > log.latest";
+				  "WHERE %d > scan_alerts.packet_count AND to_timestamp(%ld) > scan_alerts.latest";
 
 			snprintf(query, MAX_QUERY, cmd, dst_port, alert_type,
 					ip_str, value->total_packet_count, value->first, value->latest,
@@ -356,7 +356,7 @@ int db_write_blocked_ip(PGconn *conn, struct key *key, struct value *value)
 	in_addr_t src_ip = ntohl(key->src_ip);
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
-    cmd = "INSERT INTO flagged (src_ip, time) VALUES ('%s', to_timestamp(%ld))";
+    cmd = "INSERT INTO blocked_ips (src_ip, time) VALUES ('%s', to_timestamp(%ld))";
     snprintf(query, MAX_QUERY, cmd, ip_str, value->latest);
 
     db_res = PQexec(conn, query);

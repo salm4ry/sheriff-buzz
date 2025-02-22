@@ -1,7 +1,7 @@
 {
 	"packet_threshold": 5,
 	"port_threshold": 100,
-	"flag_threshold": 3,
+	"alert_threshold": 3,
 	"action": "block",
 	"dry_run": false
 }

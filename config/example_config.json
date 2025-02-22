@@ -1,7 +1,7 @@
 {
 	"packet_threshold": 5,
 	"port_threshold": 100,
-	"flag_threshold": 3,
+	"alert_threshold": 3,
 	"action": "block",
 	"redirect_ip": "0.0.0.0",
 	"blacklist_ip": ["1.1.1.1", "2.2.2.2", "3.3.3.3"],

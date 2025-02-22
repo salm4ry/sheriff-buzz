@@ -255,6 +255,17 @@ void init_config_path(const char *config_dir, char *config_filename, char **conf
 	snprintf(*config_path, config_len, "%s/%s", config_dir, config_filename);
 }
 
+void load_config(char *path)
+{
+	cJSON *config_json = json_config(path);
+	if (!config_json) {
+		log_info(LOG, "no config file at %s\n", path);
+	} else {
+		apply_config(config_json, &current_config, &config_lock);
+	}
+	cJSON_Delete(config_json);
+}
+
 void setup_signal_handlers()
 {
 	struct sigaction cleanup_action, stats_action;
@@ -612,7 +623,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 		exit(err);
 	}
 
-	int port_threshold, packet_threshold, flag_threshold;
+	int port_threshold, packet_threshold, alert_threshold;
 
 	int scan_type;
 
@@ -638,7 +649,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	pthread_rwlock_rdlock(&config_lock);
 	port_threshold = current_config.port_threshold;
 	packet_threshold = current_config.packet_threshold;
-	flag_threshold = current_config.flag_threshold;
+	alert_threshold = current_config.alert_threshold;
 	pthread_rwlock_unlock(&config_lock);
 
 	/* detect flag-based scans */
@@ -670,7 +681,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 		log_debug(LOG, "alert count for %s: %d\n", address, new_val->alert_count);
 
 		/* flag IP if alert threshold reached */
-		if (new_val->alert_count >= flag_threshold) {
+		if (new_val->alert_count >= alert_threshold) {
 			flagged = true;
 			report_blocked_ip(current_key, new_val, address);
 		}
@@ -821,15 +832,14 @@ void inotify_thread_work(void *args)
 int main(int argc, char *argv[])
 {
 	struct args init_args;
-	char *CONFIG_DIR = "config"; /* TODO change */
+	const char *CONFIG_DIR = "config"; /* TODO get from arguments instead(?) */
+	const char *DEFAULT_CONFIG_FILE = "config/default.json";
 
     /* map file descriptors */
 	int ip_list_fd, subnet_list_fd, config_hash_fd;
 
     /* ring buffers */
     int xdp_rb_fd, ip_rb_fd, subnet_rb_fd, config_rb_fd;
-
-	cJSON *config_json;
 
 	/* arguments to pass to database and inotify worker threads */
 	struct db_thread_args db_worker_args;
@@ -854,29 +864,29 @@ int main(int argc, char *argv[])
 		exit(errno);
 	}
 
-	/* initialise and open log file */
+	/* initialise and open log file: can use logging functions instead of prints
+	 * from here onwards */
 	init_log_file();
-	/* TODO get dir from args */
-	init_config_path(CONFIG_DIR, init_args.config, &config_path);
 
-	/* set up config file */
-	set_default_config(&current_config, &config_lock);
+	/* initialise configuration */
+	fallback_config(&current_config, &config_lock);
+	/* load default config file */
+	log_debug(LOG, "loading default config from %s\n", DEFAULT_CONFIG_FILE);
+	load_config((char *) DEFAULT_CONFIG_FILE);
+
+	/* load argument-specified config file */
+	init_config_path(CONFIG_DIR, init_args.config, &config_path);
+	log_debug(LOG, "loading config from %s\n", config_path);
+	load_config(config_path);
+
 	/* apply dry run setting from command-line arguments */
 	current_config.dry_run = init_args.dry_run;
-
-	config_json = json_config(config_path);
-	if (!config_json) {
-		log_info(LOG, "no config file found at %s\n", init_args.config);
-	} else {
-		/* apply initial config */
-		apply_config(config_json, &current_config, &config_lock);
-	}
-
 	log_info(LOG, "dry run = %d\n", current_config.dry_run);
-	cJSON_Delete(config_json);
 
+	/* cleanup and stats signal handlers */
 	setup_signal_handlers();
 
+	/* determine whether we're going to have a database worker thread */
 	get_thread_env(&use_db_thread);
 
     /* load and attach XDP program */

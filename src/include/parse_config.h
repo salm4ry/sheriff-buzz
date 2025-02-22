@@ -42,7 +42,7 @@ struct subnet_list {
 
 struct config {
 	int packet_threshold;
-	int flag_threshold;
+	int alert_threshold;
 	int port_threshold;
 	in_addr_t redirect_ip;
 	bool block_src;
@@ -311,6 +311,25 @@ int threshold_json_value(
 	return value;
 }
 
+/**
+ * Extract value of boolean JSON item
+ *
+ * return 0/1 (false/true) on success, -1 on error
+ */
+int bool_json_value(cJSON *json_obj, const char *item_name)
+{
+	int value = -1;
+	cJSON *item;
+
+	item = cJSON_GetObjectItemCaseSensitive(json_obj, item_name);
+	if (cJSON_IsBool(item)) {
+		value = cJSON_IsTrue(item);
+	}
+
+	return value;
+}
+
+
 void free_ip_list(struct ip_list *list)
 {
 	if (list) {
@@ -331,15 +350,15 @@ void free_subnet_list(struct subnet_list *list)
 	}
 }
 
-void set_default_config(struct config *config, pthread_rwlock_t *lock)
+/* config to use when default config file unavailable/invalid */
+void fallback_config(struct config *config, pthread_rwlock_t *lock)
 {
-	/* TODO read defaults from file instead of storing in the binary */
 	pthread_rwlock_wrlock(lock);
 	config->packet_threshold = 5;
 	config->port_threshold = 100;
-	config->flag_threshold = 3;
+	config->alert_threshold = 3;
 
-	/* block by default */
+	/* block by default (no IP to redirect to) */
 	config->block_src = true;
 	config->redirect_ip = -1;
 
@@ -354,9 +373,8 @@ void set_default_config(struct config *config, pthread_rwlock_t *lock)
 void apply_config(cJSON *config_json, struct config *current_config,
 		pthread_rwlock_t *lock)
 {
-	int packet_threshold, flag_threshold, block_src;
+	int packet_threshold, port_threshold, alert_threshold, block_src;
 	in_addr_t redirect_ip;
-	int port_threshold;
 
 	struct ip_list *blacklist_ip, *whitelist_ip;
 	struct subnet_list *blacklist_subnet, *whitelist_subnet;
@@ -366,8 +384,8 @@ void apply_config(cJSON *config_json, struct config *current_config,
 			"packet_threshold", MAX_PACKET_THRESHOLD);
 	port_threshold = threshold_json_value(config_json,
 			"port_threshold", MAX_PORT_THRESHOLD);
-	flag_threshold = threshold_json_value(config_json,
-			"flag_threshold", MAX_FLAG_THRESHOLD);
+	alert_threshold = threshold_json_value(config_json,
+			"alert_threshold", MAX_FLAG_THRESHOLD);
 
 	/* block or redirect flagged IP? */
 	block_src = check_action(config_json, "action");
@@ -403,11 +421,11 @@ void apply_config(cJSON *config_json, struct config *current_config,
 		pthread_rwlock_unlock(lock);
 		log_info(LOG, "config: port_threshold = %d\n", port_threshold);
 	}
-	if (flag_threshold != -1) {
+	if (alert_threshold != -1) {
 		pthread_rwlock_wrlock(lock);
-		current_config->flag_threshold = flag_threshold;
+		current_config->alert_threshold = alert_threshold;
 		pthread_rwlock_unlock(lock);
-		log_info(LOG, "config: flag_threshold = %d\n", flag_threshold);
+		log_info(LOG, "config: alert_threshold = %d\n", alert_threshold);
 	}
 
 	/* IP blacklist and whitelist */

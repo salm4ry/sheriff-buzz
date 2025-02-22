@@ -63,7 +63,12 @@ struct value {
 	int total_port_count;
 	unsigned long total_packet_count;
 	int alert_count;
-	unsigned long ports[NUM_PORTS];
+	GHashTable *ports;
+};
+
+struct port_range {
+	int min;
+	int max;
 };
 
 struct db_task_queue;
@@ -103,44 +108,50 @@ struct db_thread_args {
 	PGconn *db_conn;
 };
 
-/**
- * Get the minimum port number used
- *
- * ports: per-port packet count array
- *
- * Return -1 on error
- */
-int min_port(unsigned long *ports)
+void min_max_port(gpointer key, gpointer value, gpointer user_data)
 {
-	for (int i = 0; i < NUM_PORTS; i++) {
-		if (ports[i] != 0) {
-			return i;
-		}
+	struct port_range *range = (struct port_range *) user_data;
+	int *port = (int *) key;
+
+	/* update min and max according to key */
+	if (*port > range->max) {
+		range->max = *port;
 	}
 
-	/* error: no ports scanned */
-	return -1;
+	if (*port < range->min) {
+		range->min = *port;
+	}
 }
 
-/**
- * Get the maximum port number used
- *
- * - ports: per-port packet count array
- *
- * Return -1 on error
- */
-int max_port(unsigned long *ports)
+/* get min and max port from port count hash table */
+struct port_range *lookup_port_range(GHashTable *port_counts)
 {
-	for (int i = NUM_PORTS - 1; i >= 0; i--) {
-		if (ports[i] != 0) {
-			return i;
-		}
+	struct port_range *res = malloc(sizeof(struct port_range));
+	if (!res) {
+		perror("memory allocation failed");
+		exit(errno);
 	}
 
-	/* no ports scanned */
-	return -1;
+	res->min = 65535;
+	res->max = 0;
+
+	g_hash_table_foreach(port_counts, &min_max_port, res);
+
+	return res;
 }
 
+void destroy_port_table(gpointer key, gpointer value, gpointer user_data)
+{
+	struct value *val = (struct value *) value;
+	g_hash_table_destroy(val->ports);
+}
+
+
+/* destroy all IP entries' port hash tables */
+void port_table_cleanup(GHashTable *packet_table)
+{
+	g_hash_table_foreach(packet_table, &destroy_port_table, NULL);
+}
 
 /**
  * Helper to update hash table entry count
@@ -171,12 +182,14 @@ int count_entries(GHashTable *table)
 }
 
 /* initialise hash table entry either based on existing entry or new */
-void setup_entry(GHashTable *table, struct key *key, struct value *val, int dst_port)
+void init_entry(GHashTable *table, struct key *key, struct value *val, int dst_port)
 {
 	gpointer res = g_hash_table_lookup(table, (gconstpointer) &key->src_ip);
 	if (res) {
 		/* entry already exists: update count and timestamp */
 		struct value *current_val = (struct value*) res;
+		gpointer port_count_res;
+		unsigned long new_port_count;
 
 		val->first = current_val->first;
 		val->latest = time(NULL);
@@ -184,31 +197,37 @@ void setup_entry(GHashTable *table, struct key *key, struct value *val, int dst_
 		val->total_port_count = current_val->total_port_count;
 		val->alert_count = current_val->alert_count;
 
-		/* copy per-port counts */
-		memcpy(val->ports, current_val->ports, NUM_PORTS * sizeof(unsigned long));
+		/* use existing per-port count hash table */
+		val->ports = current_val->ports;
 
-		/* increment port count if this is a new port */
-		if (val->ports[dst_port] == 0) {
+		/* look up current port's packet count */
+		port_count_res = g_hash_table_lookup(val->ports, (gconstpointer) &dst_port);
+		if (port_count_res) {
+			/* increment count */
+			new_port_count = (unsigned long) port_count_res + 1;
+		} else {
+			/* no packets sent to this port before: set count to 1 and
+			 * increment total port count */
+			new_port_count = 1;
 			val->total_port_count++;
 		}
-		val->ports[dst_port]++;
 
-		/*
-		if (dst_port != 22) {
-			log_debug("port count for %d = %ld (old: %ld)\n",
-					dst_port, val->ports[dst_port], current_val->ports[dst_port]);
-		}
-		*/
+		/* update current port's packet count */
+		g_hash_table_insert(val->ports,
+			g_memdup2((gconstpointer) &dst_port, sizeof(int)),
+			g_memdup2((gconstpointer) &new_port_count, sizeof(unsigned long)));
 	} else {
 		/* set up new entry */
 		val->first = time(NULL);
 		val->latest = val->first;
 
-		memset(val->ports, 0, NUM_PORTS * sizeof(unsigned long));
-		/* set up total packet and port counts */
+		/* set up total packet, port, and alert counts */
 		val->total_port_count = 1;
 		val->total_packet_count = 1;
-		val->ports[dst_port] = 1;
+		val->alert_count = 0;
+
+		/* create new per-port count hash table */
+		val->ports = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, g_free);
 	}
 }
 
@@ -216,8 +235,10 @@ void update_entry(GHashTable *table, struct key *key, struct value *val,
 		bool flagged)
 {
 	if (flagged) {
-        /* flagged: remove IP entry from hash table */
-		g_hash_table_remove(table, (gconstpointer) &key->src_ip);
+		/* flagged: destroy IP's port hash table and remove IP entry from
+		 * packet hash table */
+          g_hash_table_destroy(val->ports);
+          g_hash_table_remove(table, (gconstpointer)&key->src_ip);
 	} else {
 		/* insert/update entry */
 		g_hash_table_replace(table,
@@ -265,11 +286,13 @@ int db_alert(PGconn *conn, int alert_type,
 				  "WHERE %d > log.packet_count AND to_timestamp(%ld) > log.latest";
 
 			char port_range[MAX_PORT_RANGE];
-			int min = min_port(value->ports);
-			int max = max_port(value->ports);
 			int port_count = value->total_port_count;
+			struct port_range *range = lookup_port_range(value->ports);
+			int min_port = range->min;
+			int max_port = range->max;
+			free(range);
 
-			snprintf(port_range, MAX_PORT_RANGE, "%d:%d", min, max);
+			snprintf(port_range, MAX_PORT_RANGE, "%d:%d", min_port, max_port);
 			snprintf(query, MAX_QUERY, cmd, port_range, alert_type, ip_str,
 					port_count, value->total_packet_count, value->first, value->latest,
 					/* fields to update */

@@ -118,6 +118,7 @@ void cleanup()
 	}
 
 	if (packet_table) {
+		port_table_cleanup(packet_table);
 		g_hash_table_destroy(packet_table);
 	}
 
@@ -631,7 +632,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	/* destination TCP port */
 	dst_port = get_dst_port(&e->tcp_header);
 	/* set up hash table entry */
-	setup_entry(packet_table, current_key, new_val, dst_port);
+	init_entry(packet_table, current_key, new_val, dst_port);
 
 	/* read packet and port thresholds from config file */
 	pthread_rwlock_rdlock(&config_lock);

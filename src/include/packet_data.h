@@ -31,10 +31,8 @@
 #define MAX_DB_TASKS 20
 
 struct packet_count {
-    unsigned long val;
-    /* carry when val reaches ULONG_MAX (starts at 0)
-     * TODO: how big should carry be? */
-    int carry;
+    unsigned int val;
+    unsigned int carry; /* carry every 100,000 */
 };
 
 /**
@@ -66,6 +64,7 @@ struct value {
 	GHashTable *ports;
 };
 
+/* port range for writing port-based alerts to the database */
 struct port_range {
 	int min;
 	int max;

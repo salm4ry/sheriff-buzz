@@ -38,7 +38,7 @@ struct args {
 
 const struct args DEFAULT_ARGS = {
 	.config = "default.json",
-	.bpf_obj_file = "src/packet.bpf.o",
+	.bpf_obj_file = "src/sheriff-buzz.bpf.o",
 	.skb_mode = false,
 	.interface = NULL, /* interface is a required argument */
 	.dry_run = false

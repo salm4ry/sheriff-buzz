@@ -9,7 +9,7 @@
 #include <bpf/bpf_endian.h>
 #include <stdio.h>
 
-#include "include/packet.h"
+#include "include/bpf_common.h"
 #include "include/patch_header.h"
 
 /* TODO #define all map maximum sizes */

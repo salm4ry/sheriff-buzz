@@ -25,11 +25,13 @@ CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) $(CFLAGS_COMMON) $(CFLAGS_DEBUG)
 SRC_DIR = ./src
 INCLUDE_DIR = $(SRC_DIR)/include
 
-USR_TARGET = packet
-USR_SRC = $(SRC_DIR)/packet.c
+BASE_NAME = sheriff-buzz
 
-KRN_TARGET = $(SRC_DIR)/packet.bpf.o
-KRN_SRC = $(SRC_DIR)/packet.bpf.c
+USR_TARGET = $(BASE_NAME)
+USR_SRC = $(SRC_DIR)/$(BASE_NAME).c
+
+KRN_TARGET = $(SRC_DIR)/$(BASE_NAME).bpf.o
+KRN_SRC = $(SRC_DIR)/$(BASE_NAME).bpf.c
 
 USR_OBJ = $(USR_SRC:.c=.o)
 

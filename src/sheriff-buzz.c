@@ -21,7 +21,7 @@
 #include <postgresql/libpq-fe.h>
 #include <cjson/cJSON.h>
 
-#include "include/packet.h"
+#include "include/bpf_common.h"
 #include "include/bpf_load.h"
 #include "include/pr.h"
 #include "include/detect_scan.h"

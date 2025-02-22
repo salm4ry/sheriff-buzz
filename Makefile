@@ -42,6 +42,7 @@ $(KRN_TARGET):
 	bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
 	$(CC) $(CFLAGS) -target bpf -c $(KRN_SRC) -o $(KRN_TARGET)
 
+$(USR_OBJ): $(INCLUDE_DIR)
 $(USR_TARGET): $(USR_OBJ) $(INCLUDE_DIR)
 	$(CC) $(CFLAGS) $(USR_OBJ) -o $(USR_TARGET) $(LIBS) $(GLIB_LIBS)
 # unload

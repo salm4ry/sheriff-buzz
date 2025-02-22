@@ -12,7 +12,8 @@
         "blacklist_ip": ["1.1.1.1", "2.2.2.2", "3.3.3.3"],
         "whitelist_ip": ["8.8.8.8", "100.100.100.100"],
         "blacklist_subnet": ["10.0.0.0/8", "1.2.3.0/24"],
-        "whitelist_subnet": ["192.168.66.0/24"]
+        "whitelist_subnet": ["192.168.66.0/24"],
+        "whitelist_port": [493, 12345]
 }
 ```
 
@@ -25,9 +26,10 @@
 | `redirect_ip` | IP address to redirect to if `action` is set to `"redirect"` |
 | `blacklist_ip` | list of IP addresses to blacklist |
 | `whitelist_ip` | list of IP addresses to whitelist |
-| `blacklist_subnet` | list of IP addresses (CIDR notation) to blacklist |
+| `blacklist_subnet` | list of subnets (CIDR notation) to blacklist |
 | `whitelist_subnet` | list of subnets (CIDR notation) to whitelist |
+| `whitelist_port` | list of TCP ports to whitelist |
 
 ## Blacklist/Whitelist Precedence
-- IP over subnet
-- whitelist over blacklist
+- IP > subnet > port
+- whitelist > blacklist

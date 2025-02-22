@@ -40,6 +40,11 @@ struct subnet_list {
 	struct subnet *entries;
 };
 
+struct port_list {
+	int size;
+	int *entries;
+};
+
 struct config {
 	int packet_threshold;
 	int alert_threshold;
@@ -53,6 +58,8 @@ struct config {
 
 	struct subnet_list *blacklist_subnet;
 	struct subnet_list *whitelist_subnet;
+
+	struct port_list *whitelist_port;
 };
 
 struct inotify_thread_args {
@@ -191,8 +198,8 @@ struct ip_list *ip_list_json(cJSON *obj, const char *item_name)
 
 	list = malloc(sizeof(struct ip_list));
 	if (!list) {
-		pr_err("memory allocation failed: %s\n", strerror(errno));
-		exit(1);
+		perror("memory allocation failed");
+		exit(errno);
 	}
 
 	array = cJSON_GetObjectItemCaseSensitive(obj, item_name);
@@ -200,8 +207,8 @@ struct ip_list *ip_list_json(cJSON *obj, const char *item_name)
 	if (list->size != 0) {
 		list->entries = calloc(list->size, sizeof(in_addr_t));
 		if (!list->entries) {
-			pr_err("memory allocation failed: %s\n", strerror(errno));
-			exit(1);
+			perror("memory allocation failed");
+			exit(errno);
 		}
 
 		/* extract IP addresses from array */
@@ -229,8 +236,8 @@ struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name)
 
 	list = malloc(sizeof(struct subnet_list));
 	if (!list) {
-		pr_err("memory allocation failed: %s\n", strerror(errno));
-		exit(1);
+		perror("memory allocation failed");
+		exit(errno);
 	}
 
 	array = cJSON_GetObjectItemCaseSensitive(obj, item_name);
@@ -238,8 +245,8 @@ struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name)
 	if (list->size != 0) {
 		list->entries = calloc(list->size, sizeof(struct subnet));
 		if (!list->entries) {
-			pr_err("memory allocation failed: %s\n", strerror(errno));
-			exit(1);
+			perror("memory allocation failed");
+			exit(errno);
 		}
 
 		/* extract subnets from array */
@@ -249,6 +256,43 @@ struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name)
 				cidr_to_subnet(elem->valuestring, &list->entries[index]);
 			}
 
+			index++;
+		}
+	} else {
+		free(list);
+		list = NULL;
+	}
+
+	return list;
+}
+
+struct port_list *port_list_json(cJSON *obj, const char *item_name)
+{
+	int index = 0;
+	cJSON *array, *elem;
+	struct port_list *list;
+
+	list = malloc(sizeof(struct port_list));
+	if (!list) {
+		perror("memory allocation failed");
+		exit(errno);
+	}
+
+	array = cJSON_GetObjectItemCaseSensitive(obj, item_name);
+	list->size = cJSON_GetArraySize(array);
+	if (list->size != 0) {
+		list->entries = calloc(list->size, sizeof(int));
+		if (!list->entries) {
+			perror("memory allocation failed");
+			exit(errno);
+		}
+
+		/* extrat ports from array */
+		cJSON_ArrayForEach(elem, array)
+		{
+			if (cJSON_IsNumber(elem) && elem->valueint) {
+				list->entries[index] = elem->valueint;
+			}
 			index++;
 		}
 	} else {
@@ -350,6 +394,25 @@ void free_subnet_list(struct subnet_list *list)
 	}
 }
 
+void free_port_list(struct port_list *list)
+{
+	if (list) {
+		if (list->entries) {
+			free(list->entries);
+		}
+		free(list);
+	}
+}
+
+void free_config(struct config *config)
+{
+	free_ip_list(config->blacklist_ip);
+	free_ip_list(config->whitelist_ip);
+	free_subnet_list(config->blacklist_subnet);
+	free_subnet_list(config->whitelist_subnet);
+	free_port_list(config->whitelist_port);
+}
+
 /* config to use when default config file unavailable/invalid */
 void fallback_config(struct config *config, pthread_rwlock_t *lock)
 {
@@ -365,6 +428,9 @@ void fallback_config(struct config *config, pthread_rwlock_t *lock)
 	/* blacklist + whitelists empty initially */
 	config->blacklist_ip = NULL;
 	config->whitelist_ip = NULL;
+	config->blacklist_subnet = NULL;
+	config->whitelist_subnet = NULL;
+	config->whitelist_port = NULL;
 
 	config->dry_run = false;
 	pthread_rwlock_unlock(lock);
@@ -378,6 +444,7 @@ void apply_config(cJSON *config_json, struct config *current_config,
 
 	struct ip_list *blacklist_ip, *whitelist_ip;
 	struct subnet_list *blacklist_subnet, *whitelist_subnet;
+	struct port_list *whitelist_port;
 
 	/* read thresholds */
 	packet_threshold = threshold_json_value(config_json,
@@ -436,15 +503,16 @@ void apply_config(cJSON *config_json, struct config *current_config,
 	blacklist_subnet = subnet_list_json(config_json, "blacklist_subnet");
 	whitelist_subnet = subnet_list_json(config_json, "whitelist_subnet");
 
+	/* port whitelist */
+	whitelist_port = port_list_json(config_json, "whitelist_port");
+
 	pthread_rwlock_wrlock(lock);
-	free_ip_list(current_config->blacklist_ip);
-	free_ip_list(current_config->whitelist_ip);
-	free_subnet_list(current_config->blacklist_subnet);
-	free_subnet_list(current_config->whitelist_subnet);
+	free_config(current_config);
 
 	current_config->blacklist_ip = blacklist_ip;
 	current_config->whitelist_ip = whitelist_ip;
 	current_config->blacklist_subnet = blacklist_subnet;
 	current_config->whitelist_subnet = whitelist_subnet;
+	current_config->whitelist_port = whitelist_port;
 	pthread_rwlock_unlock(lock);
 }

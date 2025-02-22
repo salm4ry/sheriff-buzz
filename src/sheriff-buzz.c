@@ -36,8 +36,8 @@
 uint32_t xdp_flags = XDP_FLAGS_UPDATE_IF_NOEXIST;
 int ifindex;
 
-struct bpf_object *xdp_obj, *ip_uretprobe_obj,
-                  *subnet_uretprobe_obj, *config_uretprobe_obj;
+struct bpf_object *xdp_obj, *ip_uretprobe_obj, *subnet_uretprobe_obj, 
+				  *port_uretprobe_obj, *config_uretprobe_obj;
 
 struct uretprobe_opts ip_uretprobe_args = {
 	.program_name = "read_ip_rb",
@@ -52,6 +52,12 @@ struct uretprobe_opts subnet_uretprobe_args = {
 	.map_name = "subnet_list"
 };
 
+struct uretprobe_opts port_uretprobe_args = {
+	.program_name = "read_port_rb",
+	.uprobe_func = "submit_port_entry",
+	.map_name = "port_list"
+};
+
 struct uretprobe_opts config_uretprobe_args =  {
 	.program_name = "read_config_rb",
 	.uprobe_func = "submit_config",
@@ -61,6 +67,7 @@ struct uretprobe_opts config_uretprobe_args =  {
 struct ring_buffer *xdp_rb = NULL;
 struct user_ring_buffer *ip_rb = NULL;
 struct user_ring_buffer *subnet_rb = NULL;
+struct user_ring_buffer *port_rb = NULL;
 struct user_ring_buffer *config_rb = NULL;
 int err;
 
@@ -93,16 +100,26 @@ int LOG_FD = -1;
 
 void cleanup()
 {
+	/* don't call cleanup() more than once by setting exiting to true */
 	if (exiting) {
 		return;
 	}
-
 	exiting = true;
 
+	/* detach XDP program */
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
 
+	/* free ring buffers */
 	if (ip_rb) {
 		user_ring_buffer__free(ip_rb);
+	}
+
+	if (subnet_rb) {
+		user_ring_buffer__free(subnet_rb);
+	}
+
+	if (port_rb) {
+		user_ring_buffer__free(port_rb);
 	}
 
 	if (config_rb) {
@@ -125,22 +142,18 @@ void cleanup()
 	fclose(LOG);
 	close(LOG_FD);
 
-	/* terminate database and inotify worker threads */
-	/* TODO merge with init_cleanup() by checking if threads are running */
-	/*
-	pthread_kill(db_worker, SIGKILL);
-	pthread_kill(inotify_worker, SIGKILL);
-	*/
+	/* clean up config */
+	free_config(&current_config);
 
+	/* send cancellation requests to worker threads */
 	pthread_cancel(db_worker);
 	pthread_cancel(inotify_worker);
 
-    /* wait for threads to finish */
+    /* wait for worker threads to finish */
     pthread_join(db_worker, 0);
     pthread_join(inotify_worker, 0);
 
 	PQfinish(db_conn);
-	/* exit(EXIT_SUCCESS); */
 }
 
 /* cleanup for initialisation */
@@ -152,11 +165,9 @@ void init_cleanup(int err)
 		ring_buffer__free(xdp_rb);
 	}
 
-	/* NOTE: common_ports currently not used
 	if (common_ports) {
 		free(common_ports);
 	}
-	*/
 
 	if (packet_table) {
 		g_hash_table_destroy(packet_table);
@@ -580,6 +591,35 @@ void submit_subnet_list()
     pthread_rwlock_unlock(&config_lock);
 }
 
+__attribute__((noinline)) int submit_port_entry(__u16 port)
+{
+	int err = 0;
+	struct port_rb_event *e;
+
+	e = user_ring_buffer__reserve(port_rb, sizeof(*e));
+	if (!e) {
+		err = -errno;
+		return err;
+	}
+
+	/* fill out ring buffer sample */
+	e->port_num = port;
+
+	user_ring_buffer__submit(port_rb, e);
+	return err;
+}
+
+void submit_port_list()
+{
+	pthread_rwlock_rdlock(&config_lock);
+	if (current_config.whitelist_port) {
+		for (int i = 0; i < current_config.whitelist_port->size; i++) {
+			submit_port_entry(current_config.whitelist_port->entries[i]);
+		}
+	}
+	pthread_rwlock_unlock(&config_lock);
+}
+
 __attribute__((noinline)) int submit_config()
 {
 	int err = 0;
@@ -748,6 +788,7 @@ void handle_inotify_events(int fd, const char *target_filename,
 					submit_config();
 					submit_ip_list();
                     submit_subnet_list();
+					submit_port_list();
 
 					cJSON_Delete(config_json);
 				}
@@ -836,10 +877,10 @@ int main(int argc, char *argv[])
 	const char *DEFAULT_CONFIG_FILE = "config/default.json";
 
     /* map file descriptors */
-	int ip_list_fd, subnet_list_fd, config_hash_fd;
+	int ip_list_fd, subnet_list_fd, port_list_fd, config_hash_fd;
 
     /* ring buffers */
-    int xdp_rb_fd, ip_rb_fd, subnet_rb_fd, config_rb_fd;
+    int xdp_rb_fd, ip_rb_fd, subnet_rb_fd, port_rb_fd, config_rb_fd;
 
 	/* arguments to pass to database and inotify worker threads */
 	struct db_thread_args db_worker_args;
@@ -899,6 +940,7 @@ int main(int argc, char *argv[])
 	 * corresponding uretprobe */
 	ip_list_fd = get_bpf_map_fd(xdp_obj, "ip_list");
 	subnet_list_fd = get_bpf_map_fd(xdp_obj, "subnet_list");
+	port_list_fd = get_bpf_map_fd(xdp_obj, "port_list");
 
     /* load and attach IP list uretprobe */
 	ip_uretprobe_args.uretprobe_obj = &ip_uretprobe_obj;
@@ -916,6 +958,17 @@ int main(int argc, char *argv[])
 	subnet_uretprobe_args.filename = init_args.bpf_obj_file;
 	subnet_uretprobe_args.bpf_map_fd = subnet_list_fd;
 	if (init_uretprobe(&subnet_uretprobe_args) <= 0) {
+		log_error(LOG, "failed to load uretprobe program from file: %s\n",
+				init_args.bpf_obj_file);
+		err = -1;
+		init_cleanup(err);
+	}
+
+	/* load and attach port list uretprobe */
+	port_uretprobe_args.uretprobe_obj = &port_uretprobe_obj;
+	port_uretprobe_args.filename = init_args.bpf_obj_file;
+	port_uretprobe_args.bpf_map_fd = port_list_fd;
+	if (init_uretprobe(&port_uretprobe_args) <= 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
 				init_args.bpf_obj_file);
 		err = -1;
@@ -973,6 +1026,9 @@ int main(int argc, char *argv[])
 	subnet_rb_fd = get_bpf_map_fd(subnet_uretprobe_obj, "subnet_rb");
 	init_user_rb(&subnet_rb, subnet_rb_fd);
 
+	port_rb_fd = get_bpf_map_fd(port_uretprobe_obj, "port_rb");
+	init_user_rb(&port_rb, port_rb_fd);
+
 	/* set up config user ring buffer */
 	config_rb_fd = get_bpf_map_fd(config_uretprobe_obj,"config_rb");
 	init_user_rb(&config_rb, config_rb_fd);
@@ -981,6 +1037,7 @@ int main(int argc, char *argv[])
 	submit_config(); /* block/redirect blacklisted IPs + dry run mode */
 	submit_ip_list(); /* IP blacklist + whitelist */
     submit_subnet_list(); /* subnet blacklist + whitelist */
+	submit_port_list(); /* port whitelist */
 
 	/* create database worker thread
 	 *

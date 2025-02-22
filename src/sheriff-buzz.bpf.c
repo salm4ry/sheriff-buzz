@@ -7,7 +7,6 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_endian.h>
-#include <stdio.h>
 
 #include "include/bpf_common.h"
 #include "include/patch_header.h"
@@ -47,6 +46,14 @@ struct {
 	__uint(max_entries, MAX_SUBNET);
 } subnet_list SEC(".maps");
 
+/* hash map of whitelisted ports */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__type(key, __u16);
+	__type(value, __u16);
+	__uint(max_entries, 256);
+} port_list SEC(".maps");
+
 /* config (sent from user space */
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
@@ -84,6 +91,15 @@ struct {
 	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
 	__uint(max_entries, 256 * 1024); /* 256 KB */
 } subnet_rb SEC(".maps");
+
+/* port user ring buffer
+ *
+ * send whitelisted ports from user -> kernel space
+ */
+struct {
+	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
+	__uint(max_entries, 256 * 1024); /* 256 KB  */
+} port_rb SEC(".maps");
 
 /* action config user ring buffer
  *
@@ -152,6 +168,24 @@ static long subnet_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
     subnet.type = sample->type;
     bpf_map_update_elem(&subnet_list, &sample->index, &subnet, 0);
     return 0;
+}
+
+static long port_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
+{
+	struct port_rb_event *sample;
+	int type = WHITELIST;
+
+	sample = bpf_dynptr_data(dynptr, 0, sizeof(*sample));
+	if (!sample) {
+		return 0;
+	}
+
+	bpf_debug("whitelist port %d", sample->port_num);
+
+	/* insert hash map entry for new whitelisted port */
+	bpf_map_update_elem(&port_list, &sample->port_num, &type, 0);
+
+	return 0;
 }
 
 static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
@@ -280,6 +314,20 @@ int subnet_state(__u32 src_ip)
 	return ctx.type;
 }
 
+int dst_port_state(__u16 dst_port)
+{
+	/* translate to host byte order */
+	__u16 key = bpf_ntohs(dst_port);
+	__u16 *port_type = bpf_map_lookup_elem(&port_list, &key);
+	int state = _XDP_STATE_UNKNOWN;
+
+	if (port_type) {
+		state = *port_type;
+	}
+
+	return state;
+}
+
 void submit_headers(struct iphdr *ip_headers, struct tcphdr *tcp_headers)
 {
 	struct xdp_rb_event *e;
@@ -315,6 +363,13 @@ int read_subnet_rb()
 {
     bpf_user_ringbuf_drain(&subnet_rb, subnet_rb_callback, NULL, 0);
     return 0;
+}
+
+SEC("uretprobe")
+int read_port_rb()
+{
+	bpf_user_ringbuf_drain(&port_rb, port_rb_callback, NULL, 0);
+	return 0;
 }
 
 SEC("uretprobe")
@@ -384,8 +439,15 @@ int process_packet(struct xdp_md *ctx)
 				 * processing (if applicable) */
 				if (protocol_number == TCP_PNUM) {
 					struct tcphdr *tcp_headers = parse_tcp_headers(ctx);
-					submit_headers(ip_headers, tcp_headers);
-			    }
+					/* check whether port is whitelisted */
+					if (tcp_headers) {
+						if (dst_port_state(tcp_headers->dest) == WHITELIST) {
+							bpf_debug("port %d whitelisted", bpf_ntohs(tcp_headers->dest));
+						} else {
+							submit_headers(ip_headers, tcp_headers);
+						}
+			    	}
+				}
 				break;
 		}
 	}

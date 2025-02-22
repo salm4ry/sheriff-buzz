@@ -66,6 +66,10 @@ struct subnet_rb_event {
 	int type;
 };
 
+struct port_rb_event {
+	__u16 port_num;
+};
+
 /**
  * Config user ring buffer event
  *

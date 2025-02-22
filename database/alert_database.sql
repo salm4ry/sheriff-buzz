@@ -6,9 +6,7 @@ Prerequisites:
 Run from inside psql using \i alert_database.sql
 */
 
--- TODO
--- create type alert_type as enum ('Xmas scan', 'FIN scan', 'NULL scan', 'Port scan')
-
+-- TODO rename to program name
 CREATE DATABASE alerts;
 
 -- ensure owner set to root
@@ -29,6 +27,7 @@ CREATE TABLE alert_type(
 	description VARCHAR(20)); -- TODO plan scan names: check if max length too short
 
 -- alert log
+-- TODO rename to scan_alerts
 CREATE TABLE log(
 	id SERIAL PRIMARY KEY,
 	fingerprint CHAR(12),
@@ -41,6 +40,7 @@ CREATE TABLE log(
 	latest TIMESTAMP);
 
 -- flagged IP addresses
+-- TODO rename to blocked_ips (or similar)
 create table flagged(
 	id SERIAL PRIMARY KEY, -- not strictly required: just for completeness
 	src_ip INET,

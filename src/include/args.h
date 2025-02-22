@@ -36,13 +36,12 @@ struct args {
 	bool dry_run;
 };
 
-/* TODO replace with default config file */
 const struct args DEFAULT_ARGS = {
-	.config = "config.json",
+	.config = "default.json",
 	.bpf_obj_file = "src/packet.bpf.o",
 	.skb_mode = false,
 	.interface = NULL, /* interface is a required argument */
-	.dry_run = false   /* TODO: should dry run be true or false by default? */
+	.dry_run = false
 };
 
 void set_default_args(struct args *args)
@@ -50,6 +49,7 @@ void set_default_args(struct args *args)
 	args->config = DEFAULT_ARGS.config;
 	args->bpf_obj_file = DEFAULT_ARGS.bpf_obj_file;
 	args->skb_mode = DEFAULT_ARGS.skb_mode;
+	args->dry_run = DEFAULT_ARGS.dry_run;
 }
 
 void print_usage(const char *prog_name)
@@ -61,9 +61,8 @@ void print_usage(const char *prog_name)
 /**
  * Short options characters (followed by a colon = requires an argument)
  */
-const char *short_opts = "c:si:b:";
+const char *short_opts = "c:si:b:d";
 
-/* TODO save argument values */
 void parse_args(int argc, char *argv[], struct args *args)
 {
 	int opt = 0, option_index = 0;

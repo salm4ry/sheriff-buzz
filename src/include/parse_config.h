@@ -347,7 +347,6 @@ void set_default_config(struct config *config, pthread_rwlock_t *lock)
 	config->blacklist_ip = NULL;
 	config->whitelist_ip = NULL;
 
-	/* TODO- should this be true or false by default? */
 	config->dry_run = false;
 	pthread_rwlock_unlock(lock);
 }

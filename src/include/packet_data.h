@@ -260,7 +260,7 @@ void update_entry(GHashTable *table, struct key *key, struct value *val,
  *
  * Return 0 on success, non-zero value on error
  */
-int db_alert(PGconn *conn, int alert_type,
+int db_write_scan_alert(PGconn *conn, int alert_type,
 		struct key *key, struct value *value, int dst_port)
 {
 	PGresult *db_res;
@@ -345,7 +345,7 @@ int db_alert(PGconn *conn, int alert_type,
  *
  * Return 0 on success, non-zero on error
  */
-int db_flagged(PGconn *conn, struct key *key, struct value *value)
+int db_write_blocked_ip(PGconn *conn, struct key *key, struct value *value)
 {
     int err = 0;
 	PGresult *db_res;
@@ -510,14 +510,14 @@ void db_thread_work(void *args)
 
 		if (current->alert_type) {
 			/* write alert to database */
-			db_alert(db_conn,
+			db_write_scan_alert(db_conn,
 					current->alert_type,
 					&current->key,
 					&current->value,
 					current->dst_port);
 		} else {
 			/* write flagged IP to database */
-			db_flagged(db_conn, &current->key, &current->value);
+			db_write_blocked_ip(db_conn, &current->key, &current->value);
 		}
 
 		free(current);

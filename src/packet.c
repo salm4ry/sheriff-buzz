@@ -363,7 +363,7 @@ void init_inotify_thread(void *function, struct inotify_thread_args *args)
 	}
 }
 
-void log_flag_based_alert(int alert_type, struct key *key, struct value *val,
+void report_flag_based_alert(int alert_type, struct key *key, struct value *val,
 		char *ip_str, int dst_port)
 {
 	switch (alert_type) {
@@ -385,11 +385,11 @@ void log_flag_based_alert(int alert_type, struct key *key, struct value *val,
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 				 alert_type, key, val, dst_port);
 	} else {
-		db_alert(db_conn, alert_type, key, val, dst_port);
+		db_write_scan_alert(db_conn, alert_type, key, val, dst_port);
 	}
 }
 
-void log_port_based_alert(int alert_type, struct key *key, struct value *val,
+void report_port_based_alert(int alert_type, struct key *key, struct value *val,
 		char *ip_str, int port_threshold)
 {
 	log_alert(LOG, "nmap (%d or more ports) detected from %s!\n",
@@ -399,7 +399,7 @@ void log_port_based_alert(int alert_type, struct key *key, struct value *val,
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 				alert_type, key, val, 0);
 	} else {
-		db_alert(db_conn, alert_type, key, val, 0);
+		db_write_scan_alert(db_conn, alert_type, key, val, 0);
 	}
 }
 
@@ -511,16 +511,16 @@ void submit_ip_list()
 	pthread_rwlock_unlock(&config_lock);
 }
 
-void log_flagged_ip(struct key *key, struct value *val, char *ip_str)
+void report_blocked_ip(struct key *key, struct value *val, char *ip_str)
 {
-	log_alert(LOG, "flagging %s\n", ip_str);
+	log_alert(LOG, "blacklisting %s\n", ip_str);
 	submit_ip_entry(key->src_ip, BLACKLIST);
 
 	if (use_db_thread) {
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 				0, key, val, 0);
 	} else {
-		db_flagged(db_conn, key, val);
+		db_write_blocked_ip(db_conn, key, val);
 	}
 }
 
@@ -646,7 +646,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	/* check packet threshold */
 	if (scan_type) {
 		if (new_val->total_packet_count >= packet_threshold) {
-			log_flag_based_alert(scan_type, current_key, new_val, address, dst_port);
+			report_flag_based_alert(scan_type, current_key, new_val, address, dst_port);
 			is_alert = true;
 		}
 	}
@@ -660,7 +660,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 
 	if (new_val->total_port_count >= port_threshold) {
 		is_alert = true;
-		log_port_based_alert(PORT_SCAN, current_key, new_val, address, port_threshold);
+		report_port_based_alert(PORT_SCAN, current_key, new_val, address, port_threshold);
 	}
 
 	if (is_alert) {
@@ -672,7 +672,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 		/* flag IP if alert threshold reached */
 		if (new_val->alert_count >= flag_threshold) {
 			flagged = true;
-			log_flagged_ip(current_key, new_val, address);
+			report_blocked_ip(current_key, new_val, address);
 		}
 	}
 

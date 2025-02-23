@@ -10,8 +10,15 @@
 #define MAX_PREFIX 28
 #define TIME_FMT "%Y-%m-%d %H-%M-%S"
 
-#ifndef _log_h
-#define _log_h
+
+/* read more: https://gcc.gnu.org/onlinedocs/cpp/Variadic-Macros.html */
+void pr_err(char *fmt, ...)
+{
+	va_list args;
+	va_start(args, fmt);
+	vfprintf(stderr, fmt, args);
+	va_end(args);
+}
 
 /* TODO inline? */
 
@@ -103,4 +110,3 @@ void log_alert(FILE *file, char *fmt, ...)
     log_with_prefix(file, "alert: ", fmt, args);
     va_end(args);
 }
-#endif

@@ -16,8 +16,6 @@
 #include <pthread.h>
 #include <sys/queue.h>
 
-#include "log.h"
-#include "pr.h"
 #include "alert_types.h"
 #include "parse_headers.h"
 

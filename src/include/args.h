@@ -3,9 +3,6 @@
 #include <unistd.h>
 #include <getopt.h>
 
-#include "bits/getopt_core.h"
-#include "pr.h"
-
 /**
  * Long options
  *

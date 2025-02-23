@@ -14,9 +14,6 @@
 #include <poll.h>
 #include <sys/inotify.h>
 
-#include "log.h"
-#include "pr.h"
-
 FILE *LOG;
 
 #define MAX_PACKET_THRESHOLD 1000

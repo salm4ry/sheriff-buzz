@@ -3,8 +3,6 @@
 
 #include <bpf/libbpf.h>
 
-#include "log.h"
-
 FILE *LOG;
 
 struct uretprobe_opts {

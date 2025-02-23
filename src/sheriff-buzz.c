@@ -406,13 +406,15 @@ void report_flag_based_alert(int alert_type, struct key *key, struct value *val,
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 				 alert_type, key, val, dst_port);
 	} else {
-		db_write_scan_alert(db_conn, alert_type, key, val, dst_port);
+		db_write_scan_alert(db_conn, alert_type, key, val, NULL, dst_port);
 	}
 }
 
 void report_port_based_alert(int alert_type, struct key *key, struct value *val,
 		char *ip_str, int port_threshold)
 {
+	struct port_range *range;
+
 	log_alert(LOG, "nmap (%d or more ports) detected from %s!\n",
 			port_threshold, ip_str);
 
@@ -420,7 +422,9 @@ void report_port_based_alert(int alert_type, struct key *key, struct value *val,
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 				alert_type, key, val, 0);
 	} else {
-		db_write_scan_alert(db_conn, alert_type, key, val, 0);
+		range = lookup_port_range(val->ports);
+		db_write_scan_alert(db_conn, alert_type, key, val, range, 0);
+		free(range);
 	}
 }
 
@@ -1062,6 +1066,7 @@ int main(int argc, char *argv[])
 	inotify_worker_args.config_filename = malloc((strlen(init_args.config)+1) * sizeof(char));
 	/* TODO error handling */
 	strncpy(inotify_worker_args.config_filename, init_args.config, strlen(init_args.config)+1);
+
 	// inotify_worker_args.config_filename = init_args.config;
 
 	inotify_worker_args.current_config = &current_config;

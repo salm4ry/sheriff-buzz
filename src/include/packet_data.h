@@ -75,7 +75,9 @@ FILE *LOG;
  * Database work queue entry
  *
  * - alert_type: type of alert to be logged
- * - dst_port: alert destination port (optional)
+ * - dst_port: alert destination port (flag-based scan)
+ * - min_port: min port in port-based scan
+ * - max_port: max port in port-based scan
  * - key: hash table key alert is concerned with
  * - value: hash table value alert is concerned with
  * - entries: database workqueue structure
@@ -83,6 +85,7 @@ FILE *LOG;
 struct db_task {
 	int alert_type;
 	int dst_port;
+	struct port_range range;
 	struct key key;
 	struct value value;
 	TAILQ_ENTRY(db_task) entries;
@@ -132,7 +135,7 @@ struct port_range *lookup_port_range(GHashTable *port_counts)
 	res->min = 65535;
 	res->max = 0;
 
-	g_hash_table_foreach(port_counts, &min_max_port, res);
+	g_hash_table_foreach(port_counts, &min_max_port, (gpointer) res);
 
 	return res;
 }
@@ -157,11 +160,11 @@ void port_table_cleanup(GHashTable *packet_table)
  * - value: hash table value
  * - user_data: count vaule to update
  */
+/* TODO double check this works in small example */
 void update_entry_count(gpointer key, gpointer value, gpointer user_data)
 {
-    int *count = (int*) user_data;
-     *count += 1;
- }
+	*((int*) user_data) = *((int*) user_data) + 1;
+}
 
 /**
  * Get number of entries in a GHashTable
@@ -258,7 +261,7 @@ void update_entry(GHashTable *table, struct key *key, struct value *val,
  * Return 0 on success, non-zero value on error
  */
 int db_write_scan_alert(PGconn *conn, int alert_type,
-		struct key *key, struct value *value, int dst_port)
+		struct key *key, struct value *value, struct port_range *range, int dst_port)
 {
 	PGresult *db_res;
 	int err = 0;
@@ -284,12 +287,8 @@ int db_write_scan_alert(PGconn *conn, int alert_type,
 
 			char port_range[MAX_PORT_RANGE];
 			int port_count = value->total_port_count;
-			struct port_range *range = lookup_port_range(value->ports);
-			int min_port = range->min;
-			int max_port = range->max;
-			free(range);
 
-			snprintf(port_range, MAX_PORT_RANGE, "%d:%d", min_port, max_port);
+			snprintf(port_range, MAX_PORT_RANGE, "%d:%d", range->min, range->max);
 			snprintf(query, MAX_QUERY, cmd, port_range, alert_type, ip_str,
 					port_count, value->total_packet_count, value->first, value->latest,
 					/* fields to update */
@@ -362,6 +361,8 @@ int db_write_blocked_ip(PGconn *conn, struct key *key, struct value *value)
     if (err) {
         log_error(LOG, "postgres: %s\n", PQerrorMessage(conn));
     }
+
+	PQclear(db_res);
 
     return err;
 }
@@ -440,6 +441,7 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 		struct key *key, struct value *value, int dst_port)
 {
 	struct db_task *new_task;
+	struct port_range *range;
 
 	if (queue_full(task_queue_head)) {
 		return 1;
@@ -453,19 +455,27 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 
 	switch (alert_type) {
 		case PORT_SCAN:
-			/* no destination port required */
+			/* port-based alert: min and max ports */
+			range = lookup_port_range(value->ports);
+			new_task->range = *range;
+			free(range);
 			break;
 		case 0:
 			/* no alert type set */
 			break;
 		default:
-			/* flag-based alerts have destination port */
+			/* flag-based alert: destination port */
 			new_task->dst_port = dst_port;
 	}
 
 	new_task->alert_type = alert_type;
 	memcpy(&new_task->key, key, sizeof(struct key));
-	memcpy(&new_task->value, value, sizeof(struct value));
+
+	/* copy parts of hash table key required for database write */
+	new_task->value.first = value->first;
+	new_task->value.latest = value->latest;
+	new_task->value.total_packet_count = value->total_packet_count;
+	new_task->value.total_port_count = value->total_port_count;
 
 	pthread_mutex_lock(lock);
 	TAILQ_INSERT_TAIL(task_queue_head, new_task, entries);
@@ -511,6 +521,7 @@ void db_thread_work(void *args)
 					current->alert_type,
 					&current->key,
 					&current->value,
+					&current->range,
 					current->dst_port);
 		} else {
 			/* write flagged IP to database */

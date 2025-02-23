@@ -56,6 +56,9 @@ void print_usage(const char *prog_name)
 {
 	printf("usage: %s -i <interface>\n", prog_name);
 	/* TODO usage for long + short options */
+	/* TODO add also a -h|--help option
+	 * that prints the usage and exits
+	 */
 }
 
 /**
@@ -69,37 +72,32 @@ void parse_args(int argc, char *argv[], struct args *args)
 
 	set_default_args(args);
 
-	/* -1 = no more arguments to parse */
-	while (1) {
-		opt = getopt_long(argc, argv, short_opts, long_opts, &option_index);
-
-		if (opt == -1)
-			break;
-
+	while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
 		switch (opt) {
 			case 'c':
 				/* config file path */
 				args->config = optarg;
 				break;
-
 			case 's':
 				break;
-
 			case 'i':
 				args->interface = optarg;
 				break;
-
 			case 'b':
 				args->bpf_obj_file = optarg;
 				break;
-
 			case 'd':
 				args->dry_run = true;
 				break;
-
 			default:
 				/* unrecognised argument */
-				break;
+				/* print a message about it
+				 * so that the user doesn't
+				 * keep repeating the same syntax
+				 * error
+				 */
+				print_usage(argv[0]);
+				exit(1);
 		}
 	}
 }

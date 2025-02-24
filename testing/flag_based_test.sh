@@ -4,8 +4,9 @@ NUM_PORTS=65536
 
 HOST=${1:-k0ibian}
 USER=${2:-gamek0i}
-ROOT_DIR="/home/$USER/port-scan-detector"
+ROOT_DIR="/home/$USER/sheriff-buzz"
 LOG_DIR="$ROOT_DIR"/log
+DB_NAME="sheriff_logbook"
 CONFIG_PATH="$ROOT_DIR"/config
 CONFIG_FILE=config.json
 
@@ -20,9 +21,10 @@ HEAD_OPTS='-1'
 NMAP=/usr/bin/nmap
 
 # database query: inner join with alert type to get human-readable names
-LOG_QUERY='SELECT log.dst_port, log.src_ip, log.packet_count, log.latest,
-	alert_type.description AS alert_type FROM log 
-	INNER JOIN alert_type ON log.alert_type = alert_type.id;'
+LOG_QUERY='SELECT scan_alerts.dst_port, scan_alerts.src_ip,
+	scan_alerts.packet_count, scan_alerts.latest,
+	alert_type.description AS alert_type FROM scan_alerts
+	INNER JOIN alert_type ON scan_alerts.alert_type = alert_type.id;'
 
 # TODO document test script e.g. in README
 
@@ -109,4 +111,4 @@ rm "${tmp_log}"
 
 # check alerts were added to the database correctly
 printf "\nconnecting to %s alert database\n" "${HOST}"
-"${SSH}" "${SSH_OPTS}" "${HOST}" "psql alerts -c '${LOG_QUERY}'"
+"${SSH}" "${SSH_OPTS}" "${HOST}" "psql ${DB_NAME} -c '${LOG_QUERY}'"

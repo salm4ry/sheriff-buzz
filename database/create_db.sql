@@ -6,7 +6,7 @@ Prerequisites:
 Run from inside psql using \i alert_database.sql
 */
 
--- TODO rename to program name
+-- TODO is this the final name?
 CREATE DATABASE sheriff_logbook;
 
 -- ensure owner set to root

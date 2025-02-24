@@ -6,8 +6,9 @@ USER=${2:-gamek0i}
 NUM_PORTS=${3:-1000}
 PORT_SCAN_ALERT=4
 
-ROOT_DIR="/home/$USER/port-scan-detector"
+ROOT_DIR="/home/$USER/sheriff-buzz"
 LOG_DIR="$ROOT_DIR"/log
+DB_NAME="sheriff_logbook"
 CONFIG_PATH="$ROOT_DIR"/config
 CONFIG_FILE=config.json
 
@@ -135,4 +136,4 @@ do
 	fi
 done
 
-run_on_host "psql alerts -c '${LOG_QUERY}'"
+run_on_host "psql ${DB_NAME} -c '${LOG_QUERY}'"

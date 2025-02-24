@@ -17,6 +17,7 @@
 
 FILE *LOG;
 
+#define MAX_LIST 256
 #define MAX_PACKET_THRESHOLD 1000
 #define MAX_PORT_THRESHOLD 65536
 #define MAX_FLAG_THRESHOLD 10
@@ -194,7 +195,6 @@ in_addr_t ip_json_value(cJSON *obj, const char *item_name)
  */
 struct ip_list *ip_list_json(cJSON *obj, const char *item_name)
 {
-	/* TODO max blacklist/whitelist size- truncate accordingly */
 	int index = 0;
 	cJSON *array, *elem;
 	struct ip_list *list;
@@ -208,6 +208,12 @@ struct ip_list *ip_list_json(cJSON *obj, const char *item_name)
 	array = cJSON_GetObjectItemCaseSensitive(obj, item_name);
 	list->size = cJSON_GetArraySize(array);
 	if (list->size != 0) {
+        if (list->size > MAX_LIST) {
+            log_info(LOG, "config: %s list exceeds maximum size %d, truncating\n",
+                    item_name, MAX_LIST);
+            list->size = MAX_LIST;
+        }
+
 		list->entries = calloc(list->size, sizeof(in_addr_t));
 		if (!list->entries) {
 			perror("memory allocation failed");
@@ -217,6 +223,11 @@ struct ip_list *ip_list_json(cJSON *obj, const char *item_name)
 		/* extract IP addresses from array */
 		cJSON_ArrayForEach(elem, array)
 		{
+            if (index >= MAX_LIST) {
+                /* stop reading in elements after maximum list size */
+                break;
+            }
+
 			if (cJSON_IsString(elem) && elem->valuestring) {
 				inet_pton(AF_INET, elem->valuestring, &list->entries[index]);
 			}
@@ -246,6 +257,12 @@ struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name)
 	array = cJSON_GetObjectItemCaseSensitive(obj, item_name);
 	list->size = cJSON_GetArraySize(array);
 	if (list->size != 0) {
+        if (list->size > MAX_LIST) {
+            log_info(LOG, "config: %s list exceeds maximum size %d, truncating\n",
+                    item_name, MAX_LIST);
+            list->size = MAX_LIST;
+        }
+
 		list->entries = calloc(list->size, sizeof(struct subnet));
 		if (!list->entries) {
 			perror("memory allocation failed");
@@ -255,6 +272,11 @@ struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name)
 		/* extract subnets from array */
 		cJSON_ArrayForEach(elem, array)
 		{
+            if (index >= MAX_LIST) {
+                /* stop reading in elements after maximum list size */
+                break;
+            }
+
 			if (cJSON_IsString(elem) && elem->valuestring) {
 				cidr_to_subnet(elem->valuestring, &list->entries[index]);
 			}
@@ -284,17 +306,28 @@ struct port_list *port_list_json(cJSON *obj, const char *item_name)
 	array = cJSON_GetObjectItemCaseSensitive(obj, item_name);
 	list->size = cJSON_GetArraySize(array);
 	if (list->size != 0) {
+        if (list->size > MAX_LIST) {
+            log_info(LOG, "config: %s list exceeds maximum size %d, truncating\n",
+                    item_name, MAX_LIST);
+            list->size = MAX_LIST;
+        }
+
 		list->entries = calloc(list->size, sizeof(int));
 		if (!list->entries) {
 			perror("memory allocation failed");
 			exit(errno);
 		}
 
-        log_debug(LOG, "total port entries: %d\n", list->size);
+        log_debug(LOG, "config: total port entries: %d\n", list->size);
 
 		/* extract ports from array */
 		cJSON_ArrayForEach(elem, array)
 		{
+            if (index >= MAX_LIST) {
+                /* stop reading in elements after maximum list size */
+                break;
+            }
+
 			if (cJSON_IsNumber(elem) && elem->valueint) {
                 /* port bounds checking */
                 if (elem->valueint < MIN_PORT || elem->valueint > MAX_PORT) {
@@ -306,10 +339,11 @@ struct port_list *port_list_json(cJSON *obj, const char *item_name)
                     index++;
                 }
 			}
+
 		}
 
         /* remove invalid ports from count */
-        log_debug(LOG, "total valid port entries: %d\n", list->size);
+        log_debug(LOG, "config: total valid port entries: %d\n", list->size);
 
 	} else {
 		free(list);

@@ -904,7 +904,8 @@ int main(int argc, char *argv[])
 	ifindex = if_nametoindex(init_args.interface);
 	if (ifindex == 0) {
 		/* TODO better error message */
-		perror("error setting up interface");
+        pr_err("error setting up interface %s: %s\n", init_args.interface,
+                strerror(errno));
 		exit(errno);
 	}
 

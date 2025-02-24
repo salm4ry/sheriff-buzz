@@ -1,10 +1,11 @@
-#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
+#include <errno.h>
 
+#include <netinet/in.h>
 #include <ctype.h>
 #include <arpa/inet.h>
 #include <cjson/cJSON.h>
@@ -19,6 +20,11 @@ FILE *LOG;
 #define MAX_PACKET_THRESHOLD 1000
 #define MAX_PORT_THRESHOLD 65536
 #define MAX_FLAG_THRESHOLD 10
+
+#define MIN_PORT 0
+#define MAX_PORT 65535
+
+#define UNDEFINED -1
 
 #define MAX_EVENT 4096
 
@@ -172,7 +178,7 @@ in_addr_t ip_json_value(cJSON *obj, const char *item_name)
 		/* inet_pton() returns 1 on success, 0 on error */
 		res = inet_pton(AF_INET, value, &ip);
 		if (res == 0) {
-			return -1;
+			return UNDEFINED;
 		}
 	}
 
@@ -284,14 +290,27 @@ struct port_list *port_list_json(cJSON *obj, const char *item_name)
 			exit(errno);
 		}
 
-		/* extrat ports from array */
+        log_debug(LOG, "total port entries: %d\n", list->size);
+
+		/* extract ports from array */
 		cJSON_ArrayForEach(elem, array)
 		{
 			if (cJSON_IsNumber(elem) && elem->valueint) {
-				list->entries[index] = elem->valueint;
+                /* port bounds checking */
+                if (elem->valueint < MIN_PORT || elem->valueint > MAX_PORT) {
+                    log_error(LOG, "config: invalid port %d\n", elem->valueint);
+                    list->size--;
+                } else {
+                    /* only update list and index if port is valid */
+				    list->entries[index] = elem->valueint;
+                    index++;
+                }
 			}
-			index++;
 		}
+
+        /* remove invalid ports from count */
+        log_debug(LOG, "total valid port entries: %d\n", list->size);
+
 	} else {
 		free(list);
 		list = NULL;
@@ -308,7 +327,7 @@ struct port_list *port_list_json(cJSON *obj, const char *item_name)
  */
 int check_action(cJSON *json_obj, const char *item_name)
 {
-	int action = -1;
+	int action = UNDEFINED;
 	char *value = str_json_value(json_obj, item_name);
 
 	if (value) {
@@ -346,7 +365,7 @@ int threshold_json_value(
 	}
 
 	if (value <= 0 || value > MAX_THRESHOLD) {
-		return -1;
+		return UNDEFINED;
 	}
 
 	return value;
@@ -359,7 +378,7 @@ int threshold_json_value(
  */
 int bool_json_value(cJSON *json_obj, const char *item_name)
 {
-	int value = -1;
+	int value = UNDEFINED;
 	cJSON *item;
 
 	item = cJSON_GetObjectItemCaseSensitive(json_obj, item_name);
@@ -420,7 +439,7 @@ void fallback_config(struct config *config, pthread_rwlock_t *lock)
 
 	/* block by default (no IP to redirect to) */
 	config->block_src = true;
-	config->redirect_ip = -1;
+	config->redirect_ip = UNDEFINED;
 
 	/* blacklist + whitelists empty initially */
 	config->blacklist_ip = NULL;
@@ -455,7 +474,7 @@ void apply_config(cJSON *config_json, struct config *current_config,
 	block_src = check_action(config_json, "action");
 	redirect_ip = ip_json_value(config_json, "redirect_ip");
 
-	if (!block_src && redirect_ip != -1) {
+	if (!block_src && redirect_ip != UNDEFINED) {
 		/* redirect: check IP address and only apply if a valid IP is supplied */
 		pthread_rwlock_wrlock(lock);
 		current_config->block_src = false;
@@ -473,19 +492,19 @@ void apply_config(cJSON *config_json, struct config *current_config,
 	}
 
 	/* apply thresholds if valid */
-	if (packet_threshold != -1) {
+	if (packet_threshold != UNDEFINED) {
 		pthread_rwlock_wrlock(lock);
 		current_config->packet_threshold = packet_threshold;
 		pthread_rwlock_unlock(lock);
 		log_info(LOG, "config: packet_threshold = %d\n", packet_threshold);
 	}
-	if (port_threshold != -1) {
+	if (port_threshold != UNDEFINED) {
 		pthread_rwlock_wrlock(lock);
 		current_config->port_threshold = port_threshold;
 		pthread_rwlock_unlock(lock);
 		log_info(LOG, "config: port_threshold = %d\n", port_threshold);
 	}
-	if (alert_threshold != -1) {
+	if (alert_threshold != UNDEFINED) {
 		pthread_rwlock_wrlock(lock);
 		current_config->alert_threshold = alert_threshold;
 		pthread_rwlock_unlock(lock);

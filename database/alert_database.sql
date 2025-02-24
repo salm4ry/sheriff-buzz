@@ -7,13 +7,13 @@ Run from inside psql using \i alert_database.sql
 */
 
 -- TODO rename to program name
-CREATE DATABASE packet;
+CREATE DATABASE sheriff_logbook;
 
 -- ensure owner set to root
-ALTER DATABASE packet OWNER TO root;
+ALTER DATABASE sheriff_logbook OWNER TO root;
 
 -- connect to database
-\c packet
+\c sheriff_logbook
 
 /*
 tables

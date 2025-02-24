@@ -204,13 +204,6 @@ void print_stats(int signum)
 	write(LOG_FD, buf, strlen(buf));
 }
 
-int skb_mode(char *arg)
-{
-	/* set SKB mode with bitwise OR */
-	/* TODO fix */
-	return strncmp(arg, "--skb-mode", strlen(arg)) == 0;
-}
-
 void gen_log_name(char *name)
 {
 	time_to_str(time(NULL), name,
@@ -238,7 +231,6 @@ void open_fd(char *name, int *fd)
 
 void init_log_file()
 {
-	/* TODO: replace with char[]? */
 	char *filename = malloc(24 * sizeof(char));
 	if (!filename) {
 		perror("memory allocation failed");
@@ -813,7 +805,7 @@ void inotify_thread_work(void *args)
 	pthread_rwlock_t *lock = ctx->lock;
 
 	/* TODO decide whether we're forcing config dir or allowing user-provided
-	 * directory */
+	 * directory (command-line arugments) */
 	const char *CONFIG_DIR = ctx->config_dir;
 	const char *CONFIG_FILENAME = ctx->config_filename;
 
@@ -876,7 +868,7 @@ void inotify_thread_work(void *args)
 int main(int argc, char *argv[])
 {
 	struct args init_args;
-	const char *CONFIG_DIR = "config"; /* TODO get from arguments instead(?) */
+	const char *CONFIG_DIR = "config";
 	const char *DEFAULT_CONFIG_FILE = "config/default.json";
 
     /* map file descriptors */
@@ -903,7 +895,6 @@ int main(int argc, char *argv[])
 
 	ifindex = if_nametoindex(init_args.interface);
 	if (ifindex == 0) {
-		/* TODO better error message */
         pr_err("error setting up interface %s: %s\n", init_args.interface,
                 strerror(errno));
 		exit(errno);
@@ -995,7 +986,6 @@ int main(int argc, char *argv[])
 	}
 
 	/* set up database */
-	/* TODO rename database to program name */
 	db_conn = connect_db("root", "sheriff_logbook");
 	if (!db_conn) {
 		err = -1;
@@ -1060,15 +1050,14 @@ int main(int argc, char *argv[])
 	 *
 	 * (pass config structure as argument to work function) */
 	inotify_worker_args.config_dir = malloc((strlen(CONFIG_DIR)+1) * sizeof(char));
-	/* TODO error handling */
-	strncpy(inotify_worker_args.config_dir, CONFIG_DIR, strlen(CONFIG_DIR)+1);
-	// inotify_worker_args.config_dir = CONFIG_DIR;
-
 	inotify_worker_args.config_filename = malloc((strlen(init_args.config)+1) * sizeof(char));
-	/* TODO error handling */
-	strncpy(inotify_worker_args.config_filename, init_args.config, strlen(init_args.config)+1);
+    if (!inotify_worker_args.config_dir | !inotify_worker_args.config_filename) {
+        perror("memory allocation failed");
+        exit(errno);
+    }
 
-	// inotify_worker_args.config_filename = init_args.config;
+    strncpy(inotify_worker_args.config_dir, CONFIG_DIR, strlen(CONFIG_DIR)+1);
+	strncpy(inotify_worker_args.config_filename, init_args.config, strlen(init_args.config)+1);
 
 	inotify_worker_args.current_config = &current_config;
 	inotify_worker_args.lock = &config_lock;

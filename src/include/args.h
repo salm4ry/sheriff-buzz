@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
 #include <getopt.h>
@@ -16,6 +17,7 @@
  * }
  */
 static struct option long_opts[] = {
+    {"help", no_argument, 0, 'h'},
 	{"config", required_argument, 0, 'c'},
 	{"bpf-obj", required_argument, 0, 'b'},
 	{"skb-mode", no_argument, 0, 's'},
@@ -51,7 +53,12 @@ void set_default_args(struct args *args)
 
 void print_usage(const char *prog_name)
 {
-	printf("usage: %s -i <interface>\n", prog_name);
+	printf("usage: %s -i <interface> [<args>]\n", prog_name);
+    printf("-i, --interface <name>: name of network interface to attach to\n");
+    printf("-c, --config <filename>: name of config JSON file in ./config\n");
+    printf("-b, --bpf-obj <path>: path to BPF object file\n");
+    printf("-s, --skb-mode: enable SKB mode\n");
+    printf("-d, --dry-run: enable dry run mode\n");
 	/* TODO usage for long + short options */
 	/* TODO add also a -h|--help option
 	 * that prints the usage and exits
@@ -61,7 +68,7 @@ void print_usage(const char *prog_name)
 /**
  * Short options characters (followed by a colon = requires an argument)
  */
-const char *short_opts = "c:si:b:d";
+const char *short_opts = "c:si:b:dh";
 
 void parse_args(int argc, char *argv[], struct args *args)
 {
@@ -71,6 +78,9 @@ void parse_args(int argc, char *argv[], struct args *args)
 
 	while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
 		switch (opt) {
+            case 'h':
+                print_usage(argv[0]);
+                exit(EXIT_SUCCESS);
 			case 'c':
 				/* config file path */
 				args->config = optarg;
@@ -87,14 +97,9 @@ void parse_args(int argc, char *argv[], struct args *args)
 				args->dry_run = true;
 				break;
 			default:
-				/* unrecognised argument */
-				/* print a message about it
-				 * so that the user doesn't
-				 * keep repeating the same syntax
-				 * error
-				 */
+				/* unrecognised argument: print usage and exit */
 				print_usage(argv[0]);
-				exit(1);
+				exit(EXIT_FAILURE);
 		}
 	}
 }

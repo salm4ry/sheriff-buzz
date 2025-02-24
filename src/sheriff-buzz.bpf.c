@@ -12,7 +12,7 @@
 #include "include/patch_header.h"
 
 /* TODO #define all map maximum sizes */
-#define MAX_SUBNET 256
+#define MAX_LIST 256  /* max IP/subnet/port list length */
 #define _XDP_STATE_UNKNOWN -1
 
 /* TODO docstrings */
@@ -35,7 +35,7 @@ struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__type(key, __u32); /* length of IPv4 address */
 	__type(value, __u16);
-	__uint(max_entries, 256);
+	__uint(max_entries, MAX_LIST);
 } ip_list SEC(".maps");
 
 /* array of black/whitelisted subnets */
@@ -43,7 +43,7 @@ struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__type(key, __u32);
 	__type(value, struct bpf_subnet);
-	__uint(max_entries, MAX_SUBNET);
+	__uint(max_entries, MAX_LIST);
 } subnet_list SEC(".maps");
 
 /* hash map of whitelisted ports */
@@ -51,7 +51,7 @@ struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__type(key, __u16);
 	__type(value, __u16);
-	__uint(max_entries, 256);
+	__uint(max_entries, MAX_LIST);
 } port_list SEC(".maps");
 
 /* config (sent from user space */
@@ -310,7 +310,7 @@ int subnet_state(__u32 src_ip)
 		.type = -1
 	};
 
-	bpf_loop(MAX_SUBNET, &subnet_loop_callback, &ctx, 0);
+	bpf_loop(MAX_LIST, &subnet_loop_callback, &ctx, 0);
 	return ctx.type;
 }
 

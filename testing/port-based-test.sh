@@ -18,10 +18,11 @@ HEAD=/usr/bin/head
 NMAP=/usr/bin/nmap
 
 # database query: inner join with alert type to get human-readable names
-CHECK_QUERY="SELECT COUNT(*) FROM log WHERE alert_type = $PORT_SCAN_ALERT;"
-LOG_QUERY="SELECT log.dst_port, log.src_ip, log.packet_count, log.latest,
-	alert_type.description AS alert_type FROM log 
-	INNER JOIN alert_type ON log.alert_type = alert_type.id 
+CHECK_QUERY="SELECT COUNT(*) FROM scan_alerts WHERE alert_type = $PORT_SCAN_ALERT;"
+LOG_QUERY="SELECT scan_alerts.dst_port, scan_alerts.src_ip,
+	scan_alerts.packet_count, scan_alerts.latest,
+	alert_type.description AS alert_type FROM scan_alerts
+	INNER JOIN alert_type ON scan_alerts.alert_type = alert_type.id
 	WHERE alert_type = ${PORT_SCAN_ALERT};"
 
 
@@ -64,7 +65,7 @@ count_alerts() {
 	CHECK_QUERY=$(printf "'%s'" "$CHECK_QUERY")
 	# --csv = CSV format
 	# count is on the last output line
-	run_on_host "psql alerts --csv -c ${CHECK_QUERY}" | tail -1
+	run_on_host "psql ${DB_NAME} --csv -c ${CHECK_QUERY}" | tail -1
 }
 
 printf "%s@%s, port threshold = %s\n" "$USER" "$HOST" "$NUM_PORTS"

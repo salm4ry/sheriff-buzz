@@ -9,7 +9,6 @@
 #include <bpf/bpf_endian.h>
 
 #include "include/bpf_common.h"
-#include "include/patch_header.h"
 
 /* TODO #define all map maximum sizes */
 #define MAX_LIST 256  /* max IP/subnet/port list length */
@@ -119,6 +118,133 @@ struct {
 		;
 #endif
 
+bool in_subnet(__u32 ip, __u32 network_addr, __u32 mask)
+{
+	return (ip & network_addr) == (ip & mask);
+}
+
+__u32 src_addr(struct iphdr *ip_header)
+{
+	return ip_header->saddr;
+}
+
+__always_inline __u8 lookup_protocol(struct xdp_md *ctx)
+{
+	__u8 protocol = 0;
+	void *data = (void *)(long)ctx->data;
+	void *data_end = (void *)(long)ctx->data_end;
+	struct ethhdr *eth = (struct ethhdr *) data;
+
+	/* cast to char (= 1 byte) for correct pointer arithmetic */
+	if ((char *) data + sizeof(struct ethhdr) > (char *) data_end)
+		return 0;
+
+	/* check that it's an IP packet */
+	if (bpf_ntohs(eth->h_proto) == ETH_P_IP) {
+		/* return the protocol of this packet
+		 * 1 = ICMP, 6 = TCP, 17 = UDP */
+		struct iphdr *iph = (struct iphdr *) ((char *) data + sizeof(struct ethhdr));
+		if ((char *) data + sizeof(struct ethhdr) + sizeof(struct iphdr) <= (char *) data_end)
+			protocol = iph->protocol;
+	}
+
+	return protocol;
+}
+
+__always_inline struct iphdr *parse_ip_headers(struct xdp_md *ctx) {
+	struct ethhdr *eth_header = NULL;
+	struct iphdr *ip_header = NULL;
+
+	void *data = (void *) (long) ctx->data;
+	void *data_end = (void *) (long) ctx->data_end;
+
+	if ((char *) data + sizeof(struct ethhdr) + sizeof(struct iphdr)
+			> (char *) data_end) {
+		goto fail;
+	}
+
+	eth_header = (struct ethhdr *) data;
+
+	if (bpf_ntohs(eth_header->h_proto) == ETH_P_IP) {
+		ip_header = (struct iphdr *) ((char *) data + sizeof(struct ethhdr));
+	}
+
+fail:
+	return ip_header;
+}
+
+__always_inline struct tcphdr *parse_tcp_headers(struct xdp_md *ctx) {
+	struct tcphdr *tcph = NULL;
+
+	void *data = (void *) (long) ctx->data;
+	void *data_end = (void *) (long) ctx->data_end;
+
+	if ((char *) data + sizeof(struct ethhdr) + sizeof(struct iphdr)
+			+ sizeof(struct tcphdr) > (char *) data_end)  {
+		goto fail;
+	}
+
+	if (lookup_protocol(ctx) == TCP_PNUM) {
+		tcph = (struct tcphdr *) ((char *) data + sizeof(struct ethhdr)
+				+ sizeof(struct iphdr));
+	}
+
+fail:
+	return tcph;
+}
+
+/* TODO understand */
+__always_inline __u16 fold(__u64 sum)
+{
+	for (int i = 0; i < 4; i++) {
+		if (sum >> 16)
+			sum = (sum & 0xffff) + (sum >> 16);
+	}
+
+	return ~sum;
+}
+
+/**
+ * Set checksum of IP header
+ */
+void ip_checksum(struct iphdr *ip_headers)
+{
+	/* bpf_printk("original checksum = 0x%04x\n", bpf_htons(iph->check)); */
+	ip_headers->check = 0;
+
+	/*
+	 * compute a checksum difference from raw buffer pointed to by from (size
+	 * from_size) towards raw buffer pointed to by to (size to_size) + seed
+	 * (optional)
+	 *
+	 * bpf_csum_diff(__be32 *from, __u32 from_size,
+	 * 				 __be32 *to, __u32 to_size, __wsum seed)
+	 */
+	__u64 sum = bpf_csum_diff(0, 0, (unsigned int *) ip_headers, sizeof(struct iphdr), 0);
+	__u16 csum = fold(sum);
+
+	ip_headers->check = csum;
+
+	/* ihl = Internet Header Length */
+	/* iph->check = calc_checksum((__u16 *)iph, iph->ihl<<2); */
+	/* bpf_printk("calculated checksum = 0x%04x\n", bpf_htons(iph->check)); */
+}
+
+/**
+ * Patch IP header destination IP address and recompute header checksum
+ *
+ * iph: IP header to patch
+ * dst_ip: destination IP to use
+ */
+inline void change_dst_addr(struct iphdr *ip_headers, __be32 dst_ip)
+{
+	ip_headers->daddr = dst_ip;
+	/* bpf_printk("new destination address: %u", iph->daddr); */
+
+	/* set checksum to 0 before calculation */
+	ip_headers->check = 0;
+	ip_checksum(ip_headers);
+}
 
 /**
  * IP user ring buffer callback

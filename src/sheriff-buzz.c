@@ -27,6 +27,8 @@
 #include "include/detect_scan.h"
 #include "include/time_conv.h"
 #include "include/parse_config.h"
+#include "include/packet_data.h"
+#include "include/parse_headers.h"
 #include "include/args.h"
 
 #define XDP_RB_TIMEOUT 100  /* XDP ring buffer poll timeout (ms) */
@@ -259,11 +261,11 @@ void init_config_path(const char *config_dir, char *config_filename, char **conf
 
 void load_config(char *path)
 {
-	cJSON *config_json = json_config(path);
+	cJSON *config_json = json_config(path, LOG);
 	if (!config_json) {
 		log_info(LOG, "no config file at %s\n", path);
 	} else {
-		apply_config(config_json, &current_config, &config_lock);
+		apply_config(config_json, &current_config, &config_lock, LOG);
 	}
 	cJSON_Delete(config_json);
 }
@@ -396,9 +398,9 @@ void report_flag_based_alert(int alert_type, struct key *key, struct value *val,
 
 	if (use_db_thread) {
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-				 alert_type, key, val, dst_port);
+				 alert_type, key, val, dst_port, LOG);
 	} else {
-		db_write_scan_alert(db_conn, alert_type, key, val, NULL, dst_port);
+		db_write_scan_alert(db_conn, alert_type, key, val, NULL, dst_port, LOG);
 	}
 }
 
@@ -412,10 +414,10 @@ void report_port_based_alert(int alert_type, struct key *key, struct value *val,
 
 	if (use_db_thread) {
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-				alert_type, key, val, 0);
+				alert_type, key, val, 0, LOG);
 	} else {
 		range = lookup_port_range(val->ports);
-		db_write_scan_alert(db_conn, alert_type, key, val, range, 0);
+		db_write_scan_alert(db_conn, alert_type, key, val, range, 0, LOG);
 		free(range);
 	}
 }
@@ -535,9 +537,9 @@ void report_blocked_ip(struct key *key, struct value *val, char *ip_str)
 
 	if (use_db_thread) {
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-				0, key, val, 0);
+				0, key, val, 0, LOG);
 	} else {
-		db_write_blocked_ip(db_conn, key, val);
+		db_write_blocked_ip(db_conn, key, val, LOG);
 	}
 }
 
@@ -773,11 +775,11 @@ void handle_inotify_events(int fd, const char *target_filename,
 
 			/* we only care about the config file */
 			if (event->len && strcmp(event->name, target_filename) == 0) {
-				cJSON *config_json = json_config(config_path);
+				cJSON *config_json = json_config(config_path, LOG);
 				if (!config_json) {
 					log_error(LOG, "%s\n", "invalid JSON");
 				} else {
-					apply_config(config_json, current_config, lock);
+					apply_config(config_json, current_config, lock, LOG);
 
 					/* submit config: action, and black/whitelisted IPs */
 					submit_config();
@@ -927,7 +929,7 @@ int main(int argc, char *argv[])
 
     /* load and attach XDP program */
     err = init_xdp_prog(&xdp_obj, init_args.bpf_obj_file, "process_packet",
-            ifindex, xdp_flags);
+            ifindex, xdp_flags, LOG);
 	if (err < 0)
 		goto fail;
 
@@ -941,7 +943,7 @@ int main(int argc, char *argv[])
 	ip_uretprobe_args.uretprobe_obj = &ip_uretprobe_obj;
 	ip_uretprobe_args.filename = init_args.bpf_obj_file;
 	ip_uretprobe_args.bpf_map_fd = ip_list_fd;
-	if (init_uretprobe(&ip_uretprobe_args) <= 0) {
+	if (init_uretprobe(&ip_uretprobe_args, LOG) <= 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
 				init_args.bpf_obj_file);
 		err = -1;
@@ -952,7 +954,7 @@ int main(int argc, char *argv[])
 	subnet_uretprobe_args.uretprobe_obj = &subnet_uretprobe_obj;
 	subnet_uretprobe_args.filename = init_args.bpf_obj_file;
 	subnet_uretprobe_args.bpf_map_fd = subnet_list_fd;
-	if (init_uretprobe(&subnet_uretprobe_args) <= 0) {
+	if (init_uretprobe(&subnet_uretprobe_args, LOG) <= 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
 				init_args.bpf_obj_file);
 		err = -1;
@@ -963,7 +965,7 @@ int main(int argc, char *argv[])
 	port_uretprobe_args.uretprobe_obj = &port_uretprobe_obj;
 	port_uretprobe_args.filename = init_args.bpf_obj_file;
 	port_uretprobe_args.bpf_map_fd = port_list_fd;
-	if (init_uretprobe(&port_uretprobe_args) <= 0) {
+	if (init_uretprobe(&port_uretprobe_args, LOG) <= 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
 				init_args.bpf_obj_file);
 		err = -1;
@@ -978,7 +980,7 @@ int main(int argc, char *argv[])
 	config_uretprobe_args.uretprobe_obj = &config_uretprobe_obj;
 	config_uretprobe_args.filename = init_args.bpf_obj_file;
 	config_uretprobe_args.bpf_map_fd = config_hash_fd;
-	if (init_uretprobe(&config_uretprobe_args) <= 0) {
+	if (init_uretprobe(&config_uretprobe_args, LOG) <= 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
 				init_args.bpf_obj_file);
 		err = -1;
@@ -986,7 +988,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* set up database */
-	db_conn = connect_db("root", "sheriff_logbook");
+	db_conn = connect_db("root", "sheriff_logbook", LOG);
 	if (!db_conn) {
 		err = -1;
 		init_cleanup(err);

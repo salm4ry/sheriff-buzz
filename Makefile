@@ -22,31 +22,34 @@ endif
 
 CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) $(CFLAGS_COMMON) $(CFLAGS_DEBUG)
 
-SRC_DIR = ./src
-INCLUDE_DIR = $(SRC_DIR)/include
+TOP_DIR = $(PWD)/src
+INCLUDE_DIR = $(TOP_DIR)/include
 
 BASE_NAME = sheriff-buzz
 
-USR_TARGET = $(BASE_NAME)
-USR_SRC = $(SRC_DIR)/$(BASE_NAME).c
+TARGET = $(BASE_NAME)
 
-KRN_TARGET = $(SRC_DIR)/$(BASE_NAME).bpf.o
-KRN_SRC = $(SRC_DIR)/$(BASE_NAME).bpf.c
+# TODO fix
+# SRC = $(wildcard $(TOP_DIR)/*.c)
+SRC = $(TOP_DIR)/sheriff-buzz.c $(TOP_DIR)/log.c $(TOP_DIR)/parse_config.c \
+	$(TOP_DIR)/parse_headers.c $(TOP_DIR)/args.c $(TOP_DIR)/bpf_load.c \
+	$(TOP_DIR)/packet_data.c $(TOP_DIR)/detect_scan.c $(TOP_DIR)/time_conv.c
 
-USR_OBJ = $(USR_SRC:.c=.o)
+KTARGET = $(TOP_DIR)/$(BASE_NAME).bpf.o
+KSRC = $(TOP_DIR)/$(BASE_NAME).bpf.c
 
-all: $(KRN_TARGET) $(USR_TARGET)
+all: $(KTARGET) $(TARGET)
 
 # compile and link
 # BPF: generate vmlinux.h then compile BPF object
 # user space: compile program, tracking changes to includes
-$(KRN_TARGET): $(KRN_SRC)
+$(KTARGET): $(KSRC)
 	bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
-	$(CC) $(CFLAGS) -target bpf -c $(KRN_SRC) -o $(KRN_TARGET)
+	$(CC) $(CFLAGS) -target bpf -c $(KSRC) -o $(KTARGET)
 
-$(USR_OBJ): $(INCLUDE_DIR)
-$(USR_TARGET): $(USR_OBJ) $(INCLUDE_DIR)
-	$(CC) $(CFLAGS) $(USR_OBJ) -o $(USR_TARGET) $(LIBS) $(GLIB_LIBS)
+$(TARGET): $(SRC) $(INCLUDE_DIR)
+	$(CC) $(CFLAGS) $(SRC) -o $(TARGET) $(LIBS) $(GLIB_LIBS)
+
 # unload
 .PHONY: unload
 unload:
@@ -56,13 +59,13 @@ unload:
 # run (with default arguments and default route interface)
 .PHONY: run
 run:
-	@ sudo ./$(USR_TARGET) -i $(INTERFACE)
+	@ sudo ./$(TARGET) -i $(INTERFACE)
 
 # clean
 .PHONY: clean
 clean:
-	rm -f $(USR_TARGET)
-	cd $(SRC_DIR) && rm -f *.o
+	rm -f $(TARGET)
+	cd $(TOP_DIR) && rm -f *.o
 
 # get bpf_printk() output (only when compiled in debug mode)
 .PHONY: bpf_debug

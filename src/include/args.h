@@ -26,15 +26,20 @@ struct args {
  * }
  */
 static struct option long_opts[] = {
-    {"help", no_argument, 0, 'h'},
-	{"config", required_argument, 0, 'c'},
-	{"bpf-obj", required_argument, 0, 'b'},
-	{"skb-mode", no_argument, 0, 's'},
-	{"interface", required_argument, 0, 'i'},
-	{"dry-run", no_argument, 0, 'd'},
+    {"help", no_argument, NULL, 'h'},
+	{"config", required_argument, NULL, 'c'},
+	{"bpf-obj", required_argument, NULL, 'b'},
+	{"skb-mode", no_argument, NULL, 's'},
+	{"interface", required_argument, NULL, 'i'},
+	{"dry-run", no_argument, NULL, 'd'},
 	/* terminate with zeroed struct */
-	{0, 0, 0, 0}
+	{NULL, 0, NULL, 0}
 };
+
+/**
+ * Short options characters (followed by a colon = requires an argument)
+ */
+static char *short_opts = "c:si:b:dh";
 
 static struct args default_args = {
 	.config = "default.json",

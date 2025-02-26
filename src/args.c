@@ -28,11 +28,6 @@ void print_usage(const char *prog_name)
 	 */
 }
 
-/**
- * Short options characters (followed by a colon = requires an argument)
- */
-const char *short_opts = "c:si:b:dh";
-
 void parse_args(int argc, char *argv[], struct args *args)
 {
 	int opt = 0, option_index = 0;

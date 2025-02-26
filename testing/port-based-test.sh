@@ -1,17 +1,5 @@
 #!/bin/bash
 
-# TODO improve argument parsing
-HOST=${1:-k0ibian}
-USER=${2:-gamek0i}
-NUM_PORTS=${3:-1000}
-PORT_SCAN_ALERT=4
-
-ROOT_DIR="/home/$USER/sheriff-buzz"
-LOG_DIR="$ROOT_DIR"/log
-DB_NAME="sheriff_logbook"
-CONFIG_PATH="$ROOT_DIR"/config
-CONFIG_FILE=config.json
-
 SSH=/usr/bin/ssh
 LS=/usr/bin/ls
 HEAD=/usr/bin/head
@@ -25,16 +13,56 @@ LOG_QUERY="SELECT scan_alerts.dst_port, scan_alerts.src_ip,
 	INNER JOIN alert_type ON scan_alerts.alert_type = alert_type.id
 	WHERE alert_type = ${PORT_SCAN_ALERT};"
 
+DB_NAME="sheriff_logbook"
+PORT_SCAN_ALERT=4
+# NOTE: have to run sheriff-buzz with -c config.json
+CONFIG_FILE=config.json
+
+# default arguments
+host=k0ibian
+user=gamek0i
+num_ports=1000
+
+print_usage() {
+	echo "usage: $0 [-m machine] [-u username] [-n number of ports]"
+}
+
+while getopts 'hu:m:n:' OPTION
+do
+	case "${OPTION}" in
+		m)
+			host=$OPTARG
+			;;
+		u)
+			user=$OPTARG
+			;;
+		n)
+			num_ports=$OPTARG
+			;;
+		h)
+			print_usage
+			exit 0
+			;;
+		?)
+			print_usage
+			exit 1
+			;;
+	esac
+done
+
+root_dir="/home/$USER/sheriff-buzz"
+log_dir="$root_dir"/log
+config_path="$root_dir"/config
 
 run_on_host() {
 	local SSH_OPTS=-q
-	"${SSH}" "${SSH_OPTS}" "${HOST}" "$@"
+	"${SSH}" "${SSH_OPTS}" "${host}" "$@"
 }
 
 get_log_file () {
 	local LS_OPTS='-1t'
 	local HEAD_OPTS='-1'
-	printf "%s" "$(run_on_host "${LS} ${LS_OPTS} ${LOG_DIR} \
+	printf "%s" "$(run_on_host "${LS} ${LS_OPTS} ${log_dir} \
 		| ${HEAD} ${HEAD_OPTS}")"
 }
 
@@ -45,10 +73,10 @@ nmap_scan() {
 	# NMAP_OPTS+=('-n' '-v0')
 	NMAP_OPTS+=('-n')
 
-	if [[ $NUM_PORTS -le 1000 ]]; then
-		NMAP_OPTS+=('--top-ports' "$NUM_PORTS")
+	if [[ $num_ports -le 1000 ]]; then
+		NMAP_OPTS+=('--top-ports' "$num_ports")
 	else
-		NMAP_OPTS+=('-p' "1-$NUM_PORTS")
+		NMAP_OPTS+=('-p' "1-$num_ports")
 	fi
 
 	NMAP_OPTS+=("$1")
@@ -58,7 +86,7 @@ nmap_scan() {
 }
 
 check_log() {
-	run_on_host "grep -q alert $LOG_DIR/$log"
+	run_on_host "grep -q alert $log_dir/$log"
 }
 
 count_alerts() {
@@ -68,7 +96,7 @@ count_alerts() {
 	run_on_host "psql ${DB_NAME} --csv -c ${CHECK_QUERY}" | tail -1
 }
 
-printf "%s@%s, port threshold = %s\n" "$USER" "$HOST" "$NUM_PORTS"
+printf "%s@%s, port threshold = %s\n" "$user" "$host" "$num_ports"
 
 # set up configuration
 #
@@ -79,16 +107,16 @@ printf "%s@%s, port threshold = %s\n" "$USER" "$HOST" "$NUM_PORTS"
 run_on_host "echo \
 '{
 	\"packet_threshold\": 1,
-	\"port_threshold\": ${NUM_PORTS},
+	\"port_threshold\": ${num_ports},
 	\"alert_threshold\": 10
-}' > ${CONFIG_PATH}/${CONFIG_FILE}"
+}' > ${config_path}/${CONFIG_FILE}"
 
 # initial alert count
 initial_count=$(count_alerts)
 printf "initial alert count: %d\n" "$initial_count"
 
-printf "nmap scan on %s\n" "${HOST}"
-nmap_scan "${HOST}"
+printf "nmap scan on %s\n" "${host}"
+nmap_scan "${host}"
 # TODO timing measurement for how long it took the alert to make it to the log
 # file + database
 
@@ -102,7 +130,7 @@ while true
 do
 	if ! check_log
 	then
-		run_on_host "tail -1 $LOG_DIR/$log"
+		run_on_host "tail -1 $log_dir/$log"
 		sleep 1;
 	else
 		# NOTE log file timing measurement ends here
@@ -113,13 +141,13 @@ done
 
 # save log to temporary file
 tmp_log=$(mktemp -p .)
-run_on_host "cat ${LOG_DIR}/$log" > "${tmp_log}"
+run_on_host "cat ${log_dir}/$log" > "${tmp_log}"
 # only output alert-related lines
 grep -m1 'alert: ' "${tmp_log}"
 # remove temporary file after use
 rm "${tmp_log}"
 
-printf "\nconnecting to %s alert database\n" "${HOST}"
+printf "\nconnecting to %s alert database\n" "${host}"
 
 # wait until alert is in database before printing contents
 # TODO set timeout

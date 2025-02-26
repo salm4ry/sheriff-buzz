@@ -505,13 +505,31 @@ void apply_config(cJSON *config_json, struct config *current_config,
 	/* IP blacklist and whitelist */
 	blacklist_ip = ip_list_json(config_json, "blacklist_ip", LOG);
 	whitelist_ip = ip_list_json(config_json, "whitelist_ip", LOG);
+	if (blacklist_ip) {
+		log_debug(LOG, "config: IP blacklist length = %d\n", blacklist_ip->size);
+	}
+
+	if (whitelist_ip) {
+		log_debug(LOG, "config: IP whitelist length = %d\n", whitelist_ip->size);
+	}
 
 	/* subnet blacklist and whitelist */
 	blacklist_subnet = subnet_list_json(config_json, "blacklist_subnet", LOG);
 	whitelist_subnet = subnet_list_json(config_json, "whitelist_subnet", LOG);
 
+	if (blacklist_subnet) {
+		log_debug(LOG, "config: subnet blacklist length = %d\n", blacklist_subnet->size);
+	}
+
+	if (whitelist_subnet) {
+		log_debug(LOG, "config: subnet blacklist length = %d\n", whitelist_subnet->size);
+	}
+
 	/* port whitelist */
 	whitelist_port = port_list_json(config_json, "whitelist_port", LOG);
+	if (whitelist_port) {
+		log_debug(LOG, "config: port blacklist length = %d\n", whitelist_port->size);
+	}
 
 	pthread_rwlock_wrlock(lock);
 	free_config(current_config);

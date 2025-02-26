@@ -192,7 +192,7 @@ int db_write_scan_alert(PGconn *conn, int alert_type,
 	char ip_str[MAX_IP];
 	char *cmd;
 
-	in_addr_t src_ip = ntohl(key->src_ip);
+	in_addr_t src_ip = key->src_ip;
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
 	switch (alert_type) {
@@ -273,7 +273,7 @@ int db_write_blocked_ip(PGconn *conn, struct key *key, struct value *value,
     char *cmd;
 	char ip_str[MAX_IP];
 
-	in_addr_t src_ip = ntohl(key->src_ip);
+	in_addr_t src_ip = key->src_ip;
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
     cmd = "INSERT INTO blocked_ips (src_ip, time) VALUES ('%s', to_timestamp(%ld))";

@@ -442,8 +442,6 @@ char *procnum_to_str(int protocol)
 }
 
 void ip_to_str(in_addr_t address, char buffer[]) {
-	address = ntohl(address);
-
 	/* NOTE specific to IPv4, would need to add another case (and maximum
 	 * length) for IPv6 addresses (AF_INET6) */
 	inet_ntop(AF_INET, &address, buffer, MAX_ADDR_LEN);
@@ -504,7 +502,7 @@ __attribute__((noinline)) int submit_ip_entry(__u32 src_ip, int type)
 	}
 
 	/* fill out ring buffer sample */
-	e->src_ip = htonl(src_ip);
+	e->src_ip = src_ip;
 	e->type = type;
 
 	/* submit ring buffer event */
@@ -675,7 +673,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 
 	/* extract data from IP and TCP headers */
 	/* source IP address */
-	current_key->src_ip = ntohl(src_addr(&e->ip_header));
+	current_key->src_ip = src_addr(&e->ip_header);
 	ip_to_str(current_key->src_ip, address);
 	/* destination TCP port */
 	dst_port = get_dst_port(&e->tcp_header);

@@ -79,7 +79,7 @@ nmap_scan() {
 '{
 	\"packet_threshold\": 1,
 	\"port_threshold\": 10,
-	\"flag_threshold\": 10
+	\"alert_threshold\": 10
 }' > ${CONFIG_PATH}/${CONFIG_FILE}"
 
 # Xmas scan

@@ -80,7 +80,7 @@ run_on_host "echo \
 '{
 	\"packet_threshold\": 1,
 	\"port_threshold\": ${NUM_PORTS},
-	\"flag_threshold\": 10
+	\"alert_threshold\": 10
 }' > ${CONFIG_PATH}/${CONFIG_FILE}"
 
 # initial alert count

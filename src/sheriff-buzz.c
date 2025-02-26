@@ -697,12 +697,8 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 		}
 	}
 
-#ifdef DEBUG
-	if (dst_port != 22) {
-		log_debug(LOG, "total port count for %s: %d (current port: %d)\n", 
-				address, new_val->total_port_count, dst_port);
-	}
-#endif
+	log_debug(LOG, "current port %d, port count = %d, packet count = %d from %s\n",
+				dst_port, new_val->total_port_count, new_val->total_packet_count, address);
 
 	if (new_val->total_port_count >= port_threshold) {
 		is_alert = true;

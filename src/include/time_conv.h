@@ -4,14 +4,10 @@
 #include <time.h>
 #include <sys/sysinfo.h>
 
-#define NANO .000000001
-#define REV_NANO 1000000000
+/* 1 second = 10^9 nanoseconds */
+#define NS_PER_SEC 1000000000UL
 
-long get_uptime();
-time_t get_boot_time();
 void get_clock_time(struct timespec *time);
-time_t ktime_to_real(unsigned long long ktime);
-
 void time_to_str(time_t time, char *time_string, int size, char *format);
 struct timespec time_diff(struct timespec *start, struct timespec *end);
 void update_total_time(struct timespec *start, struct timespec *end,

@@ -409,7 +409,7 @@ void report_port_based_alert(int alert_type, struct key *key, struct value *val,
 {
 	struct port_range *range;
 
-	log_alert(LOG, "nmap (%d or more ports) detected from %s!\n",
+	log_alert(LOG, "port scan (%d or more ports) detected from %s!\n",
 			port_threshold, ip_str);
 
 	if (use_db_thread) {

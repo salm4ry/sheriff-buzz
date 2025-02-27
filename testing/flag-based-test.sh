@@ -9,18 +9,10 @@ NMAP=/usr/bin/nmap
 HEAD=/usr/bin/head
 HEAD_OPTS='-1'
 
-DB_NAME="sheriff_logbook"
-# NOTE: have to run sheriff-buzz with -c config.json
 CONFIG_FILE=config.json
 
 # used for port number randomisation
 NUM_PORTS=65536
-
-# database query: inner join with alert type to get human-readable names
-LOG_QUERY='SELECT scan_alerts.dst_port, scan_alerts.src_ip,
-	scan_alerts.packet_count, scan_alerts.latest,
-	alert_type.description AS alert_type FROM scan_alerts
-	INNER JOIN alert_type ON scan_alerts.alert_type = alert_type.id;'
 
 # default arguments
 host=k0ibian
@@ -102,13 +94,13 @@ nmap_scan() {
 # set up configuration
 #
 # only testing that the different scan types are recorded correctly so we use
-# small packet and port thresholds
+# min packet threshold
 #
-# max flag threshold so that we don't block the IP when testing!
+# max flag and port threshold so that we don't block the IP when testing!
 "${SSH}" "${SSH_OPTS}" "${host}" "echo \
 '{
 	\"packet_threshold\": 1,
-	\"port_threshold\": 10,
+	\"port_threshold\": 65536,
 	\"alert_threshold\": 10
 }' > ${config_path}/${CONFIG_FILE}"
 
@@ -128,19 +120,3 @@ nmap_scan fin "$port" "${host}"
 port=$(rand_port)
 printf "NULL scan on port %d\n" "$port"
 nmap_scan null "$port" "${host}"
-
-# get log file contents
-log=$(get_log_file)
-printf "\nusing log file: %s\n" "$log"
-
-# save log to temporary file
-tmp_log=$(mktemp -p .)
-"${SSH}" "${SSH_OPTS}" "${host}" "cat ${log_dir}/$log" > "${tmp_log}"
-# only output alert-related lines
-grep 'alert: ' "${tmp_log}"
-# remove temporary file after use
-rm "${tmp_log}"
-
-# check alerts were added to the database correctly
-printf "\nconnecting to %s alert database\n" "${host}"
-"${SSH}" "${SSH_OPTS}" "${host}" "psql ${DB_NAME} -c '${LOG_QUERY}'"

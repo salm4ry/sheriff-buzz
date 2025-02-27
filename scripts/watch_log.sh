@@ -22,7 +22,7 @@ run_on_host() {
 }
 
 # latest = log file current sheriff-buzz instance is using
-# TODO replace with find
+# TODO replace with find(?)
 get_log_file () {
 	local LS_OPTS='-1t'
 	local HEAD_OPTS='-1'

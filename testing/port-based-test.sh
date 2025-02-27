@@ -1,14 +1,11 @@
 #!/bin/bash
 
 SSH=/usr/bin/ssh
-LS=/usr/bin/ls
-HEAD=/usr/bin/head
 NMAP=/usr/bin/nmap
 
-DB_NAME="sheriff_logbook"
-PORT_SCAN_ALERT=4
 # NOTE: have to run sheriff-buzz with -c config.json
-CONFIG_FILE=config.json
+# e.g. ./scripts/run-with-config.sh on $host
+config_file=config.json
 
 # default arguments
 host=k0ibian
@@ -43,19 +40,11 @@ do
 done
 
 root_dir="/home/$user/sheriff-buzz"
-log_dir="$root_dir"/log
 config_path="$root_dir"/config
 
 run_on_host() {
 	local SSH_OPTS=-q
 	"${SSH}" "${SSH_OPTS}" "${host}" "$@"
-}
-
-get_log_file () {
-	local LS_OPTS='-1t'
-	local HEAD_OPTS='-1'
-	printf "%s" "$(run_on_host "${LS} ${LS_OPTS} ${log_dir} \
-		| ${HEAD} ${HEAD_OPTS}")"
 }
 
 nmap_scan() {
@@ -77,18 +66,7 @@ nmap_scan() {
 	"${NMAP}" "${NMAP_OPTS[@]}"
 }
 
-check_log() {
-	run_on_host "grep -q alert $log_dir/$log"
-}
-
-count_alerts() {
-	CHECK_QUERY=$(printf "'%s'" "$CHECK_QUERY")
-	# --csv = CSV format
-	# count is on the last output line
-	run_on_host "psql ${DB_NAME} --csv -c ${CHECK_QUERY}" | tail -1
-}
-
-printf "%s@%s, port threshold = %s\n" "$user" "$host" "$num_ports"
+printf "user = %s, hostname = %s, port threshold = %s\n" "$user" "$host" "$num_ports"
 
 # set up configuration
 #
@@ -101,14 +79,14 @@ run_on_host "echo \
 	\"packet_threshold\": 1,
 	\"port_threshold\": ${num_ports},
 	\"alert_threshold\": 10
-}' > ${config_path}/${CONFIG_FILE}"
+}' > ${config_path}/${config_file}"
 
-while ! run_on_host "grep -q ${num_ports} ${config_path}/${CONFIG_FILE}"
+while ! run_on_host "grep -q ${num_ports} ${config_path}/${config_file}"
 do
 	sleep 1
 done
 
-echo "config updated on disk"
+echo "${config_file} updated on disk"
 
 printf "nmap scan on %s\n" "${host}"
 nmap_scan "${host}"

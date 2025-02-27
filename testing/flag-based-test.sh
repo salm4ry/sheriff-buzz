@@ -3,13 +3,11 @@
 SSH=/usr/bin/ssh
 SSH_OPTS=-q
 
-LS=/usr/bin/ls
 NMAP=/usr/bin/nmap
 
-HEAD=/usr/bin/head
-HEAD_OPTS='-1'
-
-CONFIG_FILE=config.json
+# NOTE: have to run sheriff-buzz with -c config.json
+# e.g. ./scripts/run-with-config.sh on $host
+config_file=config.json
 
 # used for port number randomisation
 NUM_PORTS=65536
@@ -17,7 +15,6 @@ NUM_PORTS=65536
 # default arguments
 host=k0ibian
 user=gamek0i
-
 
 print_usage() {
 	echo "usage: $0 [-m machine] [-u username]"
@@ -45,10 +42,7 @@ done
 
 
 root_dir="/home/$user/sheriff-buzz"
-log_dir="$root_dir"/log
 config_path="$root_dir"/config
-
-# TODO document test script e.g. in README
 
 # generate pseudorandom port numbers for testing
 rand_port () {
@@ -58,16 +52,6 @@ rand_port () {
 run_on_host() {
 	local SSH_OPTS=-q
 	"${SSH}" "${SSH_OPTS}" "${host}" "$@"
-}
-
-
-# get name of latest log file (assumption that the program is already running so
-# has already created a log file)
-get_log_file () {
-	local LS_OPTS='-1t'
-	printf "%s" "$("${SSH}" "${SSH_OPTS}" "${host}" \
-		"${LS} ${LS_OPTS} ${log_dir} \
-		| ${HEAD} ${HEAD_OPTS}")"
 }
 
 nmap_scan() {
@@ -108,16 +92,15 @@ nmap_scan() {
 	\"packet_threshold\": 1,
 	\"port_threshold\": $NUM_PORTS,
 	\"alert_threshold\": 10
-}' > ${config_path}/${CONFIG_FILE}"
+}' > ${config_path}/${config_file}"
 
-while ! run_on_host "grep -q ${NUM_PORTS} ${config_path}/${CONFIG_FILE}"
+while ! run_on_host "grep -q ${NUM_PORTS} ${config_path}/${config_file}"
 do
 	sleep 1
 done
 
-echo "config updated on disk"
-
-printf "%s@%s\n" "${user}" "${host}"
+echo "${config_file} updated on disk"
+printf "user = %s, hostname = %s\n" "$user" "$host"
 
 # Xmas scan
 port=$(rand_port)

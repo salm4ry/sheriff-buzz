@@ -55,6 +55,12 @@ rand_port () {
 	printf "%d" $(( RANDOM % NUM_PORTS ))
 }
 
+run_on_host() {
+	local SSH_OPTS=-q
+	"${SSH}" "${SSH_OPTS}" "${host}" "$@"
+}
+
+
 # get name of latest log file (assumption that the program is already running so
 # has already created a log file)
 get_log_file () {
@@ -100,9 +106,16 @@ nmap_scan() {
 "${SSH}" "${SSH_OPTS}" "${host}" "echo \
 '{
 	\"packet_threshold\": 1,
-	\"port_threshold\": 65536,
+	\"port_threshold\": $NUM_PORTS,
 	\"alert_threshold\": 10
 }' > ${config_path}/${CONFIG_FILE}"
+
+while ! run_on_host "grep -q ${NUM_PORTS} ${config_path}/${CONFIG_FILE}"
+do
+	sleep 1
+done
+
+echo "config updated on disk"
 
 printf "%s@%s\n" "${user}" "${host}"
 

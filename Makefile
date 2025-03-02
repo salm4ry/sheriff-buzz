@@ -29,13 +29,9 @@ BASE_NAME = sheriff-buzz
 target = $(BASE_NAME)
 ktarget = $(top_dir)/$(BASE_NAME).bpf.o
 
-# TODO fix
-# src = $(wildcard $(top_dir)/*.c) doesn't work since we have a .bpf.c file ->
-# move to different directory?
-src = $(top_dir)/sheriff-buzz.c $(top_dir)/log.c $(top_dir)/parse_config.c \
-	$(top_dir)/parse_headers.c $(top_dir)/args.c $(top_dir)/bpf_load.c \
-	$(top_dir)/packet_data.c $(top_dir)/detect_scan.c $(top_dir)/time_conv.c
-
+# user-space source files: all .c (exclude .bpf.c)
+src = $(filter-out $(top_dir)/%.bpf.c, $(wildcard $(top_dir)/*.c))
+# BPF source code: .bpf.c
 ksrc = $(top_dir)/$(BASE_NAME).bpf.c
 
 all: $(ktarget) $(target)

@@ -36,13 +36,11 @@ ksrc = $(top_dir)/$(BASE_NAME).bpf.c
 
 all: $(ktarget) $(target)
 
-# compile and link
-# BPF: generate vmlinux.h then compile BPF object
-# user space: compile program, tracking changes to includes
+# compile BPF object
 $(ktarget): $(ksrc)
-	bpftool btf dump file /sys/kernel/btf/vmlinux format c > vmlinux.h
 	$(CC) $(CFLAGS) -target bpf -c $(ksrc) -o $(ktarget)
 
+# user space: compile program, tracking changes to includes
 $(target): $(src) $(include_dir)
 	$(CC) $(CFLAGS) $(src) -o $(target) $(LIBS) $(GLIB_LIBS)
 

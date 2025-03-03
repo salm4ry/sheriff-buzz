@@ -31,6 +31,7 @@ static struct option long_opts[] = {
 	{"bpf-obj", required_argument, NULL, 'b'},
 	{"skb-mode", no_argument, NULL, 's'},
 	{"interface", required_argument, NULL, 'i'},
+	{"address", required_argument, NULL, 'a'},
 	{"dry-run", no_argument, NULL, 'd'},
 	/* terminate with zeroed struct */
 	{NULL, 0, NULL, 0}
@@ -39,7 +40,7 @@ static struct option long_opts[] = {
 /**
  * Short options characters (followed by a colon = requires an argument)
  */
-static char *short_opts = "c:si:b:dh";
+static char *short_opts = "c:si:b:dha:";
 
 static struct args default_args = {
 	.config = "default.json",
@@ -49,6 +50,7 @@ static struct args default_args = {
 	.dry_run = false
 };
 
+char *addr_to_iface(char *address);
 void set_default_args(struct args *args);
 void print_usage(const char *prog_name);
 void parse_args(int argc, char *argv[], struct args *args);

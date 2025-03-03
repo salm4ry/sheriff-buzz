@@ -890,6 +890,7 @@ int main(int argc, char *argv[])
 	}
 
 	ifindex = if_nametoindex(init_args.interface);
+	free(init_args.interface); /* interface name no longer required */
 	if (ifindex == 0) {
         pr_err("error setting up interface %s: %s\n", init_args.interface,
                 strerror(errno));

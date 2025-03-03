@@ -1,10 +1,67 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdbool.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <errno.h>
+
+#include <ifaddrs.h>
+#include <netdb.h>
 
 #include "include/args.h"
+#include "include/log.h"
+
+/* get interface from address */
+char *addr_to_iface(char *address)
+{
+	struct ifaddrs *current_iface, *ifaces;
+	sa_family_t family;
+	char iface_addr[NI_MAXHOST];
+	int res;
+
+	char *iface_name = NULL;
+
+	if (getifaddrs(&ifaces) == -1) {
+		perror("getifaddrs");
+		exit(errno);
+	}
+
+	/* walk linked list of interfaces */
+	current_iface = ifaces;
+	while (current_iface) {
+		family = current_iface->ifa_addr->sa_family;
+
+		/* only consider IPv4 interfaces */
+		if (family == AF_INET) {
+			res = getnameinfo(current_iface->ifa_addr, sizeof(struct sockaddr_in),
+					iface_addr, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
+			if (res != 0) {
+				pr_err("getnameinfo failed: %s\n", gai_strerror(res));
+				freeifaddrs(ifaces);
+				exit(EXIT_FAILURE);
+			}
+
+			if (strncmp(iface_addr, address, NI_MAXHOST) == 0) {
+				iface_name = malloc((strlen(current_iface->ifa_name)+1) * sizeof(char));
+				if (!iface_name) {
+					perror("memory allocation failed");
+					freeifaddrs(ifaces);
+					exit(errno);
+				}
+
+				/* copy interface name to be retunred */
+				strncpy(iface_name, current_iface->ifa_name, strlen(current_iface->ifa_name)+1);
+				break;
+			}
+		}
+
+		current_iface = current_iface->ifa_next;
+	}
+
+	freeifaddrs(ifaces);
+	return iface_name;
+}
 
 void set_default_args(struct args *args)
 {
@@ -12,20 +69,18 @@ void set_default_args(struct args *args)
 	args->bpf_obj_file = default_args.bpf_obj_file;
 	args->skb_mode = default_args.skb_mode;
 	args->dry_run = default_args.dry_run;
+	args->interface = default_args.interface;
 }
 
 void print_usage(const char *prog_name)
 {
 	printf("usage: %s -i <interface> [<args>]\n", prog_name);
     printf("-i, --interface <name>: name of network interface to attach to\n");
+    printf("-a, --address <address>: address of network interface to attach to\n");
     printf("-c, --config <filename>: name of config JSON file in ./config\n");
     printf("-b, --bpf-obj <path>: path to BPF object file\n");
     printf("-s, --skb-mode: enable SKB mode\n");
     printf("-d, --dry-run: enable dry run mode\n");
-	/* TODO usage for long + short options */
-	/* TODO add also a -h|--help option
-	 * that prints the usage and exits
-	 */
 }
 
 void parse_args(int argc, char *argv[], struct args *args)
@@ -44,9 +99,29 @@ void parse_args(int argc, char *argv[], struct args *args)
 				args->config = optarg;
 				break;
 			case 's':
+				args->skb_mode = true;
 				break;
 			case 'i':
-				args->interface = optarg;
+				/* allocate memory for interface name (if not already obtained
+				 * from -a) */
+				if (!args->interface) {
+					args->interface = malloc((strlen(optarg)+1) * sizeof(char));
+						if (!args->interface) {
+						perror("memory allocation failed");
+						exit(EXIT_FAILURE);
+					}
+
+					/* copy interface name from arguments */
+					strncpy(args->interface, optarg, strlen(optarg)+1);
+					printf("interface: %s\n", args->interface);
+				}
+				break;
+			case 'a':
+				/* get interface for provided address (if not already obtained
+				 * from -i) */
+				if (!args->interface) {
+					args->interface = addr_to_iface(optarg);
+				}
 				break;
 			case 'b':
 				args->bpf_obj_file = optarg;

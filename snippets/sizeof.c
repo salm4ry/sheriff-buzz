@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "../src/include/packet.h"
+#include "../src/include/bpf_common.h"
 
 int main(int argc, char *argv[])
 {

@@ -1083,16 +1083,16 @@ fail:
 	switch (-err) {
 		case EBUSY:
 		case EEXIST:
-			log_error(LOG, "XDP already loaded on device %s\n", argv[1]);
+			log_error(LOG, "XDP already loaded on device %s\n", init_args.interface);
 			break;
 		case ENOMEM:
 		case EOPNOTSUPP:
 			log_error(LOG, "native XDP not supported on device %s, try --skb-mode\n",
-					argv[1]);
+					init_args.interface);
 			break;
 		default:
 			log_error(LOG, "XDP attach on %s failed %d: %s\n",
-				argv[1], err, strerror(-err));
+				init_args.interface, err, strerror(-err));
 			break;
 	}
 

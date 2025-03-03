@@ -74,7 +74,7 @@ void set_default_args(struct args *args)
 
 void print_usage(const char *prog_name)
 {
-	printf("usage: %s -i <interface> [<args>]\n", prog_name);
+	printf("usage: %s -i <interface> | -a <address> [<args>]\n", prog_name);
     printf("-i, --interface <name>: name of network interface to attach to\n");
     printf("-a, --address <address>: address of network interface to attach to\n");
     printf("-c, --config <filename>: name of config JSON file in ./config\n");
@@ -113,7 +113,6 @@ void parse_args(int argc, char *argv[], struct args *args)
 
 					/* copy interface name from arguments */
 					strncpy(args->interface, optarg, strlen(optarg)+1);
-					printf("interface: %s\n", args->interface);
 				}
 				break;
 			case 'a':

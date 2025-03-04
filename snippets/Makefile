@@ -5,7 +5,7 @@ obj = $(src:.c=)
 
 all: $(obj)
 %: %.c
-	$(CC) $(CFLAGS) -o $@ $< -lresolv
+	$(CC) $(CFLAGS) -o $@ $< -lresolv -lpq
 
 
 .PHONY: clean

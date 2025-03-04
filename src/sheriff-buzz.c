@@ -89,6 +89,8 @@ int *common_ports = NULL; /* store top 1000 TCP ports */
 const int NUM_COMMON_PORTS = 1000;
 const int MAX_ADDR_LEN = 16;
 
+struct alert_type types;
+
 bool exiting = false;
 bool use_db_thread = false;
 
@@ -172,6 +174,10 @@ void init_cleanup(int err)
 
 	if (packet_table) {
 		g_hash_table_destroy(packet_table);
+	}
+
+	if (db_conn) {
+		PQfinish(db_conn);
 	}
 
 	/* close log file if open */
@@ -381,26 +387,22 @@ void init_inotify_thread(void *function, struct inotify_thread_args *args)
 void report_flag_based_alert(int alert_type, struct key *key, struct value *val,
 		char *ip_str, int dst_port)
 {
-	switch (alert_type) {
-		case XMAS_SCAN:
-			log_alert(LOG, "nmap Xmas scan detected from %s (port %d)!\n",
-					ip_str, dst_port);
-			break;
-		case FIN_SCAN:
-			log_alert(LOG, "nmap FIN scan detected from %s (port %d)!\n",
-					ip_str, dst_port);
-			break;
-		case NULL_SCAN:
-			log_alert(LOG, "nmap NULL scan detected from %s (port %d)!\n",
-					ip_str, dst_port);
-			break;
+	if (alert_type == types.XMAS_SCAN) {
+		log_alert(LOG, "nmap Xmas scan detected from %s (port %d)!\n",
+				ip_str, dst_port);
+	} else if (alert_type == types.FIN_SCAN) {
+		log_alert(LOG, "nmap FIN scan detected from %s (port %d)!\n",
+				ip_str, dst_port);
+	} else if (alert_type == types.NULL_SCAN) {
+		log_alert(LOG, "nmap NULL scan detected from %s (port %d)!\n",
+				ip_str, dst_port);
 	}
 
 	if (use_db_thread) {
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-				 alert_type, key, val, dst_port, LOG);
+				 alert_type, types, key, val, dst_port, LOG);
 	} else {
-		db_write_scan_alert(db_conn, alert_type, key, val, NULL, dst_port, LOG);
+		db_write_scan_alert(db_conn, alert_type, types, key, val, NULL, dst_port, LOG);
 	}
 }
 
@@ -414,10 +416,10 @@ void report_port_based_alert(int alert_type, struct key *key, struct value *val,
 
 	if (use_db_thread) {
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-				alert_type, key, val, 0, LOG);
+				alert_type, types, key, val, 0, LOG);
 	} else {
 		range = lookup_port_range(val->ports);
-		db_write_scan_alert(db_conn, alert_type, key, val, range, 0, LOG);
+		db_write_scan_alert(db_conn, alert_type, types, key, val, range, 0, LOG);
 		free(range);
 	}
 }
@@ -535,7 +537,7 @@ void report_blocked_ip(struct key *key, struct value *val, char *ip_str)
 
 	if (use_db_thread) {
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-				0, key, val, 0, LOG);
+				ALERT_UNDEFINED, types, key, val, 0, LOG);
 	} else {
 		db_write_blocked_ip(db_conn, key, val, LOG);
 	}
@@ -688,7 +690,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	pthread_rwlock_unlock(&config_lock);
 
 	/* detect flag-based scans */
-	scan_type = flag_based_scan(&e->tcp_header);
+	scan_type = flag_based_scan(&e->tcp_header, types);
 	/* check packet threshold */
 	if (scan_type) {
 		if (new_val->total_packet_count >= packet_threshold) {
@@ -702,7 +704,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 
 	if (new_val->total_port_count >= port_threshold) {
 		is_alert = true;
-		report_port_based_alert(PORT_SCAN, current_key, new_val, address, port_threshold);
+		report_port_based_alert(types.PORT_SCAN, current_key, new_val, address, port_threshold);
 	}
 
 	if (is_alert) {
@@ -985,6 +987,13 @@ int main(int argc, char *argv[])
 	/* set up database */
 	db_conn = connect_db("root", "sheriff_logbook", LOG);
 	if (!db_conn) {
+		err = -1;
+		init_cleanup(err);
+	}
+
+	types = db_read_alert_type(db_conn, LOG);
+	if (!check_alert_type(types)) {
+		log_error(LOG, "alert types not found in database\n");
 		err = -1;
 		init_cleanup(err);
 	}

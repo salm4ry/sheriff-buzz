@@ -169,6 +169,63 @@ void update_entry(GHashTable *table, struct key *key, struct value *val,
 	}
 }
 
+bool description_match(char *desc, const char *target)
+{
+	return strncmp(desc, target, strlen(target)) == 0;
+}
+
+bool check_alert_type(struct alert_type types)
+{
+	/* check alert types are all defined */
+	return (types.XMAS_SCAN != ALERT_UNDEFINED &&
+			types.FIN_SCAN != ALERT_UNDEFINED &&
+			types.NULL_SCAN != ALERT_UNDEFINED &&
+			types.PORT_SCAN != ALERT_UNDEFINED);
+}
+
+struct alert_type db_read_alert_type(PGconn *conn, FILE *LOG)
+{
+	PGresult *res;
+	int err = 0;
+	char *query = "SELECT * from alert_type";
+	struct alert_type types = {
+		ALERT_UNDEFINED,
+		ALERT_UNDEFINED,
+		ALERT_UNDEFINED,
+		ALERT_UNDEFINED
+	};
+
+	const struct alert_descriptions DESCS = {
+		.XMAS_SCAN = "Xmas scan",
+		.FIN_SCAN = "FIN scan",
+		.NULL_SCAN = "NULL scan",
+		.PORT_SCAN = "Port scan"
+	};
+
+	res = PQexec(conn, query);
+	err = (PQresultStatus(res) != PGRES_TUPLES_OK);
+	if (err) {
+		log_error(LOG, "postgres: %s\n", PQerrorMessage(conn));
+	}
+
+	for (int i = 0; i < PQntuples(res); i++) {
+		int id = atoi(PQgetvalue(res, i, 0));  /* ID */
+		char *desc = PQgetvalue(res, i, 1);    /* description */
+
+		if (description_match(desc, DESCS.XMAS_SCAN)) {
+			types.XMAS_SCAN = id;
+		} else if (description_match(desc, DESCS.FIN_SCAN)) {
+			types.FIN_SCAN = id;
+		} else if (description_match(desc, DESCS.NULL_SCAN)) {
+			types.NULL_SCAN = id;
+		} else if (description_match(desc, DESCS.PORT_SCAN)) {
+			types.PORT_SCAN = id;
+		}
+	}
+
+	return types;
+}
+
 /**
  *
  * Log alert to database (upsert)
@@ -182,7 +239,7 @@ void update_entry(GHashTable *table, struct key *key, struct value *val,
  *
  * Return 0 on success, non-zero value on error
  */
-int db_write_scan_alert(PGconn *conn, int alert_type,
+int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
 		struct key *key, struct value *value, struct port_range *range, 
 		int dst_port, FILE *LOG)
 {
@@ -195,8 +252,7 @@ int db_write_scan_alert(PGconn *conn, int alert_type,
 	in_addr_t src_ip = key->src_ip;
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
-	switch (alert_type) {
-		case PORT_SCAN:
+	if (alert_type == types.PORT_SCAN) {
 			/* port-based alert
 			 *
 			 * destination port is a string colon-delimited range
@@ -218,26 +274,24 @@ int db_write_scan_alert(PGconn *conn, int alert_type,
 					port_count, port_range, value->latest,
 					/* only update if packet count and timestamp are newer */
 					value->total_packet_count, value->latest);
-			break;
-		default:
-			/* flag-based scan
-			 *
-			 * destination is a single port
-			 * packet_count = total packet count from src_ip to dst_port
-			 */
-			cmd = "INSERT INTO scan_alerts (dst_port, alert_type, src_ip, packet_count, first, latest) "
-		   		  "VALUES ('%d', %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
-				  "ON CONFLICT (src_ip, dst_port, alert_type) "
-				  "DO UPDATE SET packet_count=%d, latest=to_timestamp(%ld) "
-				  "WHERE %d > scan_alerts.packet_count AND to_timestamp(%ld) > scan_alerts.latest";
+	} else {
+		/* flag-based scan
+		 *
+		 * destination is a single port
+		 * packet_count = total packet count from src_ip to dst_port
+		 */
+		cmd = "INSERT INTO scan_alerts (dst_port, alert_type, src_ip, packet_count, first, latest) "
+	   		  "VALUES ('%d', %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
+			  "ON CONFLICT (src_ip, dst_port, alert_type) "
+			  "DO UPDATE SET packet_count=%d, latest=to_timestamp(%ld) "
+			  "WHERE %d > scan_alerts.packet_count AND to_timestamp(%ld) > scan_alerts.latest";
 
-			snprintf(query, MAX_QUERY, cmd, dst_port, alert_type,
-					ip_str, value->total_packet_count, value->first, value->latest,
-					/* fields to update */
-					value->total_packet_count, value->latest,
-					/* only update if packet count and timestamp are newer */
-					value->total_packet_count, value->latest); 
-					break;
+		snprintf(query, MAX_QUERY, cmd, dst_port, alert_type,
+				ip_str, value->total_packet_count, value->first, value->latest,
+				/* fields to update */
+				value->total_packet_count, value->latest,
+				/* only update if packet count and timestamp are newer */
+				value->total_packet_count, value->latest); 
 	}
 
 
@@ -361,7 +415,7 @@ int queue_full(struct db_task_queue *head)
  * Return 0 on success, 1 on error (queue full)
  */
 int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
-		pthread_cond_t *cond, int alert_type,
+		pthread_cond_t *cond, int alert_type, struct alert_type types,
 		struct key *key, struct value *value, int dst_port,
 		FILE *LOG)
 {
@@ -378,22 +432,19 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 		exit(1);
 	}
 
-	switch (alert_type) {
-		case PORT_SCAN:
-			/* port-based alert: min and max ports */
-			range = lookup_port_range(value->ports);
-			new_task->range = *range;
-			free(range);
-			break;
-		case 0:
-			/* no alert type set */
-			break;
-		default:
-			/* flag-based alert: destination port */
-			new_task->dst_port = dst_port;
+	if (alert_type == types.PORT_SCAN) {
+		/* port-based alert: min and max ports */
+		range = lookup_port_range(value->ports);
+		new_task->range = *range;
+		free(range);
+	} else if (alert_type != ALERT_UNDEFINED) {
+		/* alert type = 0 -> no alert type set
+		 * flag-based alert: set destination port */
+		new_task->dst_port = dst_port;
 	}
 
 	new_task->alert_type = alert_type;
+	new_task->types = types;
 	memcpy(&new_task->key, key, sizeof(struct key));
 
 	/* copy parts of hash table key required for database write */
@@ -445,6 +496,7 @@ void db_thread_work(void *args)
 			/* write alert to database */
 			db_write_scan_alert(db_conn,
 					current->alert_type,
+					current->types,
 					&current->key,
 					&current->value,
 					&current->range,

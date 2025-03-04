@@ -1,36 +1,34 @@
 #ifndef __PACKET_DATA_INTERFACE
 #define __PACKET_DATA_INTERFACE
 
-#include <stdio.h>
 #include <stdbool.h>
-#include <time.h>
-
-/* for ULONG_MAX
-#include <limits.h>
-*/
-
 #include <arpa/inet.h>
-#include <bpf/libbpf.h>
 #include <glib-2.0/glib.h>
 #include <postgresql/libpq-fe.h>
 
 #include <pthread.h>
 #include <sys/queue.h>
 
-/* maximum fingerprint string length */
-#define MAX_FINGERPRINT 13
 #define MAX_QUERY 512
 #define MAX_IP 16
 #define MAX_IP_HEX 8
 #define MAX_PORT_RANGE 12
 
 #define MAX_DB_TASKS 20
+#define ALERT_UNDEFINED -1
 
-enum alert_type {
-	XMAS_SCAN = 1,
-	FIN_SCAN = 2,
-	NULL_SCAN = 3,
-	PORT_SCAN = 4
+struct alert_type {
+	int XMAS_SCAN;
+	int FIN_SCAN;
+	int NULL_SCAN;
+	int PORT_SCAN;
+};
+
+struct alert_descriptions {
+	const char *XMAS_SCAN;
+	const char *FIN_SCAN;
+	const char *NULL_SCAN;
+	const char *PORT_SCAN;
 };
 
 struct packet_count {
@@ -88,6 +86,7 @@ struct db_task_queue;
  */
 struct db_task {
 	int alert_type;
+	struct alert_type types;
 	int dst_port;
 	struct port_range range;
 	struct key key;
@@ -129,7 +128,11 @@ void init_entry(GHashTable *table, struct key *key, struct value *val,
 void update_entry(GHashTable *table, struct key *key, struct value *val,
 		bool flagged);
 
-int db_write_scan_alert(PGconn *conn, int alert_type,
+bool description_match(char *desc, const char *target);
+struct alert_type db_read_alert_type(PGconn *conn, FILE *LOG);
+bool check_alert_type(struct alert_type type);
+
+int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
 		struct key *key, struct value *value, struct port_range *range,
 		int dst_port, FILE *LOG);
 int db_write_blocked_ip(PGconn *conn, struct key *key, struct value *value,
@@ -139,7 +142,7 @@ PGconn *connect_db(char *user, char *dbname, FILE *LOG);
 int queue_size(struct db_task_queue *head);
 int queue_full(struct db_task_queue *head);
 int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
-		pthread_cond_t *cond, int alert_type,
+		pthread_cond_t *cond, int alert_type, struct alert_type types,
 		struct key *key, struct value *value, int dst_port, FILE *LOG);
 
 void db_thread_work(void *args);

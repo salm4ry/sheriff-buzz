@@ -44,16 +44,16 @@ int is_null_scan(struct tcphdr *tcph) {
 	return true;
 }
 
-int flag_based_scan(struct tcphdr *tcp_header)
+int flag_based_scan(struct tcphdr *tcp_header, struct alert_type types)
 {
 	int scan_type = 0;
 
 	if (is_xmas_scan(tcp_header)) {
-		scan_type = XMAS_SCAN;
+		scan_type = types.XMAS_SCAN;
 	} else if (is_fin_scan(tcp_header)) {
-		scan_type = FIN_SCAN;
+		scan_type = types.FIN_SCAN;
 	} else if (is_null_scan(tcp_header)) {
-		scan_type = NULL_SCAN;
+		scan_type = types.NULL_SCAN;
 	}
 
 	return scan_type;

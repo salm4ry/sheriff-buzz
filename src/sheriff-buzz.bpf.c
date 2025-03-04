@@ -436,6 +436,7 @@ int subnet_state(__u32 src_ip)
 		.type = -1
 	};
 
+	/* TODO replace with bpf_for_each_map_elem() */
 	bpf_loop(MAX_LIST, &subnet_loop_callback, &ctx, 0);
 	return ctx.type;
 }

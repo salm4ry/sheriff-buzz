@@ -97,6 +97,7 @@ bool use_db_thread = false;
 /* total time spent in handle_event() */
 unsigned long total_handle_time = 0;
 unsigned long total_packet_count = 0;
+unsigned long total_blocked_ips = 0;
 
 FILE *LOG = NULL;
 int LOG_FD = -1;
@@ -207,8 +208,8 @@ void print_stats(int signum)
 	strncat(fmt, "%ld packets per second\n", MAX_LOG_MSG - (strlen(prefix)+1));
 	*/
 
-	snprintf(buf, MAX_LOG_MSG, "stats: %ld packets per second\n",
-			packet_rate(&total_packet_count, &total_handle_time));
+	snprintf(buf, MAX_LOG_MSG, "stats: %ld packets per second, %ld blocked IPs\n",
+			packet_rate(&total_packet_count, &total_handle_time), total_blocked_ips);
 	write(LOG_FD, buf, strlen(buf));
 }
 
@@ -716,6 +717,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 		/* flag IP if alert threshold reached */
 		if (new_val->alert_count >= alert_threshold) {
 			flagged = true;
+			total_blocked_ips ++;  /* update count for stats */
 			report_blocked_ip(current_key, new_val, address);
 		}
 	}

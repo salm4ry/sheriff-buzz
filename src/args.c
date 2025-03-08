@@ -79,7 +79,7 @@ void print_usage(const char *prog_name)
     printf("-a, --address <address>: address of network interface to attach to\n");
     printf("-c, --config <filename>: name of config JSON file in ./config\n");
     printf("-b, --bpf-obj <path>: path to BPF object file\n");
-    printf("-s, --skb-mode: enable SKB mode\n");
+    printf("-s, --skb-mode: enable SKB mode (use if native XDP not supported)\n");
     printf("-d, --dry-run: enable dry run mode\n");
 }
 

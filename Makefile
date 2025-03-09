@@ -65,3 +65,7 @@ clean:
 .PHONY: bpf_debug
 bpf_debug:
 	sudo cat /sys/kernel/debug/tracing/trace_pipe
+
+.PHONY: bpf_objdump
+bpf_objdump:
+	llvm-objdump -d $(ktarget)

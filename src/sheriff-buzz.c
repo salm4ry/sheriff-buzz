@@ -650,6 +650,7 @@ __attribute__((noinline)) int submit_config()
 int handle_event(void *ctx, void *data, size_t data_sz)
 {
     char address[MAX_ADDR_LEN];
+    __u8 protocol;
 	int dst_port, err;
 	int port_threshold, packet_threshold, alert_threshold, scan_type;
 
@@ -686,8 +687,18 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	/* source IP address */
 	current_key->src_ip = src_addr(&e->ip_header);
 	ip_to_str(current_key->src_ip, address);
-	/* destination TCP port */
-	dst_port = get_dst_port(&e->tcp_header);
+
+    protocol = protocol_num(&e->ip_header);
+    /* get destination port depending on protocol */
+    switch (protocol) {
+        case TCP_PNUM:
+            dst_port = tcp_dst_port(&e->tcp_header);
+            break;
+        case UDP_PNUM:
+            dst_port = udp_dst_port(&e->udp_header);
+            break;
+    }
+
 	/* set up hash table entry */
 	init_entry(packet_table, current_key, new_val, dst_port);
 
@@ -698,19 +709,22 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	alert_threshold = current_config.alert_threshold;
 	pthread_rwlock_unlock(&config_lock);
 
-	/* detect flag-based scans */
-	scan_type = flag_based_scan(&e->tcp_header, types);
-	/* check packet threshold */
-	if (scan_type) {
-		if (new_val->total_packet_count >= packet_threshold) {
-			report_flag_based_alert(scan_type, current_key, new_val, address, dst_port);
-			is_alert = true;
-		}
-	}
+    /* detect flag-based scans (TCP only) */
+    if (protocol == TCP_PNUM) {
+        scan_type = flag_based_scan(&e->tcp_header, types);
+        /* check packet threshold */
+        if (scan_type) {
+            if (new_val->total_packet_count >= packet_threshold) {
+                report_flag_based_alert(scan_type, current_key, new_val, address, dst_port);
+                is_alert = true;
+            }
+        }
+    }
 
 	log_debug(LOG, "local port = %-5d port count = %-5d packet count = %-5d src IP = %s\n",
 				dst_port, new_val->total_port_count, new_val->total_packet_count, address);
 
+    /* detect port-based scans (all packets) */
 	if (new_val->total_port_count >= port_threshold) {
 		is_alert = true;
 		report_port_based_alert(types.PORT_SCAN, current_key, new_val, address, port_threshold);

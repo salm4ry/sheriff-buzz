@@ -5,6 +5,7 @@
 
 #include <linux/ip.h>
 #include <linux/tcp.h>
+#include <linux/udp.h>
 #include <netinet/in.h>
 
 #define NUM_FLAGS 8 /* excluding res1 and doff */
@@ -22,8 +23,10 @@ enum flag_indices {
 };
 
 
+__u8 protocol_num(struct iphdr *ip_header);
 __u32 src_addr(struct iphdr *ip_header);
-bool get_tcp_flag(struct tcphdr *tcph, __be32 flag);
-__u16 get_dst_port(struct tcphdr *tcph);
+bool tcp_flag(struct tcphdr *tcp_header, __be32 flag);
+__u16 tcp_dst_port(struct tcphdr *tcp_header);
+__u16 udp_dst_port(struct udphdr *udp_header);
 
 #endif

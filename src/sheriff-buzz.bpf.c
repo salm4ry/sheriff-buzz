@@ -481,7 +481,7 @@ int dst_port_state(__u16 dst_port)
 	return state;
 }
 
-void submit_headers(struct iphdr *ip_headers, struct tcphdr *tcp_headers)
+void submit_tcp_headers(struct iphdr *ip_headers, struct tcphdr *tcp_headers)
 {
 	struct xdp_rb_event *e;
 
@@ -498,6 +498,29 @@ void submit_headers(struct iphdr *ip_headers, struct tcphdr *tcp_headers)
 	/* fill out ring buffer sample */
 	e->ip_header = *ip_headers;
 	e->tcp_header = *tcp_headers;
+
+	/* submit ring buffer event */
+	bpf_ringbuf_submit(e, 0);
+	}
+}
+
+void submit_udp_headers(struct iphdr *ip_headers, struct udphdr *udp_headers)
+{
+	struct xdp_rb_event *e;
+
+	if (ip_headers && udp_headers) {
+	/* IP not black/whitelisted- send TCP headers to user space */
+
+	/* reserve ring buffer sample */
+	e = bpf_ringbuf_reserve(&xdp_rb, sizeof(*e), 0);
+	if (!e) {
+		bpf_debug("XDP ring buffer allocation failed");
+		return;
+	}
+
+	/* fill out ring buffer sample */
+	e->ip_header = *ip_headers;
+	e->udp_header = *udp_headers;
 
 	/* submit ring buffer event */
 	bpf_ringbuf_submit(e, 0);
@@ -545,33 +568,32 @@ int process_packet(struct xdp_md *ctx)
 
 	protocol_number = lookup_protocol(ctx);
 
-	struct iphdr *ip_headers;
-	struct tcphdr *tcp_headers;
-	struct udphdr *udp_headers;
+	struct iphdr *ip_headers = NULL;
+	struct tcphdr *tcp_headers = NULL;
+	struct udphdr *udp_headers = NULL;
 
 	ip_headers = parse_ip_headers(ctx);
 	if (!ip_headers) {
 		return packet_action;
 	}
 
-
 	struct config_rb_event *current_config = bpf_map_lookup_elem(&config, &CONFIG_INDEX);
 
 	src_ip = src_addr(ip_headers);
 
+    /*
 	switch (protocol_number) {
-		/*
 		case ICMP_PNUM:
-			bpf_debug("ICMP from %ld", src_ip);
+			bpf_debug("ICMP: src IP %ld", src_ip);
 			break;
 		case TCP_PNUM:
-			bpf_debug("TCP from %ld", src_ip);
+			bpf_debug("TCP: src IP %ld", src_ip);
 			break;
-		*/
 		case UDP_PNUM:
-			bpf_debug("UDP from %ld", src_ip);
+			bpf_debug("UDP: src IP %ld", src_ip);
 			break;
 	}
+    */
 
 	packet_action = src_ip_state(src_ip, ip_headers, current_config);
 	if (packet_action != _XDP_STATE_UNKNOWN) {
@@ -604,9 +626,9 @@ int process_packet(struct xdp_md *ctx)
 						/* check whether port is whitelisted */
 						if (tcp_headers) {
 							if (dst_port_state(tcp_headers->dest) == WHITELIST) {
-								bpf_debug("TCP port %d whitelisted", bpf_ntohs(tcp_headers->dest));
+								bpf_debug("TCP port %-5d whitelisted", bpf_ntohs(tcp_headers->dest));
 							} else {
-								submit_headers(ip_headers, tcp_headers);
+								submit_tcp_headers(ip_headers, tcp_headers);
 							}
 			    		}
 						break;
@@ -615,9 +637,9 @@ int process_packet(struct xdp_md *ctx)
 						/* check whether port is whitelisted */
 						if (udp_headers) {
 							if (dst_port_state(udp_headers->dest) == WHITELIST) {
-								bpf_debug("UDP port %d whitelisted", bpf_ntohs(tcp_headers->dest));
+								bpf_debug("UDP port %-5d whitelisted", bpf_ntohs(udp_headers->dest));
 							} else {
-								/* TODO submit UDP headers */
+                                submit_udp_headers(ip_headers, udp_headers);
 							}
 						}
 						break;

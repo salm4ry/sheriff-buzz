@@ -14,25 +14,28 @@ __u32 src_addr(struct iphdr *ip_header)
 	return ip_header->saddr;
 }
 
+__u8 protocol_num(struct iphdr *ip_header)
+{
+    return ip_header->protocol;
+}
+
 /* get flag value 0/1 from TCP headers
  * flag = TCP_FLAG_xxx (defined in <linux/tcp.h) */
-bool get_tcp_flag(struct tcphdr *tcph, __be32 flag)
+bool tcp_flag(struct tcphdr *tcp_header, __be32 flag)
 {
 	__u32 flag_val = 0xdead;
-	flag_val = tcp_flag_word(tcph) & (flag);
+	flag_val = tcp_flag_word(tcp_header) & (flag);
 	return (flag_val == flag);
 }
 
-/* get source port from TCP headers */
-/*
-__u16 get_src_port(struct tcphdr *tcph)
-{
-	return ntohs(tcph->source);
-}
-*/
-
 /* get destination port from TCP headers */
-__u16 get_dst_port(struct tcphdr *tcph)
+__u16 tcp_dst_port(struct tcphdr *tcp_header)
 {
-	return ntohs(tcph->dest);
+	return ntohs(tcp_header->dest);
+}
+
+/* get destination port from UDP headers */
+__u16 udp_dst_port(struct udphdr *udp_header)
+{
+    return ntohs(udp_header->dest);
 }

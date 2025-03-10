@@ -7,6 +7,7 @@
 #include <linux/types.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>
+#include <linux/udp.h>
 #include <linux/bpf.h>
 #include <linux/if_ether.h>
 
@@ -34,13 +35,15 @@ enum ip_types {
 /**
  * XDP ring buffer event
  *
- * iph: packet IP headers
- * tcph: packet TCP headers
+ * ip_header: packet IP headers
+ * tcp_header: packet TCP headers
+ * udp_header: packet TCP headers
  * timestamp: time elapsed since system boot in nanoseconds
  */
 struct xdp_rb_event {
 	struct iphdr ip_header;
 	struct tcphdr tcp_header;
+    struct udphdr udp_header;
 };
 
 /**

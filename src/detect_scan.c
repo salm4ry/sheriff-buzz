@@ -15,13 +15,13 @@
 bool is_fin_scan(struct tcphdr *tcph)
 {
 	/* check if FIN enabled */
-	if (!get_tcp_flag(tcph, TCP_FLAG_FIN)) {
+	if (!tcp_flag(tcph, TCP_FLAG_FIN)) {
 		return false;
 	}
 
 	/* iterate through flag enum */
 	for (int i = SYN; i <= CWR; i++) {
-		if (get_tcp_flag(tcph, i)) {
+		if (tcp_flag(tcph, i)) {
 			return false;
 		}
 	}
@@ -31,13 +31,13 @@ bool is_fin_scan(struct tcphdr *tcph)
 
 /* detect nmap -sX: FIN + PSH + URG */
 int is_xmas_scan(struct tcphdr *tcph) {
-	return (get_tcp_flag(tcph, FIN) && get_tcp_flag(tcph, PSH) && get_tcp_flag(tcph, URG));
+	return (tcp_flag(tcph, FIN) && tcp_flag(tcph, PSH) && tcp_flag(tcph, URG));
 }
 
 /* no flags set */
 int is_null_scan(struct tcphdr *tcph) {
 	for (int i = FIN; i <= CWR; i++) {
-		if (get_tcp_flag(tcph, i)) {
+		if (tcp_flag(tcph, i)) {
 			return false;
 		}
 	}

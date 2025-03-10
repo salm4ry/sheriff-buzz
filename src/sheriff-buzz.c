@@ -725,6 +725,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 				dst_port, new_val->total_port_count, new_val->total_packet_count, address);
 
     /* detect port-based scans (all packets) */
+    /* TODO separate UDP port scan detection */
 	if (new_val->total_port_count >= port_threshold) {
 		is_alert = true;
 		report_port_based_alert(types.PORT_SCAN, current_key, new_val, address, port_threshold);

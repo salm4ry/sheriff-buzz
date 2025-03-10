@@ -105,6 +105,7 @@ int count_entries(GHashTable *table)
 }
 
 /* initialise hash table entry either based on existing entry or new */
+/* TODO separate UDP port counts */
 void init_entry(GHashTable *table, struct key *key, struct value *val, int dst_port)
 {
 	gpointer res = g_hash_table_lookup(table, (gconstpointer) &key->src_ip);

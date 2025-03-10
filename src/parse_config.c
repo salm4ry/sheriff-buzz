@@ -522,13 +522,13 @@ void apply_config(cJSON *config_json, struct config *current_config,
 	}
 
 	if (whitelist_subnet) {
-		log_debug(LOG, "config: subnet blacklist length = %d\n", whitelist_subnet->size);
+		log_debug(LOG, "config: subnet whitelist length = %d\n", whitelist_subnet->size);
 	}
 
 	/* port whitelist */
 	whitelist_port = port_list_json(config_json, "whitelist_port", LOG);
 	if (whitelist_port) {
-		log_debug(LOG, "config: port blacklist length = %d\n", whitelist_port->size);
+		log_debug(LOG, "config: port whitelist length = %d\n", whitelist_port->size);
 	}
 
 	pthread_rwlock_wrlock(lock);

@@ -295,7 +295,7 @@ int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
 	}
 
 
-	log_debug(LOG, "%s\n", query);
+	/* log_debug(LOG, "%s\n", query); */
 
 	db_res = PQexec(conn, query);
 

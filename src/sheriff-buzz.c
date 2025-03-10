@@ -328,7 +328,9 @@ void get_thread_env(bool *use_db_thread) {
 	} else {
 		*use_db_thread = true;
 	}
-	log_debug(LOG, "use database worker thread: %d\n", *use_db_thread);
+
+	if (*use_db_thread)
+		log_debug(LOG, "database worker enabled\n");
 }
 
 
@@ -700,7 +702,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 		}
 	}
 
-	log_debug(LOG, "current port %d, port count = %d, packet count = %d from %s\n",
+	log_debug(LOG, "local port = %-5d port count = %-5d packet count = %-5d src IP = %s\n",
 				dst_port, new_val->total_port_count, new_val->total_packet_count, address);
 
 	if (new_val->total_port_count >= port_threshold) {

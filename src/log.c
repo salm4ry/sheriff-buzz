@@ -44,10 +44,17 @@ void format_msg(char *msg, char *fmt, va_list args)
 
 void log_msg(FILE *file, char *prefix, char *fmt, va_list args)
 {
-    char *msg = malloc(MAX_LOG_MSG * sizeof(char));
-    char *new_fmt = malloc(MAX_LOG_MSG * sizeof(char));
+    char *msg;
+    char *new_fmt;
 
-    if (!msg || !new_fmt) {
+    msg = malloc(MAX_LOG_MSG * sizeof(char));
+    if (!msg) {
+        perror("malloc");
+        exit(errno);
+    }
+
+    new_fmt = malloc(MAX_LOG_MSG * sizeof(char));
+    if (!new_fmt) {
         perror("malloc");
         exit(errno);
     }

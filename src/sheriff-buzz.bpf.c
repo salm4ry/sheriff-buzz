@@ -367,12 +367,12 @@ static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
  * 0: helper continues to next loop
  * 1: helper skips rest of the loops and returns
  */
-static long subnet_loop_callback(__u64 index, void *ctx)
+static long subnet_loop_callback(struct bpf_map *map, const void *key,
+        void *value, void *ctx)
 {
-    struct bpf_subnet *subnet;
+    struct bpf_subnet *subnet = value;
     struct subnet_loop_ctx *loop_ctx = ctx;
 
-    subnet = bpf_map_lookup_elem(&subnet_list, &index);
     if (subnet) {
         if (in_subnet(loop_ctx->src_ip, subnet->network_addr, subnet->mask)) {
             switch (subnet->type) {
@@ -386,11 +386,10 @@ static long subnet_loop_callback(__u64 index, void *ctx)
                     break;
             }
 
-            /* break out of bpf_loop() */
+            /* break out of loop */
             return 1;
         } else {
-            /* IP does not belong to this subnet- continue iterating with
-             * bpf_loop() */
+            /* IP does not belong to this subnet- continue iterating */
             return 0;
         }
     } else {
@@ -462,8 +461,8 @@ int subnet_state(__u32 src_ip)
 		.type = -1
 	};
 
-	/* TODO replace with bpf_for_each_map_elem() */
-	bpf_loop(MAX_LIST, &subnet_loop_callback, &ctx, 0);
+    /* iterate through subnet list */
+    bpf_for_each_map_elem(&subnet_list, &subnet_loop_callback, &ctx, 0);
 	return ctx.type;
 }
 

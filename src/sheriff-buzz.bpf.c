@@ -1,6 +1,8 @@
 #include <linux/bpf.h>
+#include <linux/if_ether.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>
+#include <linux/udp.h>
 #include <asm/types.h>
 
 #include <bpf/bpf_helpers.h>
@@ -9,6 +11,7 @@
 #include <bpf/bpf_endian.h>
 
 #include "include/bpf_common.h"
+#include "sys/cdefs.h"
 
 /* TODO #define all map maximum sizes */
 #define MAX_LIST 256  /* max IP/subnet/port list length */
@@ -151,7 +154,8 @@ __always_inline __u8 lookup_protocol(struct xdp_md *ctx)
 	return protocol;
 }
 
-__always_inline struct iphdr *parse_ip_headers(struct xdp_md *ctx) {
+__always_inline struct iphdr *parse_ip_headers(struct xdp_md *ctx)
+{
 	struct ethhdr *eth_header = NULL;
 	struct iphdr *ip_header = NULL;
 
@@ -173,7 +177,8 @@ fail:
 	return ip_header;
 }
 
-__always_inline struct tcphdr *parse_tcp_headers(struct xdp_md *ctx) {
+__always_inline struct tcphdr *parse_tcp_headers(struct xdp_md *ctx)
+{
 	struct tcphdr *tcph = NULL;
 
 	void *data = (void *) (long) ctx->data;
@@ -191,6 +196,27 @@ __always_inline struct tcphdr *parse_tcp_headers(struct xdp_md *ctx) {
 
 fail:
 	return tcph;
+}
+
+__always_inline struct udphdr *parse_udp_headers(struct xdp_md *ctx)
+{
+	struct udphdr *udph = NULL;
+
+	void *data = (void *) (long) ctx->data;
+	void *data_end = (void *) (long) ctx->data_end;
+
+	if ((char *) data + sizeof(struct ethhdr) + sizeof(struct iphdr)
+			+ sizeof(struct udphdr) > (char *) data_end) {
+		goto fail;
+	}
+
+	if (lookup_protocol(ctx) == UDP_PNUM) {
+		udph = (struct udphdr *) ((char *) data + sizeof(struct ethhdr)
+				+ sizeof(struct iphdr));
+	}
+
+fail:
+	return udph;
 }
 
 /* TODO understand */
@@ -519,25 +545,33 @@ int process_packet(struct xdp_md *ctx)
 
 	protocol_number = lookup_protocol(ctx);
 
-	struct iphdr *ip_headers = parse_ip_headers(ctx);
+	struct iphdr *ip_headers;
+	struct tcphdr *tcp_headers;
+	struct udphdr *udp_headers;
+
+	ip_headers = parse_ip_headers(ctx);
 	if (!ip_headers) {
 		return packet_action;
 	}
+
 
 	struct config_rb_event *current_config = bpf_map_lookup_elem(&config, &CONFIG_INDEX);
 
 	src_ip = src_addr(ip_headers);
 
-	/*
 	switch (protocol_number) {
+		/*
 		case ICMP_PNUM:
 			bpf_debug("ICMP from %ld", src_ip);
 			break;
 		case TCP_PNUM:
 			bpf_debug("TCP from %ld", src_ip);
 			break;
+		*/
+		case UDP_PNUM:
+			bpf_debug("UDP from %ld", src_ip);
+			break;
 	}
-	*/
 
 	packet_action = src_ip_state(src_ip, ip_headers, current_config);
 	if (packet_action != _XDP_STATE_UNKNOWN) {
@@ -564,16 +598,29 @@ int process_packet(struct xdp_md *ctx)
 			default:
 				/* submit IP & TCP headers to ring buffer for user space
 				 * processing (if applicable) */
-				if (protocol_number == TCP_PNUM) {
-					struct tcphdr *tcp_headers = parse_tcp_headers(ctx);
-					/* check whether port is whitelisted */
-					if (tcp_headers) {
-						if (dst_port_state(tcp_headers->dest) == WHITELIST) {
-							bpf_debug("port %d whitelisted", bpf_ntohs(tcp_headers->dest));
-						} else {
-							submit_headers(ip_headers, tcp_headers);
+				switch (protocol_number) {
+					case TCP_PNUM:
+						tcp_headers = parse_tcp_headers(ctx);
+						/* check whether port is whitelisted */
+						if (tcp_headers) {
+							if (dst_port_state(tcp_headers->dest) == WHITELIST) {
+								bpf_debug("TCP port %d whitelisted", bpf_ntohs(tcp_headers->dest));
+							} else {
+								submit_headers(ip_headers, tcp_headers);
+							}
+			    		}
+						break;
+					case UDP_PNUM:
+						udp_headers = parse_udp_headers(ctx);
+						/* check whether port is whitelisted */
+						if (udp_headers) {
+							if (dst_port_state(udp_headers->dest) == WHITELIST) {
+								bpf_debug("UDP port %d whitelisted", bpf_ntohs(tcp_headers->dest));
+							} else {
+								/* TODO submit UDP headers */
+							}
 						}
-			    	}
+						break;
 				}
 				break;
 		}

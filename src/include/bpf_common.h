@@ -20,8 +20,9 @@
  * Shared definitions between user space and BPF program
  */
 
-#define TCP_PNUM 6 /* TCP protocol number */
-#define ICMP_PNUM 1
+#define TCP_PNUM 6   /* TCP protocol number */
+#define UDP_PNUM 17  /* UDP protocol number */
+#define ICMP_PNUM 1  /* ICMP protocol number */
 #define NUM_PORTS 65536
 
 /* TODO change back to 0 and 1/other sensible values */

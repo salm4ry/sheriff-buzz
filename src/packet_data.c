@@ -492,7 +492,7 @@ void db_thread_work(void *args)
 		TAILQ_REMOVE(head, current, entries);
 		pthread_mutex_unlock(task_queue_lock);
 
-		if (current->alert_type) {
+		if (current->alert_type != ALERT_UNDEFINED) {
 			/* write alert to database */
 			db_write_scan_alert(db_conn,
 					current->alert_type,

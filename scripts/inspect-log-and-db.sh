@@ -8,8 +8,11 @@ log_dir="$root_dir"/log
 db_name="sheriff_logbook"
 
 # get 5 most recent alerts
-LOG_QUERY="SELECT * FROM scan_alerts INNER JOIN alert_type 
-	   ON scan_alerts.alert_type = alert_type.id 
+LOG_QUERY="SELECT scan_alerts.dst_port, scan_alerts.src_ip, alert_type.description,
+	   scan_alerts.port_count, scan_alerts.packet_count,
+	   scan_alerts.first, scan_alerts.latest
+	   FROM scan_alerts INNER JOIN alert_type
+	   ON scan_alerts.alert_type = alert_type.id
 	   ORDER BY latest DESC FETCH NEXT 5 ROWS ONLY;"
 
 get_log_file () {

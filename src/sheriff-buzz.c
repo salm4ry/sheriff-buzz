@@ -40,6 +40,7 @@ int ifindex;
 struct bpf_object *xdp_obj, *ip_uretprobe_obj, *subnet_uretprobe_obj, 
 				  *port_uretprobe_obj, *config_uretprobe_obj;
 
+
 struct uretprobe_opts ip_uretprobe_args = {
 	.program_name = "read_ip_rb",
 	.uprobe_func = "submit_ip_entry",
@@ -648,32 +649,37 @@ __attribute__((noinline)) int submit_config()
 /* called for each packet sent through the ring buffer */
 int handle_event(void *ctx, void *data, size_t data_sz)
 {
-	struct xdp_rb_event *e = data;
     char address[MAX_ADDR_LEN];
-	int dst_port;
-	int err;
-
-	struct key *current_key = malloc(sizeof(struct key));
-	struct value *new_val = malloc(sizeof(struct value));
-
-	if (!current_key || !new_val) {
-		perror("memory allocation failed");
-		err = errno;
-		cleanup();
-		exit(err);
-	}
-
-	int port_threshold, packet_threshold, alert_threshold;
-
-	int scan_type;
+	int dst_port, err;
+	int port_threshold, packet_threshold, alert_threshold, scan_type;
 
 	/* did this packet cause an alert? (used to determine whether to check alert
 	 * threshold) */
 	bool is_alert = false;
 	bool flagged = false;  /* did this IP get flagged? */
 
-	/* measure start time */
 	struct timespec start_time, end_time;
+
+	struct xdp_rb_event *e = data;
+	struct key *current_key;
+	struct value *new_val;
+
+	current_key = malloc(sizeof(struct key));
+	if (!current_key) {
+		perror("memory allocation failed");
+		err = errno;
+		cleanup();
+		exit(err);
+	}
+
+	new_val = malloc(sizeof(struct value));
+	if (!new_val) {
+		perror("memory allocation failed");
+		err = errno;
+		cleanup();
+		exit(err);
+	}
+
 	get_clock_time(&start_time);
 
 	/* extract data from IP and TCP headers */
@@ -727,7 +733,6 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	/* update hash table */
 	update_entry(packet_table, current_key, new_val, flagged);
 
-	/* measure end time */
 	get_clock_time(&end_time);
 	update_total_time(&start_time, &end_time, &total_handle_time);
 	/* update total packet count */

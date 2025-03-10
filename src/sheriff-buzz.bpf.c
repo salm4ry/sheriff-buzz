@@ -357,17 +357,19 @@ static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 }
 
 /**
- * bpf_loop() callback for subnet array iteration: check whether the source IP
- * belongs to the subnet with the given index.
+ * bpf_for_each_map_elem() callback for subnet array iteration: check whether
+ * the source IP belongs to the subnet with the given index.
  *
- * index: current loop index (starting from 0)
- * ctx: source IP to check subnet for
+ * map: BPF map we're looping through
+ * key: current key
+ * value: current value
+ * ctx: source IP to check subnet for (and space to store type)
  *
  * return:
  * 0: helper continues to next loop
  * 1: helper skips rest of the loops and returns
  */
-static long subnet_loop_callback(struct bpf_map *map, const void *key,
+static long subnet_loop_callback(void *map, const void *key,
         void *value, void *ctx)
 {
     struct bpf_subnet *subnet = value;

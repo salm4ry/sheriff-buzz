@@ -62,17 +62,18 @@ struct port_range *lookup_port_range(GHashTable *port_counts)
 	return res;
 }
 
-void destroy_port_table(gpointer key, gpointer value, gpointer user_data)
+void destroy_port_tables(gpointer key, gpointer value, gpointer user_data)
 {
 	struct value *val = (struct value *) value;
-	g_hash_table_destroy(val->ports);
+	g_hash_table_destroy(val->tcp_ports);
+	g_hash_table_destroy(val->udp_ports);
 }
 
 
 /* destroy all IP entries' port hash tables */
 void port_table_cleanup(GHashTable *packet_table)
 {
-	g_hash_table_foreach(packet_table, &destroy_port_table, NULL);
+	g_hash_table_foreach(packet_table, &destroy_port_tables, NULL);
 }
 
 /**
@@ -120,10 +121,10 @@ void init_entry(GHashTable *table, struct key *key, struct value *val, int dst_p
 		val->alert_count = current_val->alert_count;
 
 		/* use existing per-port count hash table */
-		val->ports = current_val->ports;
+		val->tcp_ports = current_val->tcp_ports;
 
 		/* look up current port's packet count */
-		port_count_res = g_hash_table_lookup(val->ports, (gconstpointer) &dst_port);
+		port_count_res = g_hash_table_lookup(val->tcp_ports, (gconstpointer) &dst_port);
 		if (port_count_res) {
 			/* increment count */
 			new_port_count = (unsigned long) port_count_res + 1;
@@ -135,7 +136,7 @@ void init_entry(GHashTable *table, struct key *key, struct value *val, int dst_p
 		}
 
 		/* update current port's packet count */
-		g_hash_table_insert(val->ports,
+		g_hash_table_insert(val->tcp_ports,
 			g_memdup2((gconstpointer) &dst_port, sizeof(int)),
 			g_memdup2((gconstpointer) &new_port_count, sizeof(unsigned long)));
 	} else {
@@ -149,7 +150,8 @@ void init_entry(GHashTable *table, struct key *key, struct value *val, int dst_p
 		val->alert_count = 0;
 
 		/* create new per-port count hash table */
-		val->ports = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, g_free);
+		val->tcp_ports = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, g_free);
+		val->tcp_ports = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, g_free);
 	}
 }
 
@@ -159,7 +161,8 @@ void update_entry(GHashTable *table, struct key *key, struct value *val,
 	if (flagged) {
 		/* flagged: destroy IP's port hash table and remove IP entry from
 		 * packet hash table */
-          g_hash_table_destroy(val->ports);
+          g_hash_table_destroy(val->tcp_ports);
+          g_hash_table_destroy(val->udp_ports);
           g_hash_table_remove(table, (gconstpointer)&key->src_ip);
 	} else {
 		/* insert/update entry */
@@ -434,7 +437,7 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 
 	if (alert_type == types.PORT_SCAN) {
 		/* port-based alert: min and max ports */
-		range = lookup_port_range(value->ports);
+		range = lookup_port_range(value->tcp_ports);
 		new_task->range = *range;
 		free(range);
 	} else if (alert_type != ALERT_UNDEFINED) {

@@ -422,7 +422,7 @@ void report_port_based_alert(int alert_type, struct key *key, struct value *val,
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 				alert_type, types, key, val, 0, LOG);
 	} else {
-		range = lookup_port_range(val->ports);
+		range = lookup_port_range(val->tcp_ports);
 		db_write_scan_alert(db_conn, alert_type, types, key, val, range, 0, LOG);
 		free(range);
 	}

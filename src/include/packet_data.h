@@ -62,7 +62,8 @@ struct value {
 	int total_port_count;
 	unsigned long total_packet_count;
 	int alert_count;
-	GHashTable *ports;
+	GHashTable *tcp_ports;
+    GHashTable *udp_ports;
 };
 
 /* port range for writing port-based alerts to the database */
@@ -116,7 +117,7 @@ struct db_thread_args {
 void min_max_port(gpointer key, gpointer value, gpointer user_data);
 struct port_range *lookup_port_range(GHashTable *port_counts);
 
-void destroy_port_table(gpointer key, gpointer value, gpointer user_data);
+void destroy_port_tables(gpointer key, gpointer value, gpointer user_data);
 void port_table_cleanup(GHashTable *packet_table);
 
 void update_entry_count(gpointer key, gpointer value, gpointer user_data);

@@ -700,7 +700,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
     }
 
 	/* set up hash table entry */
-	init_entry(packet_table, current_key, new_val, dst_port);
+	init_entry(packet_table, current_key, new_val, dst_port, protocol);
 
 	/* read packet and port thresholds from config file */
 	pthread_rwlock_rdlock(&config_lock);
@@ -725,7 +725,6 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 				dst_port, new_val->total_port_count, new_val->total_packet_count, address);
 
     /* detect port-based scans (all packets) */
-    /* TODO separate UDP port scan detection */
 	if (new_val->total_port_count >= port_threshold) {
 		is_alert = true;
 		report_port_based_alert(types.PORT_SCAN, current_key, new_val, address, port_threshold);

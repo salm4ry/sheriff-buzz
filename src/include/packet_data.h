@@ -124,7 +124,7 @@ void update_entry_count(gpointer key, gpointer value, gpointer user_data);
 int count_entries(GHashTable *table);
 
 void init_entry(GHashTable *table, struct key *key, struct value *val,
-		int dst_port);
+		int dst_port, int protocol);
 
 void update_entry(GHashTable *table, struct key *key, struct value *val,
 		bool flagged);

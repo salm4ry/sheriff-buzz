@@ -18,6 +18,7 @@
 
 #include "include/packet_data.h"
 #include "include/log.h"
+#include "include/bpf_common.h"
 
 /* maximum fingerprint string length */
 #define MAX_FINGERPRINT 13
@@ -106,7 +107,8 @@ int count_entries(GHashTable *table)
 
 /* initialise hash table entry either based on existing entry or new */
 /* TODO separate UDP port counts */
-void init_entry(GHashTable *table, struct key *key, struct value *val, int dst_port)
+void init_entry(GHashTable *table, struct key *key, struct value *val,
+		int dst_port, int protocol)
 {
 	gpointer res = g_hash_table_lookup(table, (gconstpointer) &key->src_ip);
 	if (res) {
@@ -125,21 +127,38 @@ void init_entry(GHashTable *table, struct key *key, struct value *val, int dst_p
 		val->tcp_ports = current_val->tcp_ports;
 
 		/* look up current port's packet count */
-		port_count_res = g_hash_table_lookup(val->tcp_ports, (gconstpointer) &dst_port);
+		switch (protocol) {
+			case TCP_PNUM:
+				port_count_res = g_hash_table_lookup(val->tcp_ports, (gconstpointer) &dst_port);
+				break;
+			case UDP_PNUM:
+				port_count_res = g_hash_table_lookup(val->udp_ports, (gconstpointer) &dst_port);
+				break;
+		}
+
 		if (port_count_res) {
-			/* increment count */
+			/* increment port count */
 			new_port_count = (unsigned long) port_count_res + 1;
 		} else {
-			/* no packets sent to this port before: set count to 1 and
-			 * increment total port count */
+			/* no packets sent to this port before: set count to 1 and increment
+			 * total port count */
 			new_port_count = 1;
 			val->total_port_count++;
 		}
 
 		/* update current port's packet count */
-		g_hash_table_insert(val->tcp_ports,
-			g_memdup2((gconstpointer) &dst_port, sizeof(int)),
-			g_memdup2((gconstpointer) &new_port_count, sizeof(unsigned long)));
+		switch (protocol) {
+			case TCP_PNUM:
+				g_hash_table_insert(val->tcp_ports,
+					g_memdup2((gconstpointer) &dst_port, sizeof(int)),
+					g_memdup2((gconstpointer) &new_port_count, sizeof(unsigned long)));
+				break;
+			case UDP_PNUM:
+				g_hash_table_insert(val->udp_ports,
+					g_memdup2((gconstpointer) &dst_port, sizeof(int)),
+					g_memdup2((gconstpointer) &new_port_count, sizeof(unsigned long)));
+				break;
+		}
 	} else {
 		/* set up new entry */
 		val->first = time(NULL);
@@ -152,7 +171,7 @@ void init_entry(GHashTable *table, struct key *key, struct value *val, int dst_p
 
 		/* create new per-port count hash table */
 		val->tcp_ports = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, g_free);
-		val->tcp_ports = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, g_free);
+		val->udp_ports = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, g_free);
 	}
 }
 
@@ -160,7 +179,7 @@ void update_entry(GHashTable *table, struct key *key, struct value *val,
 		bool flagged)
 {
 	if (flagged) {
-		/* flagged: destroy IP's port hash table and remove IP entry from
+		/* flagged: destroy IP's port hash tables and remove IP entry from
 		 * packet hash table */
           g_hash_table_destroy(val->tcp_ports);
           g_hash_table_destroy(val->udp_ports);
@@ -271,6 +290,7 @@ int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
 			char port_range[MAX_PORT_RANGE];
 			int port_count = value->total_port_count;
 
+			/* TODO UDP port range */
 			snprintf(port_range, MAX_PORT_RANGE, "%d:%d", range->min, range->max);
 			snprintf(query, MAX_QUERY, cmd, port_range, alert_type, ip_str,
 					port_count, value->total_packet_count, value->first, value->latest,

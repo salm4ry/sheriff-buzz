@@ -422,7 +422,7 @@ void report_port_based_alert(int alert_type, struct key *key, struct value *val,
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 				alert_type, types, key, val, 0, LOG);
 	} else {
-		range = lookup_port_range(val->tcp_ports);
+		range = lookup_port_range(val);
 		db_write_scan_alert(db_conn, alert_type, types, key, val, range, 0, LOG);
 		free(range);
 	}
@@ -541,7 +541,7 @@ void report_blocked_ip(struct key *key, struct value *val, char *ip_str)
 
 	if (use_db_thread) {
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-				ALERT_UNDEFINED, types, key, val, 0, LOG);
+				UNDEFINED, types, key, val, UNDEFINED, LOG);
 	} else {
 		db_write_blocked_ip(db_conn, key, val, LOG);
 	}

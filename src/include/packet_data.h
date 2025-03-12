@@ -15,7 +15,11 @@
 #define MAX_PORT_RANGE 12
 
 #define MAX_DB_TASKS 20
-#define ALERT_UNDEFINED -1
+#define UNDEFINED -1
+
+/* impossible port numbers used for min/max calculation */
+#define INIT_MAX_PORT -1
+#define INIT_MIN_PORT 65536
 
 struct alert_type {
 	int XMAS_SCAN;
@@ -68,8 +72,15 @@ struct value {
 
 /* port range for writing port-based alerts to the database */
 struct port_range {
-	int min;
-	int max;
+	int min_tcp;
+	int max_tcp;
+	int min_udp;
+	int max_udp;
+};
+
+struct port_lookup_ctx {
+	struct port_range *range;
+	int protocol;
 };
 
 struct db_task_queue;
@@ -115,10 +126,15 @@ struct db_thread_args {
 };
 
 void min_max_port(gpointer key, gpointer value, gpointer user_data);
-struct port_range *lookup_port_range(GHashTable *port_counts);
+struct port_range *lookup_port_range(struct value *val);
+void format_port_range(char *buf, int min, int max);
 
 void destroy_port_tables(gpointer key, gpointer value, gpointer user_data);
 void port_table_cleanup(GHashTable *packet_table);
+
+gpointer lookup_packet_count(struct value *val, int dst_port, int protocol);
+void update_packet_count(struct value *val, int dst_port, int new_count,
+		int protocol);
 
 void update_entry_count(gpointer key, gpointer value, gpointer user_data);
 int count_entries(GHashTable *table);

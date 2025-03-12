@@ -20,47 +20,78 @@
 #include "include/log.h"
 #include "include/bpf_common.h"
 
-/* maximum fingerprint string length */
-#define MAX_FINGERPRINT 13
-#define MAX_QUERY 512
-#define MAX_IP 16
-#define MAX_IP_HEX 8
-#define MAX_PORT_RANGE 12
-
-#define MAX_DB_TASKS 20
-
 struct db_task_queue;
 
 void min_max_port(gpointer key, gpointer value, gpointer user_data)
 {
-	struct port_range *range = (struct port_range *) user_data;
 	int *port = (int *) key;
+	struct port_lookup_ctx *ctx = (struct port_lookup_ctx *) user_data;
+	struct port_range *range = ctx->range;
 
 	/* update min and max according to key */
-	if (*port > range->max) {
-		range->max = *port;
-	}
 
-	if (*port < range->min) {
-		range->min = *port;
+	switch (ctx->protocol) {
+		case TCP_PNUM:
+			if (*port > range->max_tcp)
+				range->max_tcp = *port;
+			if (*port < range->min_tcp)
+				range->min_tcp = *port;
+			break;
+		case UDP_PNUM:
+			if (*port > range->max_udp)
+				range->max_udp = *port;
+			if (*port < range->min_udp)
+				range->min_udp = *port;
+			break;
 	}
 }
 
 /* get min and max port from port count hash table */
-struct port_range *lookup_port_range(GHashTable *port_counts)
+struct port_range *lookup_port_range(struct value *val)
 {
-	struct port_range *res = malloc(sizeof(struct port_range));
+	struct port_range *res;
+	struct port_lookup_ctx *ctx;
+
+	ctx = malloc(sizeof(struct port_lookup_ctx));
+	if (!ctx) {
+		perror("memory allocation failed");
+		exit(errno);
+	}
+
+	res = malloc(sizeof(struct port_range));
 	if (!res) {
 		perror("memory allocation failed");
 		exit(errno);
 	}
 
-	res->min = 65535;
-	res->max = 0;
+	res->min_tcp = INIT_MIN_PORT;
+	res->max_tcp = INIT_MAX_PORT;
 
-	g_hash_table_foreach(port_counts, &min_max_port, (gpointer) res);
+	res->min_udp = INIT_MIN_PORT;
+	res->max_udp = INIT_MAX_PORT;
 
+	ctx->range = res;
+	ctx->protocol = TCP_PNUM;
+	g_hash_table_foreach(val->tcp_ports, &min_max_port, (gpointer) ctx);
+
+	ctx->protocol = UDP_PNUM;
+	g_hash_table_foreach(val->udp_ports, &min_max_port, (gpointer) ctx);
+
+	free(ctx);
 	return res;
+}
+
+void format_port_range(char *buf, int min, int max)
+{
+	if (min == INIT_MIN_PORT && max == INIT_MAX_PORT) {
+		/* no ports found */
+		snprintf(buf, MAX_PORT_RANGE, "");
+	} else {
+		if (min == max)
+			snprintf(buf, MAX_PORT_RANGE, "%d", min);
+		else
+			snprintf(buf, MAX_PORT_RANGE, "%d:%d", min, max);
+	}
 }
 
 void destroy_port_tables(gpointer key, gpointer value, gpointer user_data)
@@ -105,8 +136,42 @@ int count_entries(GHashTable *table)
     return count;
 }
 
+/* get dst_port's packet count */
+gpointer lookup_packet_count(struct value *val, int dst_port, int protocol)
+{
+	gpointer res;
+
+	switch (protocol) {
+		case TCP_PNUM:
+			res = g_hash_table_lookup(val->tcp_ports, (gconstpointer) &dst_port);
+			break;
+		case UDP_PNUM:
+			res = g_hash_table_lookup(val->udp_ports, (gconstpointer) &dst_port);
+			break;
+	}
+
+	return res;
+}
+
+/* update dst_port's packet count */
+void update_packet_count(struct value *val, int dst_port, int new_count,
+		int protocol)
+{
+	switch (protocol) {
+		case TCP_PNUM:
+			g_hash_table_insert(val->tcp_ports,
+				g_memdup2((gconstpointer) &dst_port, sizeof(int)),
+				g_memdup2((gconstpointer) &new_count, sizeof(unsigned long)));
+			break;
+		case UDP_PNUM:
+			g_hash_table_insert(val->udp_ports,
+				g_memdup2((gconstpointer) &dst_port, sizeof(int)),
+				g_memdup2((gconstpointer) &new_count, sizeof(unsigned long)));
+			break;
+	}
+}
+
 /* initialise hash table entry either based on existing entry or new */
-/* TODO separate UDP port counts */
 void init_entry(GHashTable *table, struct key *key, struct value *val,
 		int dst_port, int protocol)
 {
@@ -127,14 +192,7 @@ void init_entry(GHashTable *table, struct key *key, struct value *val,
 		val->tcp_ports = current_val->tcp_ports;
 
 		/* look up current port's packet count */
-		switch (protocol) {
-			case TCP_PNUM:
-				port_count_res = g_hash_table_lookup(val->tcp_ports, (gconstpointer) &dst_port);
-				break;
-			case UDP_PNUM:
-				port_count_res = g_hash_table_lookup(val->udp_ports, (gconstpointer) &dst_port);
-				break;
-		}
+		port_count_res = lookup_packet_count(val, dst_port, protocol);
 
 		if (port_count_res) {
 			/* increment port count */
@@ -147,18 +205,7 @@ void init_entry(GHashTable *table, struct key *key, struct value *val,
 		}
 
 		/* update current port's packet count */
-		switch (protocol) {
-			case TCP_PNUM:
-				g_hash_table_insert(val->tcp_ports,
-					g_memdup2((gconstpointer) &dst_port, sizeof(int)),
-					g_memdup2((gconstpointer) &new_port_count, sizeof(unsigned long)));
-				break;
-			case UDP_PNUM:
-				g_hash_table_insert(val->udp_ports,
-					g_memdup2((gconstpointer) &dst_port, sizeof(int)),
-					g_memdup2((gconstpointer) &new_port_count, sizeof(unsigned long)));
-				break;
-		}
+		update_packet_count(val, dst_port, new_port_count, protocol);
 	} else {
 		/* set up new entry */
 		val->first = time(NULL);
@@ -200,10 +247,10 @@ bool description_match(char *desc, const char *target)
 bool check_alert_type(struct alert_type types)
 {
 	/* check alert types are all defined */
-	return (types.XMAS_SCAN != ALERT_UNDEFINED &&
-			types.FIN_SCAN != ALERT_UNDEFINED &&
-			types.NULL_SCAN != ALERT_UNDEFINED &&
-			types.PORT_SCAN != ALERT_UNDEFINED);
+	return (types.XMAS_SCAN != UNDEFINED &&
+			types.FIN_SCAN != UNDEFINED &&
+			types.NULL_SCAN != UNDEFINED &&
+			types.PORT_SCAN != UNDEFINED);
 }
 
 struct alert_type db_read_alert_type(PGconn *conn, FILE *LOG)
@@ -212,10 +259,10 @@ struct alert_type db_read_alert_type(PGconn *conn, FILE *LOG)
 	int err = 0;
 	char *query = "SELECT * from alert_type";
 	struct alert_type types = {
-		ALERT_UNDEFINED,
-		ALERT_UNDEFINED,
-		ALERT_UNDEFINED,
-		ALERT_UNDEFINED
+		UNDEFINED,
+		UNDEFINED,
+		UNDEFINED,
+		UNDEFINED
 	};
 
 	const struct alert_descriptions DESCS = {
@@ -263,7 +310,7 @@ struct alert_type db_read_alert_type(PGconn *conn, FILE *LOG)
  * Return 0 on success, non-zero value on error
  */
 int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
-		struct key *key, struct value *value, struct port_range *range, 
+		struct key *key, struct value *value, struct port_range *range,
 		int dst_port, FILE *LOG)
 {
 	PGresult *db_res;
@@ -281,21 +328,22 @@ int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
 			 * destination port is a string colon-delimited range
 			 * packet_count = total packet count from src_ip
 			 */
-			cmd = "INSERT INTO scan_alerts (dst_port, alert_type, src_ip, port_count, packet_count, first, latest) "
-				  "VALUES ('%s', %d, '%s', %d, %d, to_timestamp(%ld), to_timestamp(%ld)) "
-				  "ON CONFLICT (src_ip, dst_port, alert_type) "
-				  "DO UPDATE SET port_count=%d, dst_port='%s', latest=to_timestamp(%ld) "
+			cmd = "INSERT INTO scan_alerts (dst_tcp_port, dst_udp_port, alert_type, src_ip, port_count, packet_count, first, latest) "
+				  "VALUES ('%s', '%s', %d, '%s', %d, %d, to_timestamp(%ld), to_timestamp(%ld)) "
+				  "ON CONFLICT (src_ip, dst_tcp_port, dst_udp_port, alert_type) "
+				  "DO UPDATE SET port_count=%d, dst_tcp_port='%s', dst_udp_port='%s', latest=to_timestamp(%ld) "
 				  "WHERE %d > scan_alerts.packet_count AND to_timestamp(%ld) > scan_alerts.latest";
 
-			char port_range[MAX_PORT_RANGE];
+			char tcp_port_range[MAX_PORT_RANGE], udp_port_range[MAX_PORT_RANGE];
 			int port_count = value->total_port_count;
 
-			/* TODO UDP port range */
-			snprintf(port_range, MAX_PORT_RANGE, "%d:%d", range->min, range->max);
-			snprintf(query, MAX_QUERY, cmd, port_range, alert_type, ip_str,
+			format_port_range(tcp_port_range, range->min_tcp, range->max_tcp);
+			format_port_range(udp_port_range, range->min_udp, range->max_udp);
+
+			snprintf(query, MAX_QUERY, cmd, tcp_port_range, udp_port_range, alert_type, ip_str,
 					port_count, value->total_packet_count, value->first, value->latest,
 					/* fields to update */
-					port_count, port_range, value->latest,
+					port_count, tcp_port_range, udp_port_range, value->latest,
 					/* only update if packet count and timestamp are newer */
 					value->total_packet_count, value->latest);
 	} else {
@@ -304,9 +352,9 @@ int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
 		 * destination is a single port
 		 * packet_count = total packet count from src_ip to dst_port
 		 */
-		cmd = "INSERT INTO scan_alerts (dst_port, alert_type, src_ip, packet_count, first, latest) "
-	   		  "VALUES ('%d', %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
-			  "ON CONFLICT (src_ip, dst_port, alert_type) "
+		cmd = "INSERT INTO scan_alerts (dst_tcp_port, dst_udp_port, alert_type, src_ip, packet_count, first, latest) "
+			  "VALUES ('%d', '', %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
+			  "ON CONFLICT (src_ip, dst_tcp_port, dst_udp_port, alert_type) "
 			  "DO UPDATE SET packet_count=%d, latest=to_timestamp(%ld) "
 			  "WHERE %d > scan_alerts.packet_count AND to_timestamp(%ld) > scan_alerts.latest";
 
@@ -315,7 +363,7 @@ int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
 				/* fields to update */
 				value->total_packet_count, value->latest,
 				/* only update if packet count and timestamp are newer */
-				value->total_packet_count, value->latest); 
+				value->total_packet_count, value->latest);
 	}
 
 
@@ -440,8 +488,7 @@ int queue_full(struct db_task_queue *head)
  */
 int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 		pthread_cond_t *cond, int alert_type, struct alert_type types,
-		struct key *key, struct value *value, int dst_port,
-		FILE *LOG)
+		struct key *key, struct value *value, int dst_port, FILE *LOG)
 {
 	struct db_task *new_task;
 	struct port_range *range;
@@ -458,10 +505,10 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 
 	if (alert_type == types.PORT_SCAN) {
 		/* port-based alert: min and max ports */
-		range = lookup_port_range(value->tcp_ports);
+		range = lookup_port_range(value);
 		new_task->range = *range;
 		free(range);
-	} else if (alert_type != ALERT_UNDEFINED) {
+	} else if (alert_type != UNDEFINED) {
 		/* alert type = 0 -> no alert type set
 		 * flag-based alert: set destination port */
 		new_task->dst_port = dst_port;
@@ -516,7 +563,7 @@ void db_thread_work(void *args)
 		TAILQ_REMOVE(head, current, entries);
 		pthread_mutex_unlock(task_queue_lock);
 
-		if (current->alert_type != ALERT_UNDEFINED) {
+		if (current->alert_type != UNDEFINED) {
 			/* write alert to database */
 			db_write_scan_alert(db_conn,
 					current->alert_type,

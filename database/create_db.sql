@@ -6,7 +6,6 @@ Prerequisites:
 Run from inside psql using \i alert_database.sql
 */
 
--- TODO is this the final name?
 CREATE DATABASE sheriff_logbook;
 
 -- ensure owner set to root
@@ -28,7 +27,8 @@ CREATE TABLE alert_type(
 -- alert log
 CREATE TABLE scan_alerts(
 	id SERIAL PRIMARY KEY,
-	dst_port VARCHAR(11), -- either single port or lowest:highest (max length 11) depending on scan type
+	dst_tcp_port VARCHAR(11), -- either single port or lowest:highest (max length 11) depending on scan type
+	dst_udp_port VARCHAR(11), -- either single port or lowest:highest (max length 11) depending on scan type
 	alert_type INTEGER,
 	src_ip INET,
 	packet_count INTEGER,
@@ -51,7 +51,7 @@ ALTER TABLE IF EXISTS scan_alerts
 		ON DELETE CASCADE;
 
 -- index for update conflict detection
-CREATE UNIQUE INDEX ON scan_alerts(src_ip, dst_port, alert_type);
+CREATE UNIQUE INDEX ON scan_alerts(src_ip, dst_tcp_port, dst_udp_port, alert_type);
 
 -- set up alert types
 -- flag-based scans

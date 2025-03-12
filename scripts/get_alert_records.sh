@@ -1,6 +1,7 @@
 #!/bin/bash
 
-QUERY="SELECT scan_alerts.dst_port, scan_alerts.src_ip, alert_type.description,
+QUERY="SELECT scan_alerts.src_ip, alert_type.description,
+           scan_alerts.dst_tcp_port, scan_alerts.dst_udp_port,
 	   scan_alerts.port_count, scan_alerts.packet_count,
 	   scan_alerts.first, scan_alerts.latest
 	   FROM scan_alerts INNER JOIN alert_type

@@ -276,7 +276,7 @@ struct alert_type db_read_alert_type(PGconn *conn, FILE *LOG)
 	res = PQexec(conn, query);
 	err = (PQresultStatus(res) != PGRES_TUPLES_OK);
 	if (err) {
-		log_error(LOG, "postgres: %s\n", PQerrorMessage(conn));
+		log_error(LOG, "postgres: %s", PQerrorMessage(conn));
 	}
 
 	for (int i = 0; i < PQntuples(res); i++) {
@@ -374,7 +374,7 @@ int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
 
 	err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
 	if (err) {
-		log_error(LOG, "postgres: %s\n", PQerrorMessage(conn));
+		log_error(LOG, "postgres: %s", PQerrorMessage(conn));
 	}
 
 	PQclear(db_res);
@@ -410,7 +410,7 @@ int db_write_blocked_ip(PGconn *conn, struct key *key, struct value *value,
 
     err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
     if (err) {
-        log_error(LOG, "postgres: %s\n", PQerrorMessage(conn));
+        log_error(LOG, "postgres: %s", PQerrorMessage(conn));
     }
 
 	PQclear(db_res);

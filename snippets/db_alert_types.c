@@ -60,7 +60,7 @@ struct alert_type db_read_alert_type(PGconn *conn)
 	res = PQexec(conn, query);
 	err = (PQresultStatus(res) != PGRES_TUPLES_OK);
 	if (err) {
-		fprintf(stderr, "postgres: %s\n", PQerrorMessage(conn));
+		fprintf(stderr, "postgres: %s", PQerrorMessage(conn));
 	}
 
 	for (int i = 0; i < PQntuples(res); i++) {

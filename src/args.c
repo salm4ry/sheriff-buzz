@@ -65,7 +65,8 @@ char *addr_to_iface(char *address)
 
 void set_default_args(struct args *args)
 {
-	args->config = default_args.config;
+	args->config_file = default_args.config_file;
+	args->log_file = default_args.log_file;
 	args->bpf_obj_file = default_args.bpf_obj_file;
 	args->skb_mode = default_args.skb_mode;
 	args->dry_run = default_args.dry_run;
@@ -77,7 +78,11 @@ void print_usage(const char *prog_name)
 	printf("usage: %s -i <interface> | -a <address> [<args>]\n", prog_name);
     printf("-i, --interface <name>: name of network interface to attach to\n");
     printf("-a, --address <address>: address of network interface to attach to\n");
-    printf("-c, --config <filename>: name of config JSON file in ./config\n");
+
+	/* TODO config directory option */
+    printf("-c, --config-file <filename>: name of config JSON file in ./config\n");
+
+    printf("-l, --log-file <filename>: path to log file\n");
     printf("-b, --bpf-obj <path>: path to BPF object file\n");
     printf("-s, --skb-mode: enable SKB mode (use if native XDP not supported)\n");
     printf("-d, --dry-run: enable dry run mode\n");
@@ -96,7 +101,11 @@ void parse_args(int argc, char *argv[], struct args *args)
                 exit(EXIT_SUCCESS);
 			case 'c':
 				/* config file path */
-				args->config = optarg;
+				args->config_file = optarg;
+				break;
+			case 'l':
+				/* log file path */
+				args->log_file = optarg;
 				break;
 			case 's':
 				args->skb_mode = true;

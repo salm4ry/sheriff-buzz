@@ -239,19 +239,10 @@ void open_fd(char *name, int *fd)
 	}
 }
 
-void init_log_file()
+void init_log_file(char *filename)
 {
-	char *filename = malloc(24 * sizeof(char));
-	if (!filename) {
-		perror("memory allocation failed");
-		exit(errno);
-	}
-	gen_log_name(filename);
-
 	open_file(filename, &LOG);
 	open_fd(filename, &LOG_FD);
-
-	free(filename);
 }
 
 void init_config_path(const char *config_dir, char *config_filename, char **config_path)
@@ -924,7 +915,8 @@ int main(int argc, char *argv[])
 
 	/* initialise and open log file: can use logging functions instead of prints
 	 * from here onwards */
-	init_log_file();
+	printf("opening log file %s\n", init_args.log_file); /* TODO remove me! */
+	init_log_file(init_args.log_file);
 
 	/* initialise configuration */
 	fallback_config(&current_config, &config_lock);
@@ -933,7 +925,7 @@ int main(int argc, char *argv[])
 	load_config((char *) DEFAULT_CONFIG_FILE);
 
 	/* load argument-specified config file */
-	init_config_path(CONFIG_DIR, init_args.config, &config_path);
+	init_config_path(CONFIG_DIR, init_args.config_file, &config_path);
 	log_debug(LOG, "loading config from %s\n", config_path);
 	load_config(config_path);
 
@@ -1079,14 +1071,14 @@ int main(int argc, char *argv[])
 	 *
 	 * (pass config structure as argument to work function) */
 	inotify_worker_args.config_dir = malloc((strlen(CONFIG_DIR)+1) * sizeof(char));
-	inotify_worker_args.config_filename = malloc((strlen(init_args.config)+1) * sizeof(char));
+	inotify_worker_args.config_filename = malloc((strlen(init_args.config_file)+1) * sizeof(char));
     if (!inotify_worker_args.config_dir | !inotify_worker_args.config_filename) {
         perror("memory allocation failed");
         exit(errno);
     }
 
     strncpy(inotify_worker_args.config_dir, CONFIG_DIR, strlen(CONFIG_DIR)+1);
-	strncpy(inotify_worker_args.config_filename, init_args.config, strlen(init_args.config)+1);
+	strncpy(inotify_worker_args.config_filename, init_args.config_file, strlen(init_args.config_file)+1);
 
 	inotify_worker_args.current_config = &current_config;
 	inotify_worker_args.lock = &config_lock;

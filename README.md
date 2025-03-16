@@ -30,6 +30,10 @@ version*
 ### Database
 - `postgresql`
 
+## Logging
+
+The default log location is `/var/log/sheriff-buzz.log`.
+
 ## Configuration
 
 All configuration is optional; defaults are in `./config/default.json`

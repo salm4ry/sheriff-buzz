@@ -6,7 +6,8 @@
 #include <getopt.h>
 
 struct args {
-	char *config;
+	char *config_file;
+	char *log_file;
 	char *bpf_obj_file;
 	char *interface;
 	bool skb_mode;
@@ -27,7 +28,8 @@ struct args {
  */
 static struct option long_opts[] = {
     {"help", no_argument, NULL, 'h'},
-	{"config", required_argument, NULL, 'c'},
+	{"config-file", required_argument, NULL, 'c'},
+	{"log-file", required_argument, NULL, 'l'},
 	{"bpf-obj", required_argument, NULL, 'b'},
 	{"skb-mode", no_argument, NULL, 's'},
 	{"interface", required_argument, NULL, 'i'},
@@ -40,10 +42,11 @@ static struct option long_opts[] = {
 /**
  * Short options characters (followed by a colon = requires an argument)
  */
-static char *short_opts = "c:si:b:dha:";
+static char *short_opts = "c:l:si:b:dha:";
 
 static struct args default_args = {
-	.config = "default.json",
+	.config_file = "default.json",
+	.log_file = "/var/log/sheriff-buzz.log",
 	.bpf_obj_file = "src/sheriff-buzz.bpf.o",
 	.skb_mode = false,
 	.interface = NULL, /* interface is a required argument */

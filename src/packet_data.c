@@ -190,6 +190,7 @@ void init_entry(GHashTable *table, struct key *key, struct value *val,
 
 		/* use existing per-port count hash table */
 		val->tcp_ports = current_val->tcp_ports;
+		val->udp_ports = current_val->udp_ports;
 
 		/* look up current port's packet count */
 		port_count_res = lookup_packet_count(val, dst_port, protocol);

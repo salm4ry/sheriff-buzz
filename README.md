@@ -3,7 +3,8 @@
 ## Table of Contents
 1. [Dependencies](#dependencies)
 2. [Alert Types](#alert-types)
-3. [Configuration](#configuration)
+3. [Logging](#logging)
+4. [Configuration](#configuration)
 
 ## Dependencies
 

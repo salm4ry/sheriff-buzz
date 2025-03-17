@@ -1,0 +1,39 @@
+.TH man 8 sheriff-buzz
+
+.SH NAME
+sheriff-buzz \- intrusion detection and response with eBPF
+
+.SH SYNOPSIS
+sheriff-buzz -i <interface> | -d <address> [OPTIONS]
+
+.SH DESCRIPTION
+sjdfhaskfjdha
+
+.SH OPTIONS
+
+.TP
+.B --interface, -i <name>
+name of network interface to attach to
+
+.TP
+.B --address, -a <address>
+address of network interface to attach to
+
+.TP
+.B --config-file, -c <path>
+path to JSON config file
+
+.TP
+.B --bpf-obj, -b <path>
+path to BPF object file
+
+.TP
+.B --skb-mode, -s
+enable SKB mode (use if native XDP not supported)
+
+.TP
+.B --dry-run, -d
+enable dry run mode (do not block/redirect traffic from blacklisted IPs/subnets)
+
+.SH AUTHOR
+Salma Berriche (smb114@student.bham.ac.uk)

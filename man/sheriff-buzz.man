@@ -1,0 +1,48 @@
+man(8)                      System Manager's Manual                     man(8)
+
+
+
+NNAAMMEE
+       sheriff-buzz - intrusion detection and response with eBPF
+
+
+SSYYNNOOPPSSIISS
+       sheriff-buzz -i <interface> | -d <address> [OPTIONS]
+
+
+DDEESSCCRRIIPPTTIIOONN
+       sjdfhaskfjdha
+
+
+OOPPTTIIOONNSS
+       ----iinntteerrffaaccee,, --ii <<nnaammee>>
+              name of network interface to attach to
+
+
+       ----aaddddrreessss,, --aa <<aaddddrreessss>>
+              address of network interface to attach to
+
+
+       ----ccoonnffiigg--ffiillee,, --cc <<ppaatthh>>
+              path to JSON config file
+
+
+       ----bbppff--oobbjj,, --bb <<ppaatthh>>
+              path to BPF object file
+
+
+       ----sskkbb--mmooddee,, --ss
+              enable SKB mode (use if native XDP not supported)
+
+
+       ----ddrryy--rruunn,, --dd
+              enable  dry  run mode (do not block/redirect traffic from black-
+              listed IPs/subnets)
+
+
+AAUUTTHHOORR
+       Salma Berriche (smb114@student.bham.ac.uk)
+
+
+
+                                 sheriff-buzz                           man(8)

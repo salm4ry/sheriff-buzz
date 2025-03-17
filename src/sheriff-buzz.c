@@ -151,13 +151,16 @@ void cleanup()
 	/* clean up config */
 	free_config(&current_config);
 
-	/* send cancellation requests to worker threads */
-	pthread_cancel(db_worker);
-	pthread_cancel(inotify_worker);
+	/* send cancellation requests to worker threads and wait for them to finish */
+    if (db_worker) {
+	    pthread_cancel(db_worker);
+        pthread_join(db_worker, 0);
+    }
 
-    /* wait for worker threads to finish */
-    pthread_join(db_worker, 0);
-    pthread_join(inotify_worker, 0);
+    if (inotify_worker) {
+	    pthread_cancel(inotify_worker);
+        pthread_join(inotify_worker, 0);
+    }
 
 	PQfinish(db_conn);
 }
@@ -247,26 +250,30 @@ void init_log_file(char *filename)
 }
 
 void init_config_path(char **relative_path, char **config_path, char **config_dir,
-		char **config_filename)
+		char **config_filename, FILE *LOG)
 {
 	char *dirc, *basec;
 	char *tmp;
 
 	/* set up config path */
-	*config_path = realpath(*relative_path, NULL);
-	if (!config_path) {
-		perror("realpath");
-		exit(errno);
+	tmp = realpath(*relative_path, NULL);
+	if (!tmp) {
+		log_error(LOG, "%s: %s\n", *relative_path, strerror(errno));
+        return;
 	}
+    *config_path = strndup(tmp, strlen(tmp)+1);
+    free(tmp);
 
 	/* set up config directory and filename using full config path */
 	dirc = strndup(*config_path, strlen(*config_path)+1);
 	tmp = dirname(dirc);
 	*config_dir = strndup(tmp, strlen(tmp)+1);
+    free(dirc);
 
 	basec = strndup(*config_path, strlen(*config_path)+1);
 	tmp = basename(basec);
 	*config_filename = strndup(tmp, strlen(tmp)+1);
+    free(dirc);
 }
 
 void load_config(char *path)
@@ -890,8 +897,9 @@ void inotify_thread_work(void *args)
 int main(int argc, char *argv[])
 {
 	struct args init_args;
-	char *config_dir, *config_path, *config_filename;
-	const char *DEFAULT_CONFIG_FILE = "config/default.json";
+	char *config_dir, *config_path = NULL, *config_filename;
+
+	const char *DEFAULT_CONFIG_PATH = "config/default.json";
 
     /* map file descriptors */
 	int ip_list_fd, subnet_list_fd, port_list_fd, config_hash_fd;
@@ -901,6 +909,7 @@ int main(int argc, char *argv[])
 
 	/* arguments to pass to database and inotify worker threads */
 	struct db_thread_args db_worker_args;
+    bool use_inotify_thread = true;
 	struct inotify_thread_args inotify_worker_args;
 
 	/* parse command-line arguments */
@@ -916,7 +925,6 @@ int main(int argc, char *argv[])
 	}
 
 	ifindex = if_nametoindex(init_args.interface);
-	free(init_args.interface); /* interface name no longer required */
 	if (ifindex == 0) {
         pr_err("error setting up interface %s: %s\n", init_args.interface,
                 strerror(errno));
@@ -930,14 +938,27 @@ int main(int argc, char *argv[])
 	/* initialise configuration */
 	fallback_config(&current_config, &config_lock);
 	/* load default config file */
-	log_debug(LOG, "loading default config from %s\n", DEFAULT_CONFIG_FILE);
-	load_config((char *) DEFAULT_CONFIG_FILE);
+	log_debug(LOG, "loading default config from %s\n", DEFAULT_CONFIG_PATH);
+	load_config((char *) DEFAULT_CONFIG_PATH);
 
 	/* load argument-specified config file */
-	init_config_path(&init_args.config_file, &config_path, &config_dir, &config_filename);
+	init_config_path(&init_args.config_file, &config_path, &config_dir,
+            &config_filename, LOG);
 
-	log_info(LOG, "loading config from %s\n", config_path);
-	load_config(config_path);
+    if (config_path) {
+	    log_info(LOG, "loading config from %s\n", config_path);
+	    load_config(config_path);
+    } else {
+        /* use default config path, directory, and filename */
+        init_config_path((char **) &DEFAULT_CONFIG_PATH,
+                &config_path, &config_dir, &config_filename, LOG);
+        /* default config not found */
+        if (!config_path) {
+            log_info(LOG, "no default config at %s\n",
+                    DEFAULT_CONFIG_PATH);
+            use_inotify_thread = false;
+        }
+    }
 
 	/* apply dry run setting from command-line arguments */
 	current_config.dry_run = init_args.dry_run;
@@ -1080,20 +1101,22 @@ int main(int argc, char *argv[])
 	/* create config file worker thread
 	 *
 	 * (pass config structure as argument to work function) */
-	inotify_worker_args.config_path = strndup(config_path, strlen(config_path)+1);
-	inotify_worker_args.config_dir = strndup(config_dir, strlen(config_dir)+1);
-	inotify_worker_args.config_filename = strndup(config_filename, strlen(config_filename)+1);
-    if (!inotify_worker_args.config_path ||
-		!inotify_worker_args.config_dir ||
-		!inotify_worker_args.config_filename) {
-        perror("memory allocation failed");
-        exit(errno);
+    if (use_inotify_thread) {
+	    inotify_worker_args.config_path = strndup(config_path, strlen(config_path)+1);
+	    inotify_worker_args.config_dir = strndup(config_dir, strlen(config_dir)+1);
+	    inotify_worker_args.config_filename = strndup(config_filename, strlen(config_filename)+1);
+        if (!inotify_worker_args.config_path ||
+		    !inotify_worker_args.config_dir ||
+		    !inotify_worker_args.config_filename) {
+            perror("memory allocation failed");
+            exit(errno);
+        }
+
+    	inotify_worker_args.current_config = &current_config;
+    	inotify_worker_args.lock = &config_lock;
+
+	    init_inotify_thread((void *) inotify_thread_work, &inotify_worker_args);
     }
-
-	inotify_worker_args.current_config = &current_config;
-	inotify_worker_args.lock = &config_lock;
-
-	init_inotify_thread((void *) inotify_thread_work, &inotify_worker_args);
 
 	/* poll ring buffer */
 	while (!exiting) {

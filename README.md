@@ -37,9 +37,7 @@ The default log location is `/var/log/sheriff-buzz.log`.
 
 ## Configuration
 
-All configuration is optional; defaults are in `./config/default.json`
-
-Config files go in `./config`, with the default configuration in
-`./config/default.json` and an example in `./config/example_config.json`
+All configuration is optional; defaults are in `./config/default.json` and an
+example is in `./config/example_config.json`.
 
 See [the config README](config/README.md) for option information

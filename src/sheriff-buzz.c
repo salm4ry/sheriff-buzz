@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <pthread.h>
+#include <libgen.h>
 
 #include <net/if.h>
 #include <netinet/in.h>
@@ -245,17 +246,27 @@ void init_log_file(char *filename)
 	open_fd(filename, &LOG_FD);
 }
 
-void init_config_path(const char *config_dir, char *config_filename, char **config_path)
+void init_config_path(char **relative_path, char **config_path, char **config_dir,
+		char **config_filename)
 {
-	int config_len = strlen(config_filename) + strlen(config_dir) + 2;
-	*config_path = malloc(config_len * sizeof(char));
+	char *dirc, *basec;
+	char *tmp;
+
+	/* set up config path */
+	*config_path = realpath(*relative_path, NULL);
 	if (!config_path) {
-		perror("memory allocation failed");
+		perror("realpath");
 		exit(errno);
 	}
 
-	/* set up config path */
-	snprintf(*config_path, config_len, "%s/%s", config_dir, config_filename);
+	/* set up config directory and filename using full config path */
+	dirc = strndup(*config_path, strlen(*config_path)+1);
+	tmp = dirname(dirc);
+	*config_dir = strndup(tmp, strlen(tmp)+1);
+
+	basec = strndup(*config_path, strlen(*config_path)+1);
+	tmp = basename(basec);
+	*config_filename = strndup(tmp, strlen(tmp)+1);
 }
 
 void load_config(char *path)
@@ -749,7 +760,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	return 0;
 }
 
-void handle_inotify_events(int fd, const char *target_filename,
+void handle_inotify_events(int fd, const char *target_path, const char *target_filename,
 		struct config *current_config, pthread_rwlock_t *lock)
 {
 	/* buffer used for reading from inotify fd should have same alignment as
@@ -785,7 +796,7 @@ void handle_inotify_events(int fd, const char *target_filename,
 
 			/* we only care about the config file */
 			if (event->len && strcmp(event->name, target_filename) == 0) {
-				cJSON *config_json = json_config(config_path, LOG);
+				cJSON *config_json = json_config(target_path, LOG);
 				if (!config_json) {
 					log_error(LOG, "%s\n", "invalid JSON");
 				} else {
@@ -816,8 +827,7 @@ void inotify_thread_work(void *args)
 	struct config *current_config = ctx->current_config;
 	pthread_rwlock_t *lock = ctx->lock;
 
-	/* TODO decide whether we're forcing config dir or allowing user-provided
-	 * directory (command-line arugments) */
+	const char *CONFIG_PATH = ctx->config_path;
 	const char *CONFIG_DIR = ctx->config_dir;
 	const char *CONFIG_FILENAME = ctx->config_filename;
 
@@ -870,7 +880,7 @@ void inotify_thread_work(void *args)
 		if (poll_num > 0) {
 			if (poll_fd.revents & POLLIN) {
 				/* inotify events available */
-				handle_inotify_events(inotify_fd, CONFIG_FILENAME,
+				handle_inotify_events(inotify_fd, CONFIG_PATH, CONFIG_FILENAME,
 						current_config, lock);
 			}
 		}
@@ -880,7 +890,7 @@ void inotify_thread_work(void *args)
 int main(int argc, char *argv[])
 {
 	struct args init_args;
-	const char *CONFIG_DIR = "config";
+	char *config_dir, *config_path, *config_filename;
 	const char *DEFAULT_CONFIG_FILE = "config/default.json";
 
     /* map file descriptors */
@@ -915,7 +925,6 @@ int main(int argc, char *argv[])
 
 	/* initialise and open log file: can use logging functions instead of prints
 	 * from here onwards */
-	printf("opening log file %s\n", init_args.log_file); /* TODO remove me! */
 	init_log_file(init_args.log_file);
 
 	/* initialise configuration */
@@ -925,8 +934,9 @@ int main(int argc, char *argv[])
 	load_config((char *) DEFAULT_CONFIG_FILE);
 
 	/* load argument-specified config file */
-	init_config_path(CONFIG_DIR, init_args.config_file, &config_path);
-	log_debug(LOG, "loading config from %s\n", config_path);
+	init_config_path(&init_args.config_file, &config_path, &config_dir, &config_filename);
+
+	log_info(LOG, "loading config from %s\n", config_path);
 	load_config(config_path);
 
 	/* apply dry run setting from command-line arguments */
@@ -1070,15 +1080,15 @@ int main(int argc, char *argv[])
 	/* create config file worker thread
 	 *
 	 * (pass config structure as argument to work function) */
-	inotify_worker_args.config_dir = malloc((strlen(CONFIG_DIR)+1) * sizeof(char));
-	inotify_worker_args.config_filename = malloc((strlen(init_args.config_file)+1) * sizeof(char));
-    if (!inotify_worker_args.config_dir | !inotify_worker_args.config_filename) {
+	inotify_worker_args.config_path = strndup(config_path, strlen(config_path)+1);
+	inotify_worker_args.config_dir = strndup(config_dir, strlen(config_dir)+1);
+	inotify_worker_args.config_filename = strndup(config_filename, strlen(config_filename)+1);
+    if (!inotify_worker_args.config_path ||
+		!inotify_worker_args.config_dir ||
+		!inotify_worker_args.config_filename) {
         perror("memory allocation failed");
         exit(errno);
     }
-
-    strncpy(inotify_worker_args.config_dir, CONFIG_DIR, strlen(CONFIG_DIR)+1);
-	strncpy(inotify_worker_args.config_filename, init_args.config_file, strlen(init_args.config_file)+1);
 
 	inotify_worker_args.current_config = &current_config;
 	inotify_worker_args.lock = &config_lock;

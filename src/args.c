@@ -78,10 +78,7 @@ void print_usage(const char *prog_name)
 	printf("usage: %s -i <interface> | -a <address> [<args>]\n", prog_name);
     printf("-i, --interface <name>: name of network interface to attach to\n");
     printf("-a, --address <address>: address of network interface to attach to\n");
-
-	/* TODO config directory option */
-    printf("-c, --config-file <filename>: name of config JSON file in ./config\n");
-
+    printf("-c, --config-file <filename>: path to config file\n");
     printf("-l, --log-file <filename>: path to log file\n");
     printf("-b, --bpf-obj <path>: path to BPF object file\n");
     printf("-s, --skb-mode: enable SKB mode (use if native XDP not supported)\n");

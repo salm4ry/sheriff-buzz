@@ -64,6 +64,7 @@ struct config {
 };
 
 struct inotify_thread_args {
+	char *config_path;
 	char *config_dir;
 	char *config_filename;
 	struct config *current_config;

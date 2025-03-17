@@ -95,6 +95,8 @@ cJSON *json_config(const char *filename, FILE *LOG)
 			cJSON_Delete(cfg_json);
 			return NULL;
 		}
+	} else {
+		log_error(LOG, "file open failed: %s\n", strerror(errno));
 	}
 
 	return cfg_json;

@@ -45,7 +45,7 @@ static struct option long_opts[] = {
 static char *short_opts = "c:l:si:b:dha:";
 
 static struct args default_args = {
-	.config_file = "default.json",
+	.config_file = "config/default.json",
 	.log_file = "/var/log/sheriff-buzz.log",
 	.bpf_obj_file = "src/sheriff-buzz.bpf.o",
 	.skb_mode = false,

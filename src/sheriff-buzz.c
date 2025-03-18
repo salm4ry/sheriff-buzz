@@ -273,7 +273,7 @@ void init_config_path(char **relative_path, char **config_path, char **config_di
 	basec = strndup(*config_path, strlen(*config_path)+1);
 	tmp = basename(basec);
 	*config_filename = strndup(tmp, strlen(tmp)+1);
-    free(dirc);
+    free(basec);
 }
 
 void load_config(char *path)

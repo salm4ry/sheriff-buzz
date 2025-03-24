@@ -108,12 +108,12 @@ void port_table_cleanup(GHashTable *packet_table)
 	g_hash_table_foreach(packet_table, &destroy_port_tables, NULL);
 }
 
-/**
+/*
  * Helper to update hash table entry count
  *
  * - key: hash table key
  * - value: hash table value
- * - user_data: count vaule to update
+ * - user_data: count value to update
  */
 /* TODO double check this works in small example */
 void update_entry_count(gpointer key, gpointer value, gpointer user_data)
@@ -121,17 +121,15 @@ void update_entry_count(gpointer key, gpointer value, gpointer user_data)
 	*((int*) user_data) = *((int*) user_data) + 1;
 }
 
-/**
+/*
  * Get number of entries in a GHashTable
- *
  * table: hash table to count entries of
- *
  * Walks the hash table, incrementing the final count value for each entry
  */
 int count_entries(GHashTable *table)
 {
-    int count = 0;
-    g_hash_table_foreach(table, &update_entry_count, &count);
+	int count = 0;
+	g_hash_table_foreach(table, &update_entry_count, &count);
 
     return count;
 }
@@ -139,7 +137,7 @@ int count_entries(GHashTable *table)
 /* get dst_port's packet count */
 gpointer lookup_packet_count(struct value *val, int dst_port, int protocol)
 {
-	gpointer res;
+	gpointer res = NULL;
 
 	switch (protocol) {
 		case TCP_PNUM:
@@ -155,7 +153,7 @@ gpointer lookup_packet_count(struct value *val, int dst_port, int protocol)
 
 /* update dst_port's packet count */
 void update_packet_count(struct value *val, int dst_port, int new_count,
-		int protocol)
+			 int protocol)
 {
 	switch (protocol) {
 		case TCP_PNUM:
@@ -224,19 +222,19 @@ void init_entry(GHashTable *table, struct key *key, struct value *val,
 }
 
 void update_entry(GHashTable *table, struct key *key, struct value *val,
-		bool flagged)
+		  bool flagged)
 {
 	if (flagged) {
 		/* flagged: destroy IP's port hash tables and remove IP entry from
 		 * packet hash table */
-          g_hash_table_destroy(val->tcp_ports);
-          g_hash_table_destroy(val->udp_ports);
-          g_hash_table_remove(table, (gconstpointer)&key->src_ip);
+		g_hash_table_destroy(val->tcp_ports);
+		g_hash_table_destroy(val->udp_ports);
+		g_hash_table_remove(table, (gconstpointer)&key->src_ip);
 	} else {
 		/* insert/update entry */
 		g_hash_table_replace(table,
-				g_memdup2((gconstpointer) &key->src_ip, sizeof(in_addr_t)),
-				g_memdup2((gconstpointer) val, sizeof(struct value)));
+				     g_memdup2((gconstpointer) &key->src_ip, sizeof(in_addr_t)),
+				     g_memdup2((gconstpointer) val, sizeof(struct value)));
 	}
 }
 
@@ -297,8 +295,7 @@ struct alert_type db_read_alert_type(PGconn *conn, FILE *LOG)
 	return types;
 }
 
-/**
- *
+/*
  * Log alert to database (upsert)
  *
  * - conn: database connection
@@ -367,7 +364,7 @@ int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
 }
 
 /**
- * Log flagged IP address to database
+ * Log blocked IP address to database
  *
  * - conn: database connection
  * - key: hash table key
@@ -376,62 +373,58 @@ int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
  * Return 0 on success, non-zero on error
  */
 int db_write_blocked_ip(PGconn *conn, struct key *key, struct value *value,
-		FILE *LOG)
+			FILE *LOG)
 {
-    int err = 0;
 	PGresult *db_res;
+	int err = 0;
+
 	char query[MAX_QUERY];
-    char *cmd;
 	char ip_str[MAX_IP];
 
 	in_addr_t src_ip = key->src_ip;
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
-    cmd = "INSERT INTO blocked_ips (src_ip, time) VALUES ('%s', to_timestamp(%ld))";
-    snprintf(query, MAX_QUERY, cmd, ip_str, value->latest);
+	snprintf(query, MAX_QUERY, BLOCKED_IP_QUERY, ip_str, value->latest);
 
-    db_res = PQexec(conn, query);
+	db_res = PQexec(conn, query);
 
-    err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
-    if (err) {
-        log_error(LOG, "postgres: %s", PQerrorMessage(conn));
-    }
+	err = (PQresultStatus(db_res) != PGRES_COMMAND_OK);
+	if (err) {
+		log_error(LOG, "postgres: %s", PQerrorMessage(conn));
+	}
 
 	PQclear(db_res);
 
-    return err;
+	return err;
 }
 
-/**
- * Connect to PostgreSQL database with peer authentication (postgres username =
- * system username)
- *
+/*
+ * Connect to PostgreSQL database with peer authentication
+ * (postgres username = system username)
  * - user: username
  * - dbname: database name
- *
  * Return the database connection object on success, NULL on error
  */
 PGconn *connect_db(char *user, char *dbname, FILE *LOG)
 {
 	char query[MAX_QUERY];
+	PGconn *db;
 
 	snprintf(query, MAX_QUERY, "user=%s dbname=%s", user, dbname);
-	PGconn *db = PQconnectdb(query);
+	db = PQconnectdb(query);
+
 	if (PQstatus(db) != CONNECTION_OK) {
 		log_error(LOG, "connection to database failed: %s\n", PQerrorMessage(db));
-
 		/* clean up connection */
 		PQfinish(db);
-
-		return NULL;
+		db = NULL;
 	}
 
 	return db;
 }
 
-/**
+/*
  * Calculate the number of entries in a database task queue (tailq)
- *
  * head: head of queue
  */
 int queue_size(struct db_task_queue *head)
@@ -446,19 +439,17 @@ int queue_size(struct db_task_queue *head)
 	return size;
 }
 
-/**
+/*
  * Determine whether a database task queue is full
- *
  * head: head of queue
- *
- * Return 1 if full, 0 otherwise
+ * return 1 if full, 0 otherwise
  */
 int queue_full(struct db_task_queue *head)
 {
 	return queue_size(head) >= MAX_DB_TASKS;
 }
 
-/**
+/*
  * Queue database work
  *
  * - task_queue_head: head of database work queue
@@ -469,11 +460,11 @@ int queue_full(struct db_task_queue *head)
  * - value: hash table value
  * - dst_port: destination port (optional- used for flag-based alerts)
  *
- * Return 0 on success, 1 on error (queue full)
+ * return 0 on success, 1 on error (queue full)
  */
 int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
-		pthread_cond_t *cond, int alert_type, struct alert_type types,
-		struct key *key, struct value *value, int dst_port, FILE *LOG)
+	       pthread_cond_t *cond, int alert_type, struct alert_type types,
+	       struct key *key, struct value *value, int dst_port, FILE *LOG)
 {
 	struct db_task *new_task;
 	struct port_range *range;
@@ -519,12 +510,10 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 	return 0;
 }
 
-/**
+/*
  * Work for database thread
- *
  * args = struct db_thread_args passed to the thread on creation
- *
- * Wait for work from the task queue and carry it out as it arrives
+ * wait for work from the task queue and carry it out as it arrives
  */
 void db_thread_work(void *args)
 {
@@ -552,13 +541,13 @@ void db_thread_work(void *args)
 		if (current->alert_type != UNDEFINED) {
 			/* write alert to database */
 			db_write_scan_alert(db_conn,
-					current->alert_type,
-					current->types,
-					&current->key,
-					&current->value,
-					&current->range,
-					current->dst_port,
-					current->log_file);
+					    current->alert_type,
+					    current->types,
+					    &current->key,
+					    &current->value,
+					    &current->range,
+					    current->dst_port,
+					    current->log_file);
 		} else {
 			/* write flagged IP to database */
 			db_write_blocked_ip(db_conn, &current->key, &current->value, current->log_file);

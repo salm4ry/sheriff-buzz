@@ -21,7 +21,8 @@ struct timespec time_diff(struct timespec *start, struct timespec *end)
 	struct timespec res;
 
 	if ((end->tv_nsec - start->tv_nsec) < 0) {
-		/* -1: go back into previous second */
+		/* TODO better explanation
+		 * go back into previous second to calculate difference */
 		res.tv_sec = end->tv_sec - start->tv_sec - 1;
 		res.tv_nsec = (end->tv_nsec - start->tv_nsec) + NS_PER_SEC;
 	} else {
@@ -33,19 +34,20 @@ struct timespec time_diff(struct timespec *start, struct timespec *end)
 }
 
 void update_total_time(struct timespec *start, struct timespec *end,
-		unsigned long *total_time)
+		       unsigned long *total_time)
 {
 	struct timespec delta = time_diff(start, end);
-	*total_time += delta.tv_sec + delta.tv_nsec;
+	/* TODO do we need nanosecond precision in time calculations? */
+	*total_time += (delta.tv_sec * NS_PER_SEC) + delta.tv_nsec;
 }
 
-/**
+/*
  * Calculate number of packets processed per second
- *
  * - total_packets: total packet count
  * - total_time: total packet processing time
  */
 unsigned long packet_rate(unsigned long *total_packets, unsigned long *total_time)
 {
+	/* TODO do we need nanosecond precision in time calculations? */
 	return (*total_packets * NS_PER_SEC) / *total_time;
 }

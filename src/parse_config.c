@@ -369,16 +369,16 @@ int int_json_value(cJSON *json_obj, const char *item_name,
 		goto out;
 
 	switch (MAX_THRESHOLD) {
-		case UNDEFINED:
-			/* extract boolean */
-			if (cJSON_IsBool(item))
-				value = cJSON_IsTrue(item);
-			break;
-		default:
-			/* extract thresholded integer */
-			if (cJSON_IsNumber(item) && (item->valueint > 0 && item->valueint <= MAX_THRESHOLD))
-				value = item->valueint;
-			break;
+	case UNDEFINED:
+		/* extract boolean */
+		if (cJSON_IsBool(item))
+			value = cJSON_IsTrue(item);
+		break;
+	default:
+		/* extract thresholded integer */
+		if (cJSON_IsNumber(item) && (item->valueint > 0 && item->valueint <= MAX_THRESHOLD))
+			value = item->valueint;
+		break;
 	}
 
 out:

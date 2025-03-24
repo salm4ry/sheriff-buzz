@@ -484,47 +484,47 @@ int dst_port_state(__u16 dst_port)
 
 void submit_tcp_headers(struct iphdr *ip_headers, struct tcphdr *tcp_headers)
 {
-	struct xdp_rb_event *e;
+	struct xdp_rb_event *event;
 
 	if (ip_headers && tcp_headers) {
 	/* IP not black/whitelisted- send TCP headers to user space */
 
 	/* reserve ring buffer sample */
-	e = bpf_ringbuf_reserve(&xdp_rb, sizeof(*e), 0);
-	if (!e) {
+	event = bpf_ringbuf_reserve(&xdp_rb, sizeof(*event), 0);
+	if (!event) {
 		bpf_debug("XDP ring buffer allocation failed");
 		return;
 	}
 
 	/* fill out ring buffer sample */
-	e->ip_header = *ip_headers;
-	e->tcp_header = *tcp_headers;
+	event->ip_header = *ip_headers;
+	event->tcp_header = *tcp_headers;
 
 	/* submit ring buffer event */
-	bpf_ringbuf_submit(e, 0);
+	bpf_ringbuf_submit(event, 0);
 	}
 }
 
 void submit_udp_headers(struct iphdr *ip_headers, struct udphdr *udp_headers)
 {
-	struct xdp_rb_event *e;
+	struct xdp_rb_event *event;
 
 	if (ip_headers && udp_headers) {
 	/* IP not black/whitelisted- send TCP headers to user space */
 
 	/* reserve ring buffer sample */
-	e = bpf_ringbuf_reserve(&xdp_rb, sizeof(*e), 0);
-	if (!e) {
+	event = bpf_ringbuf_reserve(&xdp_rb, sizeof(*event), 0);
+	if (!event) {
 		bpf_debug("XDP ring buffer allocation failed");
 		return;
 	}
 
 	/* fill out ring buffer sample */
-	e->ip_header = *ip_headers;
-	e->udp_header = *udp_headers;
+	event->ip_header = *ip_headers;
+	event->udp_header = *udp_headers;
 
 	/* submit ring buffer event */
-	bpf_ringbuf_submit(e, 0);
+	bpf_ringbuf_submit(event, 0);
 	}
 }
 

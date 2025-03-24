@@ -515,19 +515,19 @@ int *get_port_list(char *filename, int num_ports) {
 __attribute__((noinline)) int submit_ip_entry(__u32 src_ip, int type)
 {
 	int err = 0;
-	struct ip_rb_event *e;
+	struct ip_rb_event *event;
 
-	e = user_ring_buffer__reserve(ip_rb, sizeof(*e));
+	event = user_ring_buffer__reserve(ip_rb, sizeof(*event));
 	err = -errno;
-	if (!e)
+	if (!event)
 		goto out;
 
 	/* fill out ring buffer sample */
-	e->src_ip = src_ip;
-	e->type = type;
+	event->src_ip = src_ip;
+	event->type = type;
 
 	/* submit ring buffer event */
-	user_ring_buffer__submit(ip_rb, e);
+	user_ring_buffer__submit(ip_rb, event);
 out:
 	return err;
 }
@@ -568,21 +568,21 @@ __attribute__((noinline)) int submit_subnet_entry(struct subnet *entry,
 						  int index, int type)
 {
 	int err = 0;
-	struct subnet_rb_event *e;
+	struct subnet_rb_event *event;
 
-	e = user_ring_buffer__reserve(subnet_rb, sizeof(*e));
+	event = user_ring_buffer__reserve(subnet_rb, sizeof(*event));
 	err = -errno;
 
-	if (!e)
+	if (!event)
 		goto out;
 
 	/* fill out ring buffer sample */
-	e->mask = entry->mask;
-	e->network_addr = entry->network_addr;
-	e->index = index;
-	e->type = type;
+	event->mask = entry->mask;
+	event->network_addr = entry->network_addr;
+	event->index = index;
+	event->type = type;
 
-	user_ring_buffer__submit(subnet_rb, e);
+	user_ring_buffer__submit(subnet_rb, event);
 out:
 	return err;
 }
@@ -615,18 +615,18 @@ void submit_subnet_list()
 __attribute__((noinline)) int submit_port_entry(__u16 port)
 {
 	int err = 0;
-	struct port_rb_event *e;
+	struct port_rb_event *event;
 
-	e = user_ring_buffer__reserve(port_rb, sizeof(*e));
+	event = user_ring_buffer__reserve(port_rb, sizeof(*event));
 	err = errno;
 
-	if (!e)
+	if (!event)
 		goto out;
 
 	/* fill out ring buffer sample */
-	e->port_num = port;
+	event->port_num = port;
 
-	user_ring_buffer__submit(port_rb, e);
+	user_ring_buffer__submit(port_rb, event);
 out:
 	return err;
 }

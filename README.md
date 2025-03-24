@@ -17,6 +17,8 @@ version*
 
 ### Compilation Tools
 - `clang`
+- `clang-tools` (contains `scan-build`)
+- `python3-pygments` (contains `pygmentize`)
 - `make`
 - `pkg-config`
 - `bpftool`

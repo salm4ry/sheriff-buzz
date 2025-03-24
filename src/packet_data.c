@@ -249,16 +249,16 @@ bool check_alert_type(struct alert_type types)
 {
 	/* check alert types are all defined */
 	return (types.XMAS_SCAN != UNDEFINED &&
-			types.FIN_SCAN != UNDEFINED &&
-			types.NULL_SCAN != UNDEFINED &&
-			types.PORT_SCAN != UNDEFINED);
+		types.FIN_SCAN != UNDEFINED &&
+		types.NULL_SCAN != UNDEFINED &&
+		types.PORT_SCAN != UNDEFINED);
 }
 
 struct alert_type db_read_alert_type(PGconn *conn, FILE *LOG)
 {
-	PGresult *res;
+	PGresult *res = NULL;
 	int err = 0;
-	char *query = "SELECT * from alert_type";
+
 	struct alert_type types = {
 		UNDEFINED,
 		UNDEFINED,
@@ -273,7 +273,7 @@ struct alert_type db_read_alert_type(PGconn *conn, FILE *LOG)
 		.PORT_SCAN = "Port scan"
 	};
 
-	res = PQexec(conn, query);
+	res = PQexec(conn, ALERT_TYPE_QUERY);
 	err = (PQresultStatus(res) != PGRES_TUPLES_OK);
 	if (err) {
 		log_error(LOG, "postgres: %s", PQerrorMessage(conn));
@@ -307,68 +307,52 @@ struct alert_type db_read_alert_type(PGconn *conn, FILE *LOG)
  * - value: hash table value
  * - dst_port: alert destination port (optional- flag-based alerts only)
  *
- *
  * Return 0 on success, non-zero value on error
  */
 int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
-		struct key *key, struct value *value, struct port_range *range,
-		int dst_port, FILE *LOG)
+			struct key *key, struct value *value, struct port_range *range,
+			int dst_port, FILE *LOG)
 {
 	PGresult *db_res;
 	int err = 0;
 	char query[MAX_QUERY];
 	char ip_str[MAX_IP];
-	char *cmd;
 
 	in_addr_t src_ip = key->src_ip;
 	inet_ntop(AF_INET, &src_ip, ip_str, MAX_IP);
 
 	if (alert_type == types.PORT_SCAN) {
-			/* port-based alert
-			 *
-			 * destination port is a string colon-delimited range
-			 * packet_count = total packet count from src_ip
-			 */
-			cmd = "INSERT INTO scan_alerts (dst_tcp_port, dst_udp_port, alert_type, src_ip, port_count, packet_count, first, latest) "
-				  "VALUES ('%s', '%s', %d, '%s', %d, %d, to_timestamp(%ld), to_timestamp(%ld)) "
-				  "ON CONFLICT (src_ip, dst_tcp_port, dst_udp_port, alert_type) "
-				  "DO UPDATE SET port_count=%d, dst_tcp_port='%s', dst_udp_port='%s', latest=to_timestamp(%ld) "
-				  "WHERE %d > scan_alerts.packet_count AND to_timestamp(%ld) > scan_alerts.latest";
+		/* port-based alert
+		 *
+		 * destination port is a string colon-delimited range
+		 * packet_count = total packet count from src_ip
+		 */
+		char tcp_port_range[MAX_PORT_RANGE], udp_port_range[MAX_PORT_RANGE];
+		int port_count = value->total_port_count;
 
-			char tcp_port_range[MAX_PORT_RANGE], udp_port_range[MAX_PORT_RANGE];
-			int port_count = value->total_port_count;
+		format_port_range(tcp_port_range, range->min_tcp, range->max_tcp);
+		format_port_range(udp_port_range, range->min_udp, range->max_udp);
 
-			format_port_range(tcp_port_range, range->min_tcp, range->max_tcp);
-			format_port_range(udp_port_range, range->min_udp, range->max_udp);
-
-			snprintf(query, MAX_QUERY, cmd, tcp_port_range, udp_port_range, alert_type, ip_str,
-					port_count, value->total_packet_count, value->first, value->latest,
-					/* fields to update */
-					port_count, tcp_port_range, udp_port_range, value->latest,
-					/* only update if packet count and timestamp are newer */
-					value->total_packet_count, value->latest);
+		snprintf(query, MAX_QUERY, PORT_ALERT_QUERY, tcp_port_range, udp_port_range, alert_type, ip_str,
+			 port_count, value->total_packet_count, value->first, value->latest,
+			 /* fields to update */
+			 port_count, tcp_port_range, udp_port_range, value->latest,
+			 /* only update if packet count and timestamp are newer */
+			 value->total_packet_count, value->latest);
 	} else {
-		/* flag-based scan
+		/* flag-based alert
 		 *
 		 * destination is a single port
 		 * packet_count = total packet count from src_ip to dst_port
 		 */
-		cmd = "INSERT INTO scan_alerts (dst_tcp_port, dst_udp_port, alert_type, src_ip, packet_count, first, latest) "
-			  "VALUES ('%d', '', %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
-			  "ON CONFLICT (src_ip, dst_tcp_port, dst_udp_port, alert_type) "
-			  "DO UPDATE SET packet_count=%d, latest=to_timestamp(%ld) "
-			  "WHERE %d > scan_alerts.packet_count AND to_timestamp(%ld) > scan_alerts.latest";
 
-		snprintf(query, MAX_QUERY, cmd, dst_port, alert_type,
-				ip_str, value->total_packet_count, value->first, value->latest,
-				/* fields to update */
-				value->total_packet_count, value->latest,
-				/* only update if packet count and timestamp are newer */
-				value->total_packet_count, value->latest);
+		snprintf(query, MAX_QUERY, FLAG_ALERT_QUERY, dst_port, alert_type,
+			 ip_str, value->total_packet_count, value->first, value->latest,
+			 /* fields to update */
+			 value->total_packet_count, value->latest,
+			 /* only update if packet count and timestamp are newer */
+			 value->total_packet_count, value->latest);
 	}
-
-
-	/* log_debug(LOG, "%s\n", query); */
 
 	db_res = PQexec(conn, query);
 

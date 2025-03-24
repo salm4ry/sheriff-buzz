@@ -21,6 +21,26 @@
 #define INIT_MAX_PORT -1
 #define INIT_MIN_PORT 65536
 
+/* get available alert types */
+static const char *ALERT_TYPE_QUERY = "SELECT * from alert_type";
+
+/* write port-based alert to database */
+static const char *PORT_ALERT_QUERY = "INSERT INTO scan_alerts (dst_tcp_port, dst_udp_port, alert_type, src_ip, port_count, packet_count, first, latest) "
+				      "VALUES ('%s', '%s', %d, '%s', %d, %d, to_timestamp(%ld), to_timestamp(%ld)) "
+				      "ON CONFLICT (src_ip, dst_tcp_port, dst_udp_port, alert_type) "
+				      "DO UPDATE SET port_count=%d, dst_tcp_port='%s', dst_udp_port='%s', latest=to_timestamp(%ld) "
+				      "WHERE %d > scan_alerts.packet_count AND to_timestamp(%ld) > scan_alerts.latest";
+
+/* write flag-based alert to database */
+static const char *FLAG_ALERT_QUERY = "INSERT INTO scan_alerts (dst_tcp_port, dst_udp_port, alert_type, src_ip, packet_count, first, latest) "
+				      "VALUES ('%d', '', %d, '%s', %d, to_timestamp(%ld), to_timestamp(%ld)) "
+				      "ON CONFLICT (src_ip, dst_tcp_port, dst_udp_port, alert_type) "
+				      "DO UPDATE SET packet_count=%d, latest=to_timestamp(%ld) "
+				      "WHERE %d > scan_alerts.packet_count AND to_timestamp(%ld) > scan_alerts.latest";
+
+/* write blocked IP to database */
+static const char *BLOCKED_IP_QUERY = "INSERT INTO blocked_ips (src_ip, time) VALUES ('%s', to_timestamp(%ld))";
+
 struct alert_type {
 	int XMAS_SCAN;
 	int FIN_SCAN;

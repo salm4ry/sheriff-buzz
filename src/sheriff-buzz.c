@@ -149,7 +149,7 @@ void cleanup()
 	close(LOG_FD);
 
 	/* clean up config */
-	free_config(&current_config);
+	drop_config(&current_config);
 
 	/* send cancellation requests to worker threads and wait for them to finish */
     if (db_worker) {

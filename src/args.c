@@ -23,7 +23,7 @@ char *addr_to_iface(char *address)
 	char *iface_name = NULL;
 
 	if (getifaddrs(&ifaces) == -1) {
-		perror("getifaddrs");
+		p_error("getifaddrs failed");
 		exit(errno);
 	}
 
@@ -45,7 +45,7 @@ char *addr_to_iface(char *address)
 			if (strncmp(iface_addr, address, NI_MAXHOST) == 0) {
 				iface_name = malloc((strlen(current_iface->ifa_name)+1) * sizeof(char));
 				if (!iface_name) {
-					perror("memory allocation failed");
+					p_error("failed to allocate iface_name");
 					freeifaddrs(ifaces);
 					exit(errno);
 				}

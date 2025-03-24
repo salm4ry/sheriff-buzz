@@ -224,12 +224,11 @@ void gen_log_name(char *name)
 			LOG_FILENAME_LENGTH, "log/%Y-%m-%d_%H-%M-%S");
 }
 
-/* TODO replace perror() with file, function, line etc. macro */
 void open_file(char *name, FILE **file)
 {
 	*file = fopen(name, "a");
-	if (!(*file)) {
-		perror("invalid file handle");
+	if (!*file) {
+		p_error("failled to open file");
 		exit(errno);
 	}
 }
@@ -238,7 +237,7 @@ void open_fd(char *name, int *fd)
 {
 	*fd = open(name, O_RDWR | O_APPEND);
 	if (*fd == -1) {
-		perror("invalid file descriptor");
+		p_error("failed to open file descriptor");
 		exit(errno);
 	}
 }
@@ -670,22 +669,27 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 
 	struct timespec start_time, end_time;
 
+	/* one single letter variable should be reserved
+	 * to indices; choose a better name than e
+	 */
 	struct xdp_rb_event *e = data;
 	struct key *current_key;
-	struct value *new_val;
+	struct value *val;
 
 	current_key = malloc(sizeof(struct key));
+	err = errno;
+
 	if (!current_key) {
-		perror("memory allocation failed");
-		err = errno;
+		p_error("failed to allocate current_key");
 		cleanup();
 		exit(err);
 	}
 
-	new_val = malloc(sizeof(struct value));
-	if (!new_val) {
-		perror("memory allocation failed");
-		err = errno;
+	val = malloc(sizeof(struct value));
+	err = errno;
+
+	if (!val) {
+		p_error("failed to allocate val");
 		cleanup();
 		exit(err);
 	}
@@ -709,7 +713,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
     }
 
 	/* set up hash table entry */
-	init_entry(packet_table, current_key, new_val, dst_port, protocol);
+	init_entry(packet_table, current_key, val, dst_port, protocol);
 
 	/* read packet and port thresholds from config file */
 	pthread_rwlock_rdlock(&config_lock);
@@ -723,38 +727,38 @@ int handle_event(void *ctx, void *data, size_t data_sz)
         scan_type = flag_based_scan(&e->tcp_header, types);
         /* check packet threshold */
         if (scan_type) {
-            if (new_val->total_packet_count >= packet_threshold) {
-                report_flag_based_alert(scan_type, current_key, new_val, address, dst_port);
+            if (val->total_packet_count >= packet_threshold) {
+                report_flag_based_alert(scan_type, current_key, val, address, dst_port);
                 is_alert = true;
             }
         }
     }
 
 	log_debug(LOG, "local port = %-5d port count = %-5d packet count = %-5d src IP = %s\n",
-				dst_port, new_val->total_port_count, new_val->total_packet_count, address);
+				dst_port, val->total_port_count, val->total_packet_count, address);
 
     /* detect port-based scans (all packets) */
-	if (new_val->total_port_count >= port_threshold) {
+	if (val->total_port_count >= port_threshold) {
 		is_alert = true;
-		report_port_based_alert(types.PORT_SCAN, current_key, new_val, address, port_threshold);
+		report_port_based_alert(types.PORT_SCAN, current_key, val, address, port_threshold);
 	}
 
 	if (is_alert) {
 		/* increment alert count */
-		new_val->alert_count++;
+		val->alert_count++;
 		/* check current number of alerts */
-		log_debug(LOG, "alert count for %s: %d\n", address, new_val->alert_count);
+		log_debug(LOG, "alert count for %s: %d\n", address, val->alert_count);
 
 		/* flag IP if alert threshold reached */
-		if (new_val->alert_count >= alert_threshold) {
+		if (val->alert_count >= alert_threshold) {
 			flagged = true;
 			total_blocked_ips ++;  /* update count for stats */
-			report_blocked_ip(current_key, new_val, address);
+			report_blocked_ip(current_key, val, address);
 		}
 	}
 
 	/* update hash table */
-	update_entry(packet_table, current_key, new_val, flagged);
+	update_entry(packet_table, current_key, val, flagged);
 
 	get_clock_time(&end_time);
 	update_total_time(&start_time, &end_time, &total_handle_time);
@@ -762,7 +766,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	total_packet_count++;
 
 	free(current_key);
-	free(new_val);
+	free(val);
 
 	return 0;
 }

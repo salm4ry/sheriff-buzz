@@ -25,7 +25,7 @@ char *format_prefix(char *base)
 
     char *prefix = malloc(MAX_PREFIX * sizeof(char));
     if (!prefix) {
-        perror("malloc");
+        p_error("failed to allocate prefix");
         exit(errno);
     }
 
@@ -49,13 +49,13 @@ void log_msg(FILE *file, char *prefix, char *fmt, va_list args)
 
     msg = malloc(MAX_LOG_MSG * sizeof(char));
     if (!msg) {
-        perror("malloc");
+        p_error("failed to allocate msg");
         exit(errno);
     }
 
     new_fmt = malloc(MAX_LOG_MSG * sizeof(char));
     if (!new_fmt) {
-        perror("malloc");
+        p_error("failed to allocate new_fmt");
         exit(errno);
     }
 

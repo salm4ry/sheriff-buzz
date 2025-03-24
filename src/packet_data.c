@@ -54,13 +54,13 @@ struct port_range *lookup_port_range(struct value *val)
 
 	ctx = malloc(sizeof(struct port_lookup_ctx));
 	if (!ctx) {
-		perror("memory allocation failed");
+		p_error("failed to allocate ctx");
 		exit(errno);
 	}
 
 	res = malloc(sizeof(struct port_range));
 	if (!res) {
-		perror("memory allocation failed");
+		p_error("failed to allocate res");
 		exit(errno);
 	}
 
@@ -500,8 +500,9 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 
 	new_task = malloc(sizeof(struct db_task));
 	if (!new_task) {
-		pr_err("memory allocation failed: %s\n", strerror(errno));
-		exit(1);
+		/* TODO improve error message */
+		p_error("memory allocation failed");
+		exit(errno);
 	}
 
 	if (alert_type == types.PORT_SCAN) {

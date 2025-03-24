@@ -145,22 +145,23 @@ void cleanup()
 		g_hash_table_destroy(packet_table);
 	}
 
-	fclose(LOG);
+	if (LOG)
+		fclose(LOG);
 	close(LOG_FD);
 
 	/* clean up config */
 	drop_config(&current_config);
 
 	/* send cancellation requests to worker threads and wait for them to finish */
-    if (db_worker) {
-	    pthread_cancel(db_worker);
-        pthread_join(db_worker, 0);
-    }
+	if (db_worker) {
+		pthread_cancel(db_worker);
+		pthread_join(db_worker, 0);
+	}
 
-    if (inotify_worker) {
-	    pthread_cancel(inotify_worker);
-        pthread_join(inotify_worker, 0);
-    }
+	if (inotify_worker) {
+		pthread_cancel(inotify_worker);
+		pthread_join(inotify_worker, 0);
+	}
 
 	PQfinish(db_conn);
 }
@@ -228,7 +229,7 @@ void open_file(char *name, FILE **file)
 {
 	*file = fopen(name, "a");
 	if (!*file) {
-		p_error("failled to open file");
+		p_error("failed to open file");
 		exit(errno);
 	}
 }
@@ -258,21 +259,23 @@ void init_config_path(char **relative_path, char **config_path, char **config_di
 	tmp = realpath(*relative_path, NULL);
 	if (!tmp) {
 		log_error(LOG, "%s: %s\n", *relative_path, strerror(errno));
-        return;
+		return;
 	}
-    *config_path = strndup(tmp, strlen(tmp)+1);
-    free(tmp);
+
+	*config_path = strndup(tmp, strlen(tmp)+1);
+	free(tmp);
 
 	/* set up config directory and filename using full config path */
 	dirc = strndup(*config_path, strlen(*config_path)+1);
 	tmp = dirname(dirc);
+
 	*config_dir = strndup(tmp, strlen(tmp)+1);
-    free(dirc);
+	free(dirc);
 
 	basec = strndup(*config_path, strlen(*config_path)+1);
 	tmp = basename(basec);
 	*config_filename = strndup(tmp, strlen(tmp)+1);
-    free(basec);
+	free(basec);
 }
 
 void load_config(char *path)
@@ -333,7 +336,8 @@ void get_thread_env(bool *use_db_thread) {
 
 	if (thread_env) {
 		/* strncmp() returns 0 if strings are equal */
-		*use_db_thread = strncmp(getenv("DB_THREAD"), "true", 5) == 0;
+		*use_db_thread = (strncmp(thread_env, "1", 2) == 0 ||
+				  strncmp(thread_env, "true", 5) == 0);
 	} else {
 		*use_db_thread = true;
 	}
@@ -440,18 +444,18 @@ void report_port_based_alert(int alert_type, struct key *key, struct value *val,
 char *procnum_to_str(int protocol)
 {
 	switch (protocol) {
-		case 1:
-			return "ICMP";
-		case 6:
-			return "TCP";
-		case 17:
-			return "UDP";
-		case 0:
-			/* ring buffer contains 0 for anything else */
-			return "other";
-		default:
-			/* we hopefully shouldn't see this! */
-			return "invalid";
+	case 1:
+		return "ICMP";
+	case 6:
+		return "TCP";
+	case 17:
+		return "UDP";
+	case 0:
+		/* ring buffer contains 0 for anything else */
+		return "other";
+	default:
+		/* we hopefully shouldn't see this! */
+		return "invalid";
 	}
 }
 
@@ -463,8 +467,8 @@ void ip_to_str(in_addr_t address, char buffer[]) {
 
 /* get port list from comma-separated file */
 int *get_port_list(char *filename, int num_ports) {
-	FILE *fptr;
-	char *buffer = NULL;
+	FILE *file;
+	char *buf = NULL;
 	size_t bufsize;
 
 	char *token;
@@ -472,34 +476,38 @@ int *get_port_list(char *filename, int num_ports) {
 	int index = 0;
 	int *port_list = NULL;
 
-	fptr = fopen(filename, "r");
+	int err = 0;
 
-	if (fptr) {
-		getline(&buffer, &bufsize, fptr);
-		/* list of ports is comma-separated */
-		token = strtok(buffer, delim);
+	file = fopen(filename, "r");
+	err = errno;
 
-		/* allocate memory for final port list */
-		port_list = malloc(num_ports * sizeof(int));
-		if (!port_list) {
-			perror("memory allocation failed");
-			cleanup();
-			exit(1);
-		}
-
-
-		while (token) {
-			port_list[index++] = atoi(token);
-			token = strtok(NULL, delim);
-		}
-		free(buffer);
-	} else {
-		log_error(LOG, "failed to open file %s\n", filename);
-		exit(1);
+	if (!file) {
+		log_error(LOG, "failed to open file %s: %s\n", filename, strerror(err));
+		exit(err);
 	}
 
-	/* close file */
-	fclose(fptr);
+	getline(&buf, &bufsize, file);
+	/* list of ports is comma-separated */
+	token = strtok(buf, delim);
+
+	/* allocate memory for final port list */
+	port_list = malloc(num_ports * sizeof(int));
+	err = errno;
+	if (!port_list) {
+		p_error("failed to allocate port_list");
+		cleanup();
+		exit(err);
+	}
+
+
+	while (token) {
+		port_list[index++] = atoi(token);
+		token = strtok(NULL, delim);
+	}
+
+	free(buf);
+
+	fclose(file);
 	return port_list;
 }
 
@@ -510,10 +518,9 @@ __attribute__((noinline)) int submit_ip_entry(__u32 src_ip, int type)
 	struct ip_rb_event *e;
 
 	e = user_ring_buffer__reserve(ip_rb, sizeof(*e));
-	if (!e) {
-		err = -errno;
-		return err;
-	}
+	err = -errno;
+	if (!e)
+		goto out;
 
 	/* fill out ring buffer sample */
 	e->src_ip = src_ip;
@@ -521,6 +528,7 @@ __attribute__((noinline)) int submit_ip_entry(__u32 src_ip, int type)
 
 	/* submit ring buffer event */
 	user_ring_buffer__submit(ip_rb, e);
+out:
 	return err;
 }
 
@@ -549,7 +557,7 @@ void report_blocked_ip(struct key *key, struct value *val, char *ip_str)
 
 	if (use_db_thread) {
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
-				UNDEFINED, types, key, val, UNDEFINED, LOG);
+			   UNDEFINED, types, key, val, UNDEFINED, LOG);
 	} else {
 		db_write_blocked_ip(db_conn, key, val, LOG);
 	}
@@ -557,47 +565,51 @@ void report_blocked_ip(struct key *key, struct value *val, char *ip_str)
 
 
 __attribute__((noinline)) int submit_subnet_entry(struct subnet *entry,
-        int index, int type)
+						  int index, int type)
 {
-    int err = 0;
-    struct subnet_rb_event *e;
+	int err = 0;
+	struct subnet_rb_event *e;
 
-    e = user_ring_buffer__reserve(subnet_rb, sizeof(*e));
-    if (!e) {
-        err = -errno;
-        return err;
-    }
+	e = user_ring_buffer__reserve(subnet_rb, sizeof(*e));
+	err = -errno;
 
-    /* fill out ring buffer sample */
-    e->mask = entry->mask;
-    e->network_addr = entry->network_addr;
-    e->index = index;
-    e->type = type;
+	if (!e)
+		goto out;
 
-    user_ring_buffer__submit(subnet_rb, e);
-    return err;
+	/* fill out ring buffer sample */
+	e->mask = entry->mask;
+	e->network_addr = entry->network_addr;
+	e->index = index;
+	e->type = type;
+
+	user_ring_buffer__submit(subnet_rb, e);
+out:
+	return err;
 }
 
 void submit_subnet_list()
 {
-    int index = 0;
+	int index = 0;
 
-    pthread_rwlock_rdlock(&config_lock);
-    if (current_config.blacklist_subnet) {
-        for (int i = 0; i < current_config.blacklist_subnet->size; i++) {
-            submit_subnet_entry(&current_config.blacklist_subnet->entries[i],
-                    index, BLACKLIST);
-            index++;
-        }
-    }
-    if (current_config.whitelist_subnet) {
-        for (int i = 0; i < current_config.whitelist_subnet->size; i++) {
-            submit_subnet_entry(&current_config.whitelist_subnet->entries[i],
-                    index, WHITELIST);
-            index++;
-        }
-    }
-    pthread_rwlock_unlock(&config_lock);
+	pthread_rwlock_rdlock(&config_lock);
+
+	if (current_config.blacklist_subnet) {
+		for (int i = 0; i < current_config.blacklist_subnet->size; i++) {
+			submit_subnet_entry(&current_config.blacklist_subnet->entries[i],
+					    index, BLACKLIST);
+			index++;
+		}
+	}
+
+	if (current_config.whitelist_subnet) {
+		for (int i = 0; i < current_config.whitelist_subnet->size; i++) {
+			submit_subnet_entry(&current_config.whitelist_subnet->entries[i],
+					    index, WHITELIST);
+			index++;
+		}
+	}
+
+	pthread_rwlock_unlock(&config_lock);
 }
 
 __attribute__((noinline)) int submit_port_entry(__u16 port)
@@ -606,15 +618,16 @@ __attribute__((noinline)) int submit_port_entry(__u16 port)
 	struct port_rb_event *e;
 
 	e = user_ring_buffer__reserve(port_rb, sizeof(*e));
-	if (!e) {
-		err = -errno;
-		return err;
-	}
+	err = errno;
+
+	if (!e)
+		goto out;
 
 	/* fill out ring buffer sample */
 	e->port_num = port;
 
 	user_ring_buffer__submit(port_rb, e);
+out:
 	return err;
 }
 
@@ -632,35 +645,37 @@ void submit_port_list()
 __attribute__((noinline)) int submit_config()
 {
 	int err = 0;
-	struct config_rb_event *e;
+	struct config_rb_event *event;
 
-	e = user_ring_buffer__reserve(config_rb, sizeof(*e));
-	if (!e) {
-		err = -errno;
-		return err;
-	}
+	event = user_ring_buffer__reserve(config_rb, sizeof(*event));
+	err = -errno;
+
+	if (!event)
+		goto out;
 
 	log_debug(LOG, "%s\n", "submitting config");
 
 	/* fill out ring buffer sample */
 	pthread_rwlock_rdlock(&config_lock);
-	e->block_src = current_config.block_src;
-	e->redirect_ip = current_config.redirect_ip;
-	e->dry_run = current_config.dry_run;
+	event->block_src = current_config.block_src;
+	event->redirect_ip = current_config.redirect_ip;
+	event->dry_run = current_config.dry_run;
 	pthread_rwlock_unlock(&config_lock);
 
-	user_ring_buffer__submit(config_rb, e);
-
+	user_ring_buffer__submit(config_rb, event);
+out:
 	return err;
 }
 
 /* called for each packet sent through the ring buffer */
 int handle_event(void *ctx, void *data, size_t data_sz)
 {
-    char address[MAX_ADDR_LEN];
-    __u8 protocol;
-	int dst_port, err;
-	int port_threshold, packet_threshold, alert_threshold, scan_type;
+	char address[MAX_ADDR_LEN];
+	__u8 protocol;
+	int dst_port;
+	int port_threshold, packet_threshold, alert_threshold;
+	int scan_type;
+	int err = 0;
 
 	/* did this packet cause an alert? (used to determine whether to check alert
 	 * threshold) */
@@ -669,10 +684,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 
 	struct timespec start_time, end_time;
 
-	/* one single letter variable should be reserved
-	 * to indices; choose a better name than e
-	 */
-	struct xdp_rb_event *e = data;
+	struct xdp_rb_event *event = data;
 	struct key *current_key;
 	struct value *val;
 
@@ -698,21 +710,25 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 
 	/* extract data from IP and TCP headers */
 	/* source IP address */
-	current_key->src_ip = src_addr(&e->ip_header);
+	current_key->src_ip = src_addr(&event->ip_header);
 	ip_to_str(current_key->src_ip, address);
 
-    protocol = protocol_num(&e->ip_header);
-    /* get destination port depending on protocol */
-    switch (protocol) {
-        case TCP_PNUM:
-            dst_port = tcp_dst_port(&e->tcp_header);
-            break;
-        case UDP_PNUM:
-            dst_port = udp_dst_port(&e->udp_header);
-            break;
-    }
+	protocol = protocol_num(&event->ip_header);
+	/* get destination port depending on protocol */
+	switch (protocol) {
+	case TCP_PNUM:
+		dst_port = tcp_dst_port(&event->tcp_header);
+		break;
+	case UDP_PNUM:
+		dst_port = udp_dst_port(&event->udp_header);
+		break;
+	default:
+		dst_port = 0;
+		break;
+	}
 
 	/* set up hash table entry */
+	/* TODO can init_entry() handle garbage destination port? */
 	init_entry(packet_table, current_key, val, dst_port, protocol);
 
 	/* read packet and port thresholds from config file */
@@ -722,22 +738,22 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	alert_threshold = current_config.alert_threshold;
 	pthread_rwlock_unlock(&config_lock);
 
-    /* detect flag-based scans (TCP only) */
-    if (protocol == TCP_PNUM) {
-        scan_type = flag_based_scan(&e->tcp_header, types);
-        /* check packet threshold */
-        if (scan_type) {
-            if (val->total_packet_count >= packet_threshold) {
-                report_flag_based_alert(scan_type, current_key, val, address, dst_port);
-                is_alert = true;
-            }
-        }
-    }
+	/* detect flag-based scans (TCP only) */
+	if (protocol == TCP_PNUM) {
+		scan_type = flag_based_scan(&event->tcp_header, types);
+		/* check packet threshold */
+		if (scan_type) {
+			if (val->total_packet_count >= packet_threshold) {
+				report_flag_based_alert(scan_type, current_key, val, address, dst_port);
+				is_alert = true;
+			}
+		}
+	}
 
 	log_debug(LOG, "local port = %-5d port count = %-5d packet count = %-5d src IP = %s\n",
-				dst_port, val->total_port_count, val->total_packet_count, address);
+		  dst_port, val->total_port_count, val->total_packet_count, address);
 
-    /* detect port-based scans (all packets) */
+	/* detect port-based scans (all packets) */
 	if (val->total_port_count >= port_threshold) {
 		is_alert = true;
 		report_port_based_alert(types.PORT_SCAN, current_key, val, address, port_threshold);
@@ -768,7 +784,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	free(current_key);
 	free(val);
 
-	return 0;
+	return err;
 }
 
 void handle_inotify_events(int fd, const char *target_path, const char *target_filename,
@@ -901,19 +917,21 @@ void inotify_thread_work(void *args)
 int main(int argc, char *argv[])
 {
 	struct args init_args;
-	char *config_dir, *config_path = NULL, *config_filename;
+	char *config_dir = NULL;
+	char *config_path = NULL;
+	char *config_filename = NULL;
 
 	const char *DEFAULT_CONFIG_PATH = "config/default.json";
 
-    /* map file descriptors */
+	/* map file descriptors */
 	int ip_list_fd, subnet_list_fd, port_list_fd, config_hash_fd;
 
-    /* ring buffers */
-    int xdp_rb_fd, ip_rb_fd, subnet_rb_fd, port_rb_fd, config_rb_fd;
+	/* ring buffers */
+	int xdp_rb_fd, ip_rb_fd, subnet_rb_fd, port_rb_fd, config_rb_fd;
 
 	/* arguments to pass to database and inotify worker threads */
 	struct db_thread_args db_worker_args;
-    bool use_inotify_thread = true;
+	bool use_inotify_thread = true;
 	struct inotify_thread_args inotify_worker_args;
 
 	/* parse command-line arguments */
@@ -930,8 +948,8 @@ int main(int argc, char *argv[])
 
 	ifindex = if_nametoindex(init_args.interface);
 	if (ifindex == 0) {
-        pr_err("error setting up interface %s: %s\n", init_args.interface,
-                strerror(errno));
+		pr_err("error setting up interface %s: %s\n", init_args.interface,
+		       strerror(errno));
 		exit(errno);
 	}
 
@@ -947,22 +965,21 @@ int main(int argc, char *argv[])
 
 	/* load argument-specified config file */
 	init_config_path(&init_args.config_file, &config_path, &config_dir,
-            &config_filename, LOG);
+			 &config_filename, LOG);
 
-    if (config_path) {
-	    log_info(LOG, "loading config from %s\n", config_path);
-	    load_config(config_path);
-    } else {
-        /* use default config path, directory, and filename */
-        init_config_path((char **) &DEFAULT_CONFIG_PATH,
-                &config_path, &config_dir, &config_filename, LOG);
-        /* default config not found */
-        if (!config_path) {
-            log_info(LOG, "no default config at %s\n",
-                    DEFAULT_CONFIG_PATH);
-            use_inotify_thread = false;
-        }
-    }
+	if (config_path) {
+		log_info(LOG, "loading config from %s\n", config_path);
+		load_config(config_path);
+	} else {
+		/* use default config path, directory, and filename */
+		init_config_path((char **) &DEFAULT_CONFIG_PATH,
+				 &config_path, &config_dir, &config_filename, LOG);
+		/* default config not found */
+		if (!config_path) {
+			log_info(LOG, "no default config at %s\n", DEFAULT_CONFIG_PATH);
+			use_inotify_thread = false;
+		}
+	}
 
 	/* apply dry run setting from command-line arguments */
 	current_config.dry_run = init_args.dry_run;
@@ -974,9 +991,9 @@ int main(int argc, char *argv[])
 	/* determine whether we're going to have a database worker thread */
 	get_thread_env(&use_db_thread);
 
-    /* load and attach XDP program */
-    err = init_xdp_prog(&xdp_obj, init_args.bpf_obj_file, "process_packet",
-            ifindex, xdp_flags, LOG);
+	/* load and attach XDP program */
+	err = init_xdp_prog(&xdp_obj, init_args.bpf_obj_file, "process_packet",
+			    ifindex, xdp_flags, LOG);
 	if (err < 0)
 		goto fail;
 
@@ -986,24 +1003,24 @@ int main(int argc, char *argv[])
 	subnet_list_fd = get_bpf_map_fd(xdp_obj, "subnet_list");
 	port_list_fd = get_bpf_map_fd(xdp_obj, "port_list");
 
-    /* load and attach IP list uretprobe */
+	/* load and attach IP list uretprobe */
 	ip_uretprobe_args.uretprobe_obj = &ip_uretprobe_obj;
 	ip_uretprobe_args.filename = init_args.bpf_obj_file;
 	ip_uretprobe_args.bpf_map_fd = ip_list_fd;
 	if (init_uretprobe(&ip_uretprobe_args, LOG) <= 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
-				init_args.bpf_obj_file);
+			  init_args.bpf_obj_file);
 		err = -1;
 		init_cleanup(err);
 	}
 
-    /* load and attach subnet list uretprobe */
+	/* load and attach subnet list uretprobe */
 	subnet_uretprobe_args.uretprobe_obj = &subnet_uretprobe_obj;
 	subnet_uretprobe_args.filename = init_args.bpf_obj_file;
 	subnet_uretprobe_args.bpf_map_fd = subnet_list_fd;
 	if (init_uretprobe(&subnet_uretprobe_args, LOG) <= 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
-				init_args.bpf_obj_file);
+			  init_args.bpf_obj_file);
 		err = -1;
 		init_cleanup(err);
 	}
@@ -1014,7 +1031,7 @@ int main(int argc, char *argv[])
 	port_uretprobe_args.bpf_map_fd = port_list_fd;
 	if (init_uretprobe(&port_uretprobe_args, LOG) <= 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
-				init_args.bpf_obj_file);
+			  init_args.bpf_obj_file);
 		err = -1;
 		init_cleanup(err);
 	}
@@ -1029,7 +1046,7 @@ int main(int argc, char *argv[])
 	config_uretprobe_args.bpf_map_fd = config_hash_fd;
 	if (init_uretprobe(&config_uretprobe_args, LOG) <= 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
-				init_args.bpf_obj_file);
+			  init_args.bpf_obj_file);
 		err = -1;
 		init_cleanup(err);
 	}
@@ -1048,11 +1065,7 @@ int main(int argc, char *argv[])
 		init_cleanup(err);
 	}
 
-	/* create hash table
-	 *
-	 * hash function = djb hash
-	 * key equal function = string equality
-	 */
+	/* create hash table */
 	packet_table = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, g_free);
 
 	/* initialise database task queue */
@@ -1072,7 +1085,7 @@ int main(int argc, char *argv[])
 	ip_rb_fd = get_bpf_map_fd(ip_uretprobe_obj, "ip_rb");
 	init_user_rb(&ip_rb, ip_rb_fd);
 
-    /* set up subnet user ring buffer */
+	/* set up subnet user ring buffer */
 	subnet_rb_fd = get_bpf_map_fd(subnet_uretprobe_obj, "subnet_rb");
 	init_user_rb(&subnet_rb, subnet_rb_fd);
 
@@ -1086,13 +1099,13 @@ int main(int argc, char *argv[])
 	/* submit initial config to BPF program */
 	submit_config(); /* block/redirect blacklisted IPs + dry run mode */
 	submit_ip_list(); /* IP blacklist + whitelist */
-    submit_subnet_list(); /* subnet blacklist + whitelist */
+	submit_subnet_list(); /* subnet blacklist + whitelist */
 	submit_port_list(); /* port whitelist */
 
-	/* create database worker thread
-	 *
-	 * (pass database connection and task queue information as args to work
-	 * function) */
+	/*
+	 * create database worker thread
+	 * (pass database connection and task queue information as args to work function)
+	 */
 	if (use_db_thread) {
 		db_worker_args.db_conn = db_conn;
 		db_worker_args.head = &task_queue_head;
@@ -1102,25 +1115,61 @@ int main(int argc, char *argv[])
 		init_db_thread((void *) db_thread_work, &db_worker_args);
 	}
 
-	/* create config file worker thread
+	/*
+	 * create config file worker thread
 	 *
-	 * (pass config structure as argument to work function) */
-    if (use_inotify_thread) {
-	    inotify_worker_args.config_path = strndup(config_path, strlen(config_path)+1);
-	    inotify_worker_args.config_dir = strndup(config_dir, strlen(config_dir)+1);
-	    inotify_worker_args.config_filename = strndup(config_filename, strlen(config_filename)+1);
-        if (!inotify_worker_args.config_path ||
-		    !inotify_worker_args.config_dir ||
-		    !inotify_worker_args.config_filename) {
-            perror("memory allocation failed");
-            exit(errno);
-        }
+	 * (pass config structure as argument to work function)
+	 */
+	if (use_inotify_thread) {
+		inotify_worker_args.config_path = strndup(config_path, strlen(config_path)+1);
+		err = -errno;
 
-    	inotify_worker_args.current_config = &current_config;
-    	inotify_worker_args.lock = &config_lock;
+		if (!inotify_worker_args.config_path) {
+			p_error("no space for inotify worker");
+			goto fail;
+		} else {
+			free(config_path);
+			config_path = NULL;
+		}
 
-	    init_inotify_thread((void *) inotify_thread_work, &inotify_worker_args);
-    }
+		inotify_worker_args.config_dir = strndup(config_dir, strlen(config_dir)+1);
+		err = -errno;
+
+		if (!inotify_worker_args.config_dir) {
+			p_error("no space for inotify worker");
+
+			free(inotify_worker_args.config_path);
+			inotify_worker_args.config_path = NULL;
+
+			goto fail;
+		} else {
+			free(config_dir);
+			config_dir = NULL;
+		}
+
+		inotify_worker_args.config_filename = strndup(config_filename, strlen(config_filename)+1);
+		err = -errno;
+
+		if (!inotify_worker_args.config_filename) {
+			p_error("no space for inotify worker");
+
+			free(inotify_worker_args.config_path);
+			inotify_worker_args.config_path = NULL;
+
+			free(inotify_worker_args.config_dir);
+			inotify_worker_args.config_dir = NULL;
+
+			goto fail;
+		} else {
+			free(config_filename);
+			config_filename = NULL;
+		}
+
+		inotify_worker_args.current_config = &current_config;
+		inotify_worker_args.lock = &config_lock;
+
+		init_inotify_thread((void *) inotify_thread_work, &inotify_worker_args);
+	}
 
 	/* poll ring buffer */
 	while (!exiting) {
@@ -1133,14 +1182,19 @@ int main(int argc, char *argv[])
 
 		if (err < 0) {
 			log_error(LOG, "ring buffer polling failed: %d\n", err);
-			break;
+			goto fail;
 		}
 	}
 
+
 	cleanup();
-	return 0;
+	return -err;
 
 fail:
+	free(config_path);
+	free(config_dir);
+	free(config_filename);
+
 	switch (-err) {
 		case EBUSY:
 		case EEXIST:
@@ -1149,13 +1203,14 @@ fail:
 		case ENOMEM:
 		case EOPNOTSUPP:
 			log_error(LOG, "native XDP not supported on device %s, try --skb-mode\n",
-					init_args.interface);
+				  init_args.interface);
 			break;
 		default:
 			log_error(LOG, "XDP attach on %s failed %d: %s\n",
-				init_args.interface, err, strerror(-err));
+				  init_args.interface, err, strerror(-err));
 			break;
 	}
 
+	cleanup();
 	return -err;
 }

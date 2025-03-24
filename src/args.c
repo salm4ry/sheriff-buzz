@@ -50,7 +50,7 @@ char *addr_to_iface(char *address)
 					exit(errno);
 				}
 
-				/* copy interface name to be retunred */
+				/* copy interface name to be returned */
 				strncpy(iface_name, current_iface->ifa_name, strlen(current_iface->ifa_name)+1);
 				break;
 			}
@@ -73,16 +73,16 @@ void set_default_args(struct args *args)
 	args->interface = default_args.interface;
 }
 
-void print_usage(const char *prog_name)
+void usage(const char *prog_name)
 {
 	printf("usage: %s -i <interface> | -a <address> [<args>]\n", prog_name);
-    printf("-i, --interface <name>: name of network interface to attach to\n");
-    printf("-a, --address <address>: address of network interface to attach to\n");
-    printf("-c, --config-file <filename>: path to config file\n");
-    printf("-l, --log-file <filename>: path to log file\n");
-    printf("-b, --bpf-obj <path>: path to BPF object file\n");
-    printf("-s, --skb-mode: enable SKB mode (use if native XDP not supported)\n");
-    printf("-d, --dry-run: enable dry run mode\n");
+	printf("-i, --interface <name>: name of network interface to attach to\n"
+	       "-a, --address <address>: address of network interface to attach to\n"
+	       "-c, --config <filename>: path to config file\n"
+	       "-l, --log <filename>: path to log file\n"
+	       "-b, --bpf-obj <path>: path to BPF object file\n"
+	       "-s, --skb-mode: enable SKB mode (use if native XDP not supported)\n"
+	       "-d, --dry-run: enable dry run mode\n");
 }
 
 void parse_args(int argc, char *argv[], struct args *args)
@@ -93,51 +93,66 @@ void parse_args(int argc, char *argv[], struct args *args)
 
 	while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
 		switch (opt) {
-            case 'h':
-                print_usage(argv[0]);
-                exit(EXIT_SUCCESS);
-			case 'c':
-				/* config file path */
-				args->config_file = optarg;
-				break;
-			case 'l':
-				/* log file path */
-				args->log_file = optarg;
-				break;
-			case 's':
-				args->skb_mode = true;
-				break;
-			case 'i':
-				/* allocate memory for interface name (if not already obtained
-				 * from -a) */
-				if (!args->interface) {
-					args->interface = malloc((strlen(optarg)+1) * sizeof(char));
-						if (!args->interface) {
-						perror("memory allocation failed");
-						exit(EXIT_FAILURE);
+		case 'h':
+			usage(argv[0]);
+			exit(EXIT_SUCCESS);
+		case 'c':
+			/* config file path */
+			args->config_file = optarg;
+			break;
+		case 'l':
+			/* log file path */
+			args->log_file = optarg;
+			break;
+		case 's':
+			args->skb_mode = true;
+			break;
+		case 'i':
+			/* allocate memory for interface name (if not already obtained from -a) */
+			if (!args->interface) {
+				args->interface = malloc((strlen(optarg)+1) * sizeof(char));
+					if (!args->interface) {
+						p_error("Failed to allocate interface");
+						exit(errno);
 					}
 
-					/* copy interface name from arguments */
-					strncpy(args->interface, optarg, strlen(optarg)+1);
-				}
-				break;
-			case 'a':
-				/* get interface for provided address (if not already obtained
-				 * from -i) */
-				if (!args->interface) {
-					args->interface = addr_to_iface(optarg);
-				}
-				break;
-			case 'b':
-				args->bpf_obj_file = optarg;
-				break;
-			case 'd':
-				args->dry_run = true;
-				break;
-			default:
-				/* unrecognised argument: print usage and exit */
-				print_usage(argv[0]);
+				/* copy interface name from arguments */
+				strncpy(args->interface, optarg, strlen(optarg)+1);
+			} else {
+				printf("interface already set, ignoring -i\n");
+				/* TODO should we exit with an error or continue? */
+			}
+			break;
+		case 'a':
+			/* set interface for provided address if not already set
+			 * addr_to_iface() is responsible for all the error handing
+			 */
+			if (!args->interface) {
+				args->interface = addr_to_iface(optarg);
+			} else {
+				printf("interface already set, ignoring -a\n");
+				/* TODO should we exit with an error or continue? */
+			}
+
+			if (!args->interface) {
+				/* we get here if we fail to find an interface that matches
+				 * the user provided IP address
+				 */
+				printf("no interface found with address %s\n",
+						optarg);
 				exit(EXIT_FAILURE);
+			}
+			break;
+		case 'b':
+			args->bpf_obj_file = optarg;
+			break;
+		case 'd':
+			args->dry_run = true;
+			break;
+		default:
+			/* invalid argument: print usage and exit */
+			usage(argv[0]);
+			exit(EXIT_FAILURE);
 		}
 	}
 }

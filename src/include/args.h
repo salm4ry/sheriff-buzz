@@ -28,8 +28,8 @@ struct args {
  */
 static struct option long_opts[] = {
     {"help", no_argument, NULL, 'h'},
-	{"config-file", required_argument, NULL, 'c'},
-	{"log-file", required_argument, NULL, 'l'},
+	{"config", required_argument, NULL, 'c'},
+	{"log", required_argument, NULL, 'l'},
 	{"bpf-obj", required_argument, NULL, 'b'},
 	{"skb-mode", no_argument, NULL, 's'},
 	{"interface", required_argument, NULL, 'i'},
@@ -55,7 +55,7 @@ static struct args default_args = {
 
 char *addr_to_iface(char *address);
 void set_default_args(struct args *args);
-void print_usage(const char *prog_name);
+void usage(const char *prog_name);
 void parse_args(int argc, char *argv[], struct args *args);
 
 #endif

@@ -920,7 +920,7 @@ int main(int argc, char *argv[])
 	parse_args(argc, argv, &init_args);
 
 	if (!init_args.interface) {
-		print_usage(argv[0]);
+		usage(argv[0]);
 		exit(EXIT_FAILURE);
 	}
 

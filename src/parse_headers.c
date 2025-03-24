@@ -16,7 +16,7 @@ __u32 src_addr(struct iphdr *ip_header)
 
 __u8 protocol_num(struct iphdr *ip_header)
 {
-    return ip_header->protocol;
+	return ip_header->protocol;
 }
 
 /* get flag value 0/1 from TCP headers

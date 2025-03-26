@@ -436,9 +436,9 @@ void drop_config(struct config *config)
 void fallback_config(struct config *config, pthread_rwlock_t *lock)
 {
 	pthread_rwlock_wrlock(lock);
-	config->packet_threshold = 5;
-	config->port_threshold = 100;
-	config->alert_threshold = 3;
+	config->packet_threshold = FALLBACK_PACKET_THRESHOLD;
+	config->port_threshold = FALLBACK_PORT_THRESHOLD;
+	config->alert_threshold = FALLBACK_ALERT_THRESHOLD;
 
 	/* block by default (no IP to redirect to) */
 	config->block_src = true;

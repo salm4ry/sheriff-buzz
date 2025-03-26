@@ -28,6 +28,11 @@
 
 #define MAX_EVENT 4096
 
+/* fallback config */
+#define FALLBACK_PACKET_THRESHOLD 5
+#define FALLBACK_PORT_THRESHOLD 100
+#define FALLBACK_ALERT_THRESHOLD 3
+
 struct subnet {
 	in_addr_t network_addr;
 	in_addr_t mask;

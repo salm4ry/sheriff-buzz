@@ -17,11 +17,10 @@ version*
 
 ### Compilation Tools
 - `clang`
-- `clang-tools` (contains `scan-build`)
-- `python3-pygments` (contains `pygmentize`)
 - `make`
 - `pkg-config`
-- `bpftool`
+- `clang-tools` *(optional- for `scan-build`)*
+- `python3-pygments` *(optional- for `pygmentize`)*
 
 ### Libraries
 - `libglib2.0-dev`

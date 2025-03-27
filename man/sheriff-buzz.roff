@@ -1,4 +1,4 @@
-.TH man 8 sheriff-buzz
+.TH man 7 sheriff-buzz
 
 .SH NAME
 sheriff-buzz \- intrusion detection and response with eBPF
@@ -7,7 +7,10 @@ sheriff-buzz \- intrusion detection and response with eBPF
 sheriff-buzz -i <interface> | -d <address> [OPTIONS]
 
 .SH DESCRIPTION
-sjdfhaskfjdha
+Detect port scans, blocking/redirecting traffic from hosts deemed suspicious.
+
+Either a network interface name or address is required for attaching; everything
+else is optional.
 
 .SH OPTIONS
 
@@ -20,12 +23,19 @@ name of network interface to attach to
 address of network interface to attach to
 
 .TP
-.B --config-file, -c <path>
-path to JSON config file
+.B --config, -c <path>
+path to JSON config file (default is
+.B ./config/default.json)
+
+.TP
+.B --log, -l <path>
+path to log file (default is 
+.B /var/log/sheriff-buzz.log)
 
 .TP
 .B --bpf-obj, -b <path>
-path to BPF object file
+path to BPF object file (default is 
+.B ./src/sheriff-buzz.bpf.o)
 
 .TP
 .B --skb-mode, -s

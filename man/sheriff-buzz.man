@@ -1,6 +1,4 @@
-man(8)                      System Manager's Manual                     man(8)
-
-
+_m_a_n(7)                 Miscellaneous Information Manual                 _m_a_n(7)
 
 NNAAMMEE
        sheriff-buzz - intrusion detection and response with eBPF
@@ -11,7 +9,11 @@ SSYYNNOOPPSSIISS
 
 
 DDEESSCCRRIIPPTTIIOONN
-       sjdfhaskfjdha
+       Detect  port scans, blocking/redirecting traffic from hosts deemed sus-
+       picious.
+
+       Either a network interface name or address is required  for  attaching;
+       everything else is optional.
 
 
 OOPPTTIIOONNSS
@@ -23,12 +25,16 @@ OOPPTTIIOONNSS
               address of network interface to attach to
 
 
-       ----ccoonnffiigg--ffiillee,, --cc <<ppaatthh>>
-              path to JSON config file
+       ----ccoonnffiigg,, --cc <<ppaatthh>>
+              path to JSON config file (default is ..//ccoonnffiigg//ddeeffaauulltt..jjssoonn))
+
+
+       ----lloogg,, --ll <<ppaatthh>>
+              path to log file (default is //vvaarr//lloogg//sshheerriiffff--bbuuzzzz..lloogg))
 
 
        ----bbppff--oobbjj,, --bb <<ppaatthh>>
-              path to BPF object file
+              path to BPF object file (default is ..//ssrrcc//sshheerriiffff--bbuuzzzz..bbppff..oo))
 
 
        ----sskkbb--mmooddee,, --ss
@@ -43,6 +49,4 @@ OOPPTTIIOONNSS
 AAUUTTHHOORR
        Salma Berriche (smb114@student.bham.ac.uk)
 
-
-
-                                 sheriff-buzz                           man(8)
+                                 sheriff-buzz                           _m_a_n(7)

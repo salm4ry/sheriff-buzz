@@ -42,3 +42,7 @@ All configuration is optional; defaults are in `./config/default.json` and an
 example is in `./config/example_config.json`.
 
 See [the config README](config/README.md) for option information
+
+## Licensing
+
+This project is licenseed under GNU GPL 2.0.

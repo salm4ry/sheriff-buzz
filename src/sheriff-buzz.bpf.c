@@ -272,7 +272,7 @@ inline void change_dst_addr(struct iphdr *ip_headers, __be32 dst_ip)
 	ip_checksum(ip_headers);
 }
 
-/**
+/*
  * IP user ring buffer callback
  *
  * Add black/whitelisted IP sent from user space to BPF array map
@@ -460,7 +460,7 @@ int subnet_state(__u32 src_ip)
 	/* set up loop callback args */
 	struct subnet_loop_ctx ctx = {
 		.src_ip = src_ip,
-		.type = -1
+		.type = _XDP_STATE_UNKNOWN
 	};
 
     /* iterate through subnet list */
@@ -487,21 +487,21 @@ void submit_tcp_headers(struct iphdr *ip_headers, struct tcphdr *tcp_headers)
 	struct xdp_rb_event *event;
 
 	if (ip_headers && tcp_headers) {
-	/* IP not black/whitelisted- send TCP headers to user space */
+		/* IP not black/whitelisted- send TCP headers to user space */
 
-	/* reserve ring buffer sample */
-	event = bpf_ringbuf_reserve(&xdp_rb, sizeof(*event), 0);
-	if (!event) {
-		bpf_debug("XDP ring buffer allocation failed");
-		return;
-	}
+		/* reserve ring buffer sample */
+		event = bpf_ringbuf_reserve(&xdp_rb, sizeof(*event), 0);
+		if (!event) {
+			bpf_debug("XDP ring buffer allocation failed");
+			return;
+		}
 
-	/* fill out ring buffer sample */
-	event->ip_header = *ip_headers;
-	event->tcp_header = *tcp_headers;
+		/* fill out ring buffer sample */
+		event->ip_header = *ip_headers;
+		event->tcp_header = *tcp_headers;
 
-	/* submit ring buffer event */
-	bpf_ringbuf_submit(event, 0);
+		/* submit ring buffer event */
+		bpf_ringbuf_submit(event, 0);
 	}
 }
 
@@ -510,21 +510,21 @@ void submit_udp_headers(struct iphdr *ip_headers, struct udphdr *udp_headers)
 	struct xdp_rb_event *event;
 
 	if (ip_headers && udp_headers) {
-	/* IP not black/whitelisted- send TCP headers to user space */
+		/* IP not black/whitelisted- send TCP headers to user space */
 
-	/* reserve ring buffer sample */
-	event = bpf_ringbuf_reserve(&xdp_rb, sizeof(*event), 0);
-	if (!event) {
-		bpf_debug("XDP ring buffer allocation failed");
-		return;
-	}
+		/* reserve ring buffer sample */
+		event = bpf_ringbuf_reserve(&xdp_rb, sizeof(*event), 0);
+		if (!event) {
+			bpf_debug("XDP ring buffer allocation failed");
+			return;
+		}
 
-	/* fill out ring buffer sample */
-	event->ip_header = *ip_headers;
-	event->udp_header = *udp_headers;
+		/* fill out ring buffer sample */
+		event->ip_header = *ip_headers;
+		event->udp_header = *udp_headers;
 
-	/* submit ring buffer event */
-	bpf_ringbuf_submit(event, 0);
+		/* submit ring buffer event */
+		bpf_ringbuf_submit(event, 0);
 	}
 }
 
@@ -608,44 +608,44 @@ int process_packet(struct xdp_md *ctx)
 		/* does the IP belong to blacklisted/whitelisted subnet? */
 		subnet_type = subnet_state(src_ip);
 		switch (subnet_type) {
-			case BLACKLIST:
-				bpf_debug("%ld belongs to blacklisted subnet", src_ip);
-				packet_action = handle_blacklist(src_ip, ip_headers, current_config);
-				bpf_debug("subnet lookup result: drop = %d, tx = %d",
-						packet_action == XDP_DROP, packet_action == XDP_TX);
-				break;
-			case WHITELIST:
-				/* whitelisted: pass packet on */
-				bpf_debug("%ld belongs to whitelisted subnet", src_ip);
-				break;
-			default:
-				/* submit IP & TCP headers to ring buffer for user space
-				 * processing (if applicable) */
-				switch (protocol_number) {
-					case TCP_PNUM:
-						tcp_headers = parse_tcp_headers(ctx);
-						/* check whether port is whitelisted */
-						if (tcp_headers) {
-							if (dst_port_state(tcp_headers->dest) == WHITELIST) {
-								bpf_debug("TCP port %-5d whitelisted", bpf_ntohs(tcp_headers->dest));
-							} else {
-								submit_tcp_headers(ip_headers, tcp_headers);
-							}
-			    		}
-						break;
-					case UDP_PNUM:
-						udp_headers = parse_udp_headers(ctx);
-						/* check whether port is whitelisted */
-						if (udp_headers) {
-							if (dst_port_state(udp_headers->dest) == WHITELIST) {
-								bpf_debug("UDP port %-5d whitelisted", bpf_ntohs(udp_headers->dest));
-							} else {
-                                submit_udp_headers(ip_headers, udp_headers);
-							}
-						}
-						break;
+		case BLACKLIST:
+			bpf_debug("%ld belongs to blacklisted subnet", src_ip);
+			packet_action = handle_blacklist(src_ip, ip_headers, current_config);
+			bpf_debug("subnet lookup result: drop = %d, tx = %d",
+					packet_action == XDP_DROP, packet_action == XDP_TX);
+			break;
+		case WHITELIST:
+			/* whitelisted: pass packet on */
+			bpf_debug("%ld belongs to whitelisted subnet", src_ip);
+			break;
+		default:
+			/* submit IP & TCP headers to ring buffer for user space
+			 * processing (if applicable) */
+			switch (protocol_number) {
+			case TCP_PNUM:
+				tcp_headers = parse_tcp_headers(ctx);
+				/* check whether port is whitelisted */
+				if (tcp_headers) {
+					if (dst_port_state(tcp_headers->dest) == WHITELIST) {
+						bpf_debug("TCP port %-5d whitelisted", bpf_ntohs(tcp_headers->dest));
+					} else {
+						submit_tcp_headers(ip_headers, tcp_headers);
+					}
 				}
 				break;
+			case UDP_PNUM:
+				udp_headers = parse_udp_headers(ctx);
+				/* check whether port is whitelisted */
+				if (udp_headers) {
+					if (dst_port_state(udp_headers->dest) == WHITELIST) {
+						bpf_debug("UDP port %-5d whitelisted", bpf_ntohs(udp_headers->dest));
+					} else {
+						submit_udp_headers(ip_headers, udp_headers);
+					}
+				}
+				break;
+			}
+			break;
 		}
 	}
 

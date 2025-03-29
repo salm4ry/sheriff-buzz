@@ -618,7 +618,7 @@ __attribute__((noinline)) int submit_port_entry(__u16 port)
 	struct port_rb_event *event;
 
 	event = user_ring_buffer__reserve(port_rb, sizeof(*event));
-	err = errno;
+	err = -errno;
 
 	if (!event)
 		goto out;
@@ -689,7 +689,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	struct value *val;
 
 	current_key = malloc(sizeof(struct key));
-	err = errno;
+	err = -errno;
 
 	if (!current_key) {
 		p_error("failed to allocate current_key");
@@ -698,7 +698,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	}
 
 	val = malloc(sizeof(struct value));
-	err = errno;
+	err = -errno;
 
 	if (!val) {
 		p_error("failed to allocate val");

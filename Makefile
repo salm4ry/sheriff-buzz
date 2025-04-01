@@ -25,6 +25,10 @@ else
 	CFLAGS_DEBUG :=
 endif
 
+ifeq ($(TEST), 1)
+	CFLAGS_DEBUG += -DTEST
+endif
+
 CFLAGS = $(INCLUDE) $(GLIB_CFLAGS) $(CFLAGS_COMMON) $(CFLAGS_DEBUG)
 
 

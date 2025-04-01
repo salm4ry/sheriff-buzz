@@ -115,7 +115,7 @@ struct {
 
 #ifdef DEBUG
 	#define bpf_debug(fmt, ...)  \
-	bpf_printk(fmt, ##__VA_ARGS__);
+		bpf_printk(fmt, ##__VA_ARGS__);
 #else
 	#define bpf_debug(fmt, ...) \
 		;
@@ -427,6 +427,21 @@ int handle_blacklist(__u32 src_ip, struct iphdr *ip_headers,
 		}
 	}
 
+#ifdef TEST
+	switch (packet_action) {
+	case (XDP_DROP):
+		bpf_printk("blacklist: src IP: %lu, action: XDP_DROP", src_ip);
+		break;
+	case (XDP_TX):
+		bpf_printk("blacklist: src IP: %lu, action: XDP_TX, redirect IP: %ld",
+				src_ip, current_config->redirect_ip);
+		break;
+	default:
+		bpf_printk("blacklist: src IP: %lu, action: %ld", src_ip, packet_action);
+		break;
+	}
+#endif
+
 	return packet_action;
 }
 
@@ -448,6 +463,11 @@ int src_ip_state(__u32 src_ip, struct iphdr *ip_headers,
 			default:
 				bpf_debug("IP lookup: %ld whitelisted", src_ip);
 				packet_action = XDP_PASS;
+
+#if TEST
+				bpf_printk("whitelist: src IP: %ld, action: XDP_PASS",
+						src_ip);
+#endif
 				break;
 		}
 	}

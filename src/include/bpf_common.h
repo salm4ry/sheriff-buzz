@@ -68,7 +68,7 @@ struct ip_rb_event {
 struct subnet_rb_event {
 	in_addr_t network_addr;
 	in_addr_t mask;
-    int index;
+	int index;
 	int type;
 };
 

@@ -832,7 +832,7 @@ void handle_inotify_events(int fd, const char *target_path, const char *target_f
 					/* submit config: action, and black/whitelisted IPs */
 					submit_config();
 					submit_ip_list();
-                    submit_subnet_list();
+					submit_subnet_list();
 					submit_port_list();
 
 					cJSON_Delete(config_json);

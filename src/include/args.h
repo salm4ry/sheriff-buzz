@@ -12,6 +12,7 @@ struct args {
 	char *interface;
 	bool skb_mode;
 	bool dry_run;
+	bool test;
 };
 
 /**
@@ -35,6 +36,7 @@ static struct option long_opts[] = {
 	{"interface", required_argument, NULL, 'i'},
 	{"address", required_argument, NULL, 'a'},
 	{"dry-run", no_argument, NULL, 'd'},
+	{"test", no_argument, NULL, 't'},
 	/* terminate with zeroed struct */
 	{NULL, 0, NULL, 0}
 };
@@ -42,7 +44,7 @@ static struct option long_opts[] = {
 /**
  * Short options characters (followed by a colon = requires an argument)
  */
-static char *short_opts = "c:l:si:b:dha:";
+static char *short_opts = "c:l:si:b:dtha:";
 
 static struct args default_args = {
 	.config_file = "config/default.json",

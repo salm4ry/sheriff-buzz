@@ -983,7 +983,9 @@ int main(int argc, char *argv[])
 
 	/* apply dry run setting from command-line arguments */
 	current_config.dry_run = init_args.dry_run;
-	log_info(LOG, "dry run = %d\n", current_config.dry_run);
+	current_config.test = init_args.test;
+	log_info(LOG, "args: dry run = %d\n", current_config.dry_run);
+	log_info(LOG, "args: test = %d\n", current_config.test);
 
 	/* cleanup and stats signal handlers */
 	setup_signal_handlers();

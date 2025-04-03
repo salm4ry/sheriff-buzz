@@ -82,7 +82,8 @@ void usage(const char *prog_name)
 	       "-l, --log <filename>: path to log file\n"
 	       "-b, --bpf-obj <path>: path to BPF object file\n"
 	       "-s, --skb-mode: enable SKB mode (use if native XDP not supported)\n"
-	       "-d, --dry-run: enable dry run mode\n");
+	       "-d, --dry-run: enable dry run mode\n"
+	       "-t, --test: enable testing mode\n");
 }
 
 void parse_args(int argc, char *argv[], struct args *args)
@@ -148,6 +149,9 @@ void parse_args(int argc, char *argv[], struct args *args)
 			break;
 		case 'd':
 			args->dry_run = true;
+			break;
+		case 't':
+			args->test = true;
 			break;
 		default:
 			/* invalid argument: print usage and exit */

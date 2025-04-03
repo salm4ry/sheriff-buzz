@@ -472,8 +472,8 @@ int subnet_state(__u32 src_ip)
 		.type = _XDP_STATE_UNKNOWN
 	};
 
-    /* iterate through subnet list */
-    bpf_for_each_map_elem(&subnet_list, &subnet_loop_callback, &ctx, 0);
+	/* iterate through subnet list */
+	bpf_for_each_map_elem(&subnet_list, &subnet_loop_callback, &ctx, 0);
 	return ctx.type;
 }
 

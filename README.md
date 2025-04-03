@@ -10,10 +10,8 @@
 
 ### Kernel
 
-Linux kernel version 6.1+ required due to the user space ring buffer
-
-*TODO: run on 6.1 kernel and make note of error- try to find minimum working
-version*
+- Major release: Linux 6.3
+- Must contain commit `6715df8d5d24` (`bpf: Allow reads from uninit stack`)
 
 ### Compilation Tools
 - `clang`

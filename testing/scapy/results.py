@@ -31,10 +31,11 @@ def lookup(map_name, ip):
 def print_result(test_name, real, expected):
     real = xdp_action(real)
     if real == expected:
-        print(f"{Fore.BLUE + test_name}: {Fore.RESET + real.name}"
-              f" -> {Fore.GREEN + 'PASS'}")
+        print(f"{Fore.BLUE + test_name}: "
+              f"{Fore.YELLOW + real.name + Fore.RESET}"
+              f" -> {Fore.GREEN + 'pass'}")
     else:
         print(f"{Fore.BLUE + test_name}: {Fore.RESET + real.name}"
-              f" -> {Fore.RED + 'FAIL'}")
+              f" -> {Fore.RED + 'fail'}")
 
     print(Style.RESET_ALL)

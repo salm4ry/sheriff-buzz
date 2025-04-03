@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-from time import sleep
+from colorama import Fore, Style
 
 import packets
 import config
@@ -53,7 +53,13 @@ class Test:
 
         # check results
         res = lookup(TEST_MAP_NAME, self.src_ip)
-        print_result(self.name, res, self.expected)
+
+        if res is not None:
+            print_result(self.name, res, self.expected)
+        else:
+            print(f"{Fore.BLUE + self.name}:{Fore.RESET} {Fore.YELLOW}"
+                  "failed to run")
+            print(Style.RESET_ALL)
 
 
 if __name__ == '__main__':

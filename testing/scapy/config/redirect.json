@@ -1,0 +1,8 @@
+{
+	"packet_threshold": 1,
+	"port_threshold": 100,
+	"alert_threshold": 1,
+	"action": "redirect",
+	"redirect_ip": "10.10.22.33",
+	"test": true
+}

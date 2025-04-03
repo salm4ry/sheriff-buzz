@@ -1,0 +1,7 @@
+{
+	"packet_threshold": 1,
+	"port_threshold": 100,
+	"alert_threshold": 1,
+	"action": "block",
+	"test": true
+}

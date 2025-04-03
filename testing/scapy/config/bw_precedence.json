@@ -1,0 +1,8 @@
+{
+	"packet_threshold": 1,
+	"port_threshold": 100,
+	"alert_threshold": 1,
+	"blacklist_ip": ["10.10.66.66"],
+	"whitelist_subnet": ["10.10.66.66/24"],
+	"test": true
+}

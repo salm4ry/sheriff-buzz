@@ -86,7 +86,10 @@ struct port_rb_event {
 struct config_rb_event {
 	bool block_src;
 	bool dry_run;
+	bool test;
 	__u32 redirect_ip;
+	in_addr_t test_network_addr;
+	in_addr_t test_mask;
 };
 
 __u32 src_addr(struct iphdr *ip_header);

@@ -660,6 +660,10 @@ __attribute__((noinline)) int submit_config()
 	event->block_src = current_config.block_src;
 	event->redirect_ip = current_config.redirect_ip;
 	event->dry_run = current_config.dry_run;
+
+	event->test = current_config.test;
+	event->test_network_addr = current_config.test_subnet.network_addr;
+	event->test_mask = current_config.test_subnet.mask;
 	pthread_rwlock_unlock(&config_lock);
 
 	user_ring_buffer__submit(config_rb, event);

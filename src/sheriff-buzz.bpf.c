@@ -22,14 +22,14 @@
 char LICENSE[] SEC("license") = "GPL";
 
 struct bpf_subnet {
-    in_addr_t network_addr;
-    in_addr_t mask;
-    __u16 type;
+	in_addr_t network_addr;
+	in_addr_t mask;
+	__u16 type;
 };
 
 struct subnet_loop_ctx {
-    in_addr_t src_ip;
-    int type; /* blacklist/whitelist/not found */
+	in_addr_t src_ip;
+	int type; /* blacklist/whitelist/not found */
 };
 
 /* hash map of black/whitelisted IPs */
@@ -63,6 +63,14 @@ struct {
 	__type(value, struct config_rb_event);
 	__uint(max_entries, 1); /* only one entry required: the current config */
 } config SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__type(key, __u32);
+	__type(value, __u16);
+	__uint(max_entries, 65535); /* size of 10.10.0.0/16 */;
+	__uint(pinning, LIBBPF_PIN_BY_NAME);
+} test_results SEC(".maps");
 
 /* kernel ring buffer
  *
@@ -427,21 +435,6 @@ int handle_blacklist(__u32 src_ip, struct iphdr *ip_headers,
 		}
 	}
 
-#ifdef TEST
-	switch (packet_action) {
-	case (XDP_DROP):
-		bpf_printk("blacklist: src IP: %lu, action: XDP_DROP", src_ip);
-		break;
-	case (XDP_TX):
-		bpf_printk("blacklist: src IP: %lu, action: XDP_TX, redirect IP: %ld",
-				src_ip, current_config->redirect_ip);
-		break;
-	default:
-		bpf_printk("blacklist: src IP: %lu, action: %ld", src_ip, packet_action);
-		break;
-	}
-#endif
-
 	return packet_action;
 }
 
@@ -464,10 +457,6 @@ int src_ip_state(__u32 src_ip, struct iphdr *ip_headers,
 				bpf_debug("IP lookup: %ld whitelisted", src_ip);
 				packet_action = XDP_PASS;
 
-#if TEST
-				bpf_printk("whitelist: src IP: %ld, action: XDP_PASS",
-						src_ip);
-#endif
 				break;
 		}
 	}
@@ -674,8 +663,16 @@ int process_packet(struct xdp_md *ctx)
 		if (current_config->dry_run) {
 			packet_action = XDP_PASS;
 		}
+
+		/* add test result to map if packet comes from the testing subnet */
+		if (current_config->test &&
+				in_subnet(src_ip, current_config->test_network_addr, current_config->test_mask)) {
+			bpf_map_update_elem(&test_results, &src_ip, &packet_action, 0);
+		}
 	}
+
 	bpf_debug("%ld, pass = %d drop = %d, tx  = %d",
 			src_ip, packet_action == XDP_PASS, packet_action == XDP_DROP, packet_action == XDP_TX);
+
 	return packet_action;
 }

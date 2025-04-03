@@ -866,7 +866,7 @@ void inotify_thread_work(void *args)
 
 	/* watch for changes to files in the config directory
 	 * wd = watch file descriptor */
-	wd = inotify_add_watch(inotify_fd, CONFIG_DIR, IN_CLOSE_WRITE);
+	wd = inotify_add_watch(inotify_fd, CONFIG_DIR, IN_CLOSE_WRITE | IN_MOVE);
 	if (wd == -1) {
 		log_error(LOG, "inotify: cannot watch '%s': %s\n",
 				CONFIG_DIR, strerror(errno));

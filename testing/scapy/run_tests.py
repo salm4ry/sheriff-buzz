@@ -78,5 +78,9 @@ if __name__ == '__main__':
                   config='config/wb_precedence.json',
                   src_ip="10.10.77.77", scan=False)]
 
+    print("running tests...")
+
     for test in tests:
         test.run(args.target, args.user)
+
+    print("tests complete!")

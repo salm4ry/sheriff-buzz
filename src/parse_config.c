@@ -163,6 +163,21 @@ in_addr_t ip_json_value(cJSON *obj, const char *item_name)
 	return ip;
 }
 
+struct subnet subnet_json_value(cJSON *obj, const char *item_name)
+{
+	struct subnet subnet = {0, 0};
+
+	char *value = str_json_value(obj, item_name);
+
+	if (value) {
+		cidr_to_subnet(value, &subnet);
+	}
+
+	free(value);
+
+	return subnet;
+}
+
 /*
  * Extract array of IP addresses from JSON item into long
  * return number of entries
@@ -452,6 +467,9 @@ void fallback_config(struct config *config, pthread_rwlock_t *lock)
 	config->whitelist_port = NULL;
 
 	config->dry_run = false;
+
+	config->test = false;
+	cidr_to_subnet("10.10.0.0/16", &config->test_subnet);
 	pthread_rwlock_unlock(lock);
 }
 
@@ -459,11 +477,14 @@ void apply_config(cJSON *config_json, struct config *current_config,
 		pthread_rwlock_t *lock, FILE *LOG)
 {
 	int packet_threshold, port_threshold, alert_threshold, block_src;
+	int dry_run, test; /* booleans */
+
 	in_addr_t redirect_ip;
 
 	struct ip_list *blacklist_ip, *whitelist_ip;
 	struct subnet_list *blacklist_subnet, *whitelist_subnet;
 	struct port_list *whitelist_port;
+	struct subnet test_subnet;
 
 	/* read thresholds */
 	packet_threshold = int_json_value(config_json,
@@ -472,6 +493,11 @@ void apply_config(cJSON *config_json, struct config *current_config,
 					      "port_threshold", MAX_PORT_THRESHOLD);
 	alert_threshold = int_json_value(config_json,
 					       "alert_threshold", MAX_FLAG_THRESHOLD);
+
+	dry_run = int_json_value(config_json, "dry_run", UNDEFINED);
+
+	test = int_json_value(config_json, "test", UNDEFINED);
+	test_subnet = subnet_json_value(config_json, "test_subnet");
 
 	/* block or redirect flagged IP? */
 	block_src = check_action(config_json, "action");
@@ -512,6 +538,26 @@ void apply_config(cJSON *config_json, struct config *current_config,
 		current_config->alert_threshold = alert_threshold;
 		pthread_rwlock_unlock(lock);
 		log_info(LOG, "config: alert_threshold = %d\n", alert_threshold);
+	}
+
+	/* apply booleans if valid */
+	if (dry_run != UNDEFINED) {
+		pthread_rwlock_wrlock(lock);
+		current_config->dry_run = dry_run;
+		pthread_rwlock_unlock(lock);
+		log_info(LOG, "config: dry_run = %d\n", dry_run);
+	}
+	if (test != UNDEFINED) {
+		pthread_rwlock_wrlock(lock);
+		current_config->test = test;
+		pthread_rwlock_unlock(lock);
+		log_info(LOG, "config: test = %d\n", test);
+	}
+	if (test_subnet.mask != 0) {
+		pthread_rwlock_wrlock(lock);
+		current_config->test = test;
+		pthread_rwlock_unlock(lock);
+		log_info(LOG, "config: test subnet set\n", test);
 	}
 
 	/* IP blacklist and whitelist */

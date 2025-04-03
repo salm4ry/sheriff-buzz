@@ -61,6 +61,9 @@ struct config {
 	bool block_src;
 	bool dry_run;
 
+	bool test;
+	struct subnet test_subnet;
+
 	struct ip_list *blacklist_ip;
 	struct ip_list *whitelist_ip;
 

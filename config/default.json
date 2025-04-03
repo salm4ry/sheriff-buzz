@@ -3,5 +3,6 @@
 	"port_threshold": 100,
 	"alert_threshold": 3,
 	"action": "block",
-	"dry_run": false
+	"dry_run": false,
+	"test": false
 }

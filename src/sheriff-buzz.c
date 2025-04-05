@@ -87,8 +87,6 @@ struct config current_config;
 pthread_rwlock_t config_lock = PTHREAD_RWLOCK_INITIALIZER;
 pthread_t inotify_worker;
 
-int *common_ports = NULL; /* store top 1000 TCP ports */
-const int NUM_COMMON_PORTS = 1000;
 const int MAX_ADDR_LEN = 16;
 
 struct alert_type types;
@@ -136,10 +134,6 @@ void cleanup()
 		ring_buffer__free(xdp_rb);
 	}
 
-	if (common_ports) {
-		free(common_ports);
-	}
-
 	if (packet_table) {
 		port_table_cleanup(packet_table);
 		g_hash_table_destroy(packet_table);
@@ -173,10 +167,6 @@ void init_cleanup(int err)
 
 	if (xdp_rb) {
 		ring_buffer__free(xdp_rb);
-	}
-
-	if (common_ports) {
-		free(common_ports);
 	}
 
 	if (packet_table) {
@@ -1076,10 +1066,6 @@ int main(int argc, char *argv[])
 
 	/* initialise database task queue */
 	TAILQ_INIT(&task_queue_head);
-
-	/* extract common TCP ports from file 
-	 * NOTE currently unused */
-	/* common_ports = get_port_list("top-1000-tcp.txt", NUM_COMMON_PORTS); */
 
 	/* find kernel ring buffer */
 	xdp_rb_fd = get_bpf_map_fd(xdp_obj, "xdp_rb");

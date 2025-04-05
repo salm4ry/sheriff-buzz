@@ -129,11 +129,6 @@ struct {
 		;
 #endif
 
-bool in_subnet(__u32 ip, __u32 network_addr, __u32 mask)
-{
-	return (ip & network_addr) == (ip & mask);
-}
-
 __u32 src_addr(struct iphdr *ip_header)
 {
 	return ip_header->saddr;

@@ -721,6 +721,18 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 		break;
 	}
 
+	pthread_rwlock_rdlock(&config_lock);
+	if (current_config.test && in_subnet(current_key->src_ip,
+				current_config.test_subnet.network_addr,
+				current_config.test_subnet.mask)) {
+		pthread_rwlock_unlock(&config_lock);
+		log_info(LOG, "test packet: IP: %s, port: %d\n",
+				address, dst_port);
+	} else {
+		pthread_rwlock_unlock(&config_lock);
+	}
+
+
 	/* set up hash table entry */
 	/* TODO can init_entry() handle garbage destination port? */
 	init_entry(packet_table, current_key, val, dst_port, protocol);

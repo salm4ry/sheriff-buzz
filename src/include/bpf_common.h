@@ -93,6 +93,10 @@ struct config_rb_event {
 };
 
 __u32 src_addr(struct iphdr *ip_header);
-bool in_subnet(__u32 ip, __u32 network_addr, __u32 mask);
+
+static __always_inline bool in_subnet(__u32 ip, __u32 network_addr, __u32 mask)
+{
+	return (ip & network_addr) == (ip & mask);
+}
 
 #endif

@@ -11,20 +11,26 @@ FIN = "F"
 
 
 # generate source IP in 10.10.octet.x/24
-def gen_src_ip(octet):
+def rand_src_ip(octet=''):
+    if not octet:
+        return f"10.10.{randint(0, 255)}.{randint(0, 255)}"
     return f"10.10.{octet}.{randint(0, 255)}"
 
 
+def rand_port():
+    return randint(0, 65535)
+
+
 # NOTE: [p1, p2, p3, ...] for discrete, (start, end) for continuous
-def gen_packets(src_ip, target, flags, ports):
+def gen_packets(src_ip, target, flags, ports, verbose=False):
     ip_layer = IP(src=src_ip, dst=target)
 
-    tcp_layer = TCP(sport=randint(1, 65535), dport=ports, flags=flags)
+    tcp_layer = TCP(sport=rand_port(), dport=ports, flags=flags)
     packet = ip_layer/tcp_layer
 
     try:
-        send(packet, verbose=False)
-        print(f"{src_ip} -> {target}, ports: {ports}")
+        send(packet, verbose=verbose)
+        # print(f"{src_ip} -> {target}, ports: {ports}")
     except PermissionError as e:
         print(e)
         exit(1)

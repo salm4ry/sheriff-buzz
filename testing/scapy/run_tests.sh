@@ -15,7 +15,8 @@ venv_python='.venv/bin/python3'
 # read the BPF map)
 #
 # e = effective, p = permitted
-capabilities='CAP_NET_RAW,CAP_DAC_OVERRIDE=+ep'
+unit_test_caps='CAP_NET_RAW,CAP_DAC_OVERRIDE=+ep'
+integration_test_caps='CAP_NET_RAW=+ep'
 
 LOCALHOST=127.0.0.1
 
@@ -27,11 +28,17 @@ sudo -b "${dir}/${prog}" -i "${interface}" -c "${config_file}" -b "${bpf_obj}" -
 # (follow instructions in README.md to create the .venv directory)
 source "${venv_dir}"/bin/activate
 
-# set capabilities so tests don't have to run as root
-sudo setcap "${capabilities}" "${venv_python}"
-
-getcap "${venv_python}"
-# run test suite
+# set unit testing capabilities
+sudo setcap "${unit_test_caps}" "${venv_python}"
+# run unit tests
 "${venv_python}" unit_tests.py -u "${USER}" -t "${LOCALHOST}"
+
+# remove capabilities
+sudo setcap -r "${venv_python}"
+# set new capabilities for integration testing
+sudo setcap "${integration_test_caps}" "${venv_python}"
+# run integration tests
+"${venv_python}" integration_tests.py -u "${USER}" -t "${LOCALHOST}"
+
 
 sudo killall "${prog}"

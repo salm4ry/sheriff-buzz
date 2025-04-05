@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!./.venv/bin/python3
 
 import argparse
 from colorama import Fore, Style
@@ -14,7 +14,8 @@ TEST_MAP_NAME = 'test_results'
 
 
 class Test:
-    def __init__(self, name, expected, config, src_ip='', scan=True,
+    def __init__(self, name, expected, config,
+                 src_ip='', octet='', scan=True,
                  port_threshold=100):
         self.name = name                      # test name (used in output)
         self.expected = expected              # expected return value
@@ -24,7 +25,7 @@ class Test:
 
         # source IP (leave empty for random)
         if not src_ip:
-            self.src_ip = packets.gen_src_ip()
+            self.src_ip = packets.gen_src_ip(octet)
         else:
             self.src_ip = src_ip
 
@@ -68,9 +69,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     tests = [Test(name='block', expected=xdp_action.XDP_DROP,
-                  config='config/block.json'),
+                  octet='11', config='config/block.json'),
              Test(name='redirect', expected=xdp_action.XDP_TX,
-                  config='config/redirect.json'),
+                  octet='22', config='config/redirect.json'),
              Test(name='bw_precedence', expected=xdp_action.XDP_DROP,
                   config='config/bw_precedence.json',
                   src_ip="10.10.66.66", scan=False),

@@ -27,7 +27,7 @@ def lookup(map_name, ip):
     return result
 
 
-def print_result(test_name, real, expected):
+def print_xdp_result(test_name, real, expected):
     real = xdp_action(real)
     if real == expected:
         print(f"{Fore.BLUE + test_name}: "

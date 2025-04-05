@@ -11,8 +11,8 @@ FIN = "F"
 
 
 # generate source IP in 10.10.octet.x/24
-def gen_src_ip():
-    return f"10.10.{randint(0, 255)}.{randint(0, 255)}"
+def gen_src_ip(octet):
+    return f"10.10.{octet}.{randint(0, 255)}"
 
 
 # NOTE: [p1, p2, p3, ...] for discrete, (start, end) for continuous
@@ -25,8 +25,8 @@ def gen_packets(src_ip, target, flags, ports):
     try:
         send(packet, verbose=False)
         print(f"{src_ip} -> {target}, ports: {ports}")
-    except PermissionError:
-        print("error: you must be root!")
+    except PermissionError as e:
+        print(e)
         exit(1)
 
 

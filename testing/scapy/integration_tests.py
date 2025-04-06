@@ -11,28 +11,28 @@ import packets
 import config
 from args import init_args
 
-TARGET_CONFIG_PATH = '~/sheriff-buzz/config.json'
-LOG_PATH = '/var/log/sheriff-buzz.log'
+TARGET_CONFIG_PATH = "~/sheriff-buzz/config.json"
+LOG_PATH = "/var/log/sheriff-buzz.log"
 NUM_TRIES = 5  # number of file reading attempts
 
 
 def compare_packets(result, expected):
-    '''Compare (ip, port) tuples'''
+    """Compare (ip, port) tuples"""
     return list(map(str, result)) == list(map(str, expected))
 
 
 def read_log():
-    log_line = ''
+    log_line = ""
 
     # read file backwards to find correct test line
-    with FileReadBackwards(LOG_PATH, encoding='utf-8') as f:
+    with FileReadBackwards(LOG_PATH, encoding="utf-8") as f:
         for line in f:
-            if 'test packet' in line:
+            if "test packet" in line:
                 # strip leading and trailing whitepsace
-                log_line = [x.strip() for x in line.split(',')]
+                log_line = [x.strip() for x in line.split(",")]
 
                 # parse log line
-                log_packet = (log_line[-1].split(':'))
+                log_packet = log_line[-1].split(":")
                 return log_packet
 
     return None
@@ -46,8 +46,9 @@ class IntegrationTest:
         self.fixed_ip = fixed_ip
 
     def run(self, target, user):
-        config.copy(src_path=self.config_file, dst_path=TARGET_CONFIG_PATH,
-                    username=user)
+        config.copy(
+            src_path=self.config_file, dst_path=TARGET_CONFIG_PATH, username=user
+        )
 
         failed_file = open("failed_tests.txt", "w")
         passed = failed = 0
@@ -72,26 +73,42 @@ class IntegrationTest:
                 failed += 1
 
         failed_file.close()
-        print(f"{Fore.BLUE + self.name}: "
-              f"{Fore.YELLOW + str(self.num_tests) + Fore.RESET} total, "
-              f"{Fore.GREEN + str(passed) + Fore.RESET} passed, "
-              f"{Fore.RED + str(failed) + Fore.RESET} failed")
+        print(
+            f"{Fore.BLUE + self.name}: "
+            f"{Fore.YELLOW + str(self.num_tests) + Fore.RESET} total, "
+            f"{Fore.GREEN + str(passed) + Fore.RESET} passed, "
+            f"{Fore.RED + str(failed) + Fore.RESET} failed"
+        )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     init_args(parser)
-    parser.add_argument('-n', '--num-tests', nargs='?', metavar='<num>',
-                        default=100, help='number of tests to run',
-                        type=int)
+    parser.add_argument(
+        "-n",
+        "--num-tests",
+        nargs="?",
+        metavar="<num>",
+        default=100,
+        help="number of tests to run",
+        type=int,
+    )
     args = parser.parse_args()
 
     # set up test
-    tests = [IntegrationTest(name='fixed_ip', num_tests=args.num_tests,
-                             config_file='config/integration.json'),
-             IntegrationTest(name='rand_ip', num_tests=args.num_tests,
-                             config_file='config/integration.json',
-                             fixed_ip=False)]
+    tests = [
+        IntegrationTest(
+            name="fixed_ip",
+            num_tests=args.num_tests,
+            config_file="config/integration.json",
+        ),
+        IntegrationTest(
+            name="rand_ip",
+            num_tests=args.num_tests,
+            config_file="config/integration.json",
+            fixed_ip=False,
+        ),
+    ]
 
     print(f"running {Fore.BLUE + 'integration tests' + Fore.RESET}...")
 

@@ -4,9 +4,4 @@ scapy==2.6.1
 bpfmaps==0.0.8
 colorama==0.4.6
 file-read-backwards==3.1.0
-scapy==2.6.1
-bpfmaps==0.0.8
-colorama==0.4.6
-file-read-backwards==3.1.0
-scapy==2.6.1
 tqdm==4.67.1

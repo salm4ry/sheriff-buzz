@@ -22,6 +22,7 @@ LOCALHOST=127.0.0.1
 
 start_buzz() {
 	# run sheriff-buzz on loopback interface, setting config file location
+	# and enabling testing mode
 	sudo -b "${dir}/${prog}" -i "${interface}" -c "${config_file}" -b "${bpf_obj}" -t
 }
 

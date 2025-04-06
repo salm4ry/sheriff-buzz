@@ -46,6 +46,7 @@ class IntegrationTest:
         config.copy(src_path=self.config_file, dst_path=TARGET_CONFIG_PATH,
                     username=user)
 
+        failed_file = open("failed_tests.txt", "w")
         passed = failed = 0
 
         for i in tqdm(range(self.num_tests)):
@@ -53,17 +54,17 @@ class IntegrationTest:
 
             # send packet to random port
             dst_port = packets.rand_port()
-            packets.gen_packets(src_ip, target, packets.SYN,
-                                dst_port)
+            packets.gen_packets(src_ip, target, packets.SYN, dst_port)
 
             # read log and compare output to expected
             result = read_log()
-
             if compare_packets(result, (src_ip, dst_port)):
                 passed += 1
             else:
+                failed_file.write(f"{src_ip}:{dst_port}\n")
                 failed += 1
 
+        failed_file.close()
         print(f"{Fore.BLUE + self.name}: "
               f"{Fore.YELLOW + str(self.num_tests) + Fore.RESET} total, "
               f"{Fore.GREEN + str(passed) + Fore.RESET} passed, "

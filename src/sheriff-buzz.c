@@ -726,8 +726,7 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 				current_config.test_subnet.network_addr,
 				current_config.test_subnet.mask)) {
 		pthread_rwlock_unlock(&config_lock);
-		log_info(LOG, "test packet: IP: %s, port: %d\n",
-				address, dst_port);
+		log_info(LOG, "test packet, %s:%d\n", address, dst_port);
 	} else {
 		pthread_rwlock_unlock(&config_lock);
 	}

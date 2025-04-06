@@ -14,30 +14,26 @@ LOG_PATH = '/var/log/sheriff-buzz.log'
 NUM_TRIES = 5  # number of file reading attempts
 
 
+def compare_packets(result, expected):
+    '''Compare (ip, port) tuples'''
+    return list(map(str, result)) == list(map(str, expected))
+
+
 def read_log():
     log_line = ''
+
     # read file backwards to find correct test line
     with FileReadBackwards(LOG_PATH, encoding='utf-8') as f:
         for line in f:
             if 'test packet' in line:
-                log_line = line
-                break
+                # strip leading and trailing whitepsace
+                log_line = [x.strip() for x in line.split(',')]
 
-    # strip leading and trailing whitepsace
-    log_line = [x.strip() for x in log_line.split(',')]
+                # parse log line
+                log_packet = (log_line[-1].split(':'))
+                return log_packet
 
-    # log_line[0]: '2025-04-05 18-33-14 info: test packet: IP: 10.10.22.220'
-    # log_line[1]: 'port: 100'
-    # split elements by colon, IP/port at the end
-    src_ip = log_line[0].split(':')[-1].strip()
-    dst_port = log_line[1].split(':')[-1].strip()
-
-    return (src_ip, dst_port)
-
-
-def compare_packets(result, expected):
-    '''Compare (ip, port) tuples'''
-    return list(map(str, result)) == list(map(str, expected))
+    return None
 
 
 class IntegrationTest:

@@ -1,5 +1,7 @@
 #!./.venv/bin/python3
 
+from time import sleep
+
 import argparse
 from tqdm import tqdm
 from colorama import Fore
@@ -37,10 +39,11 @@ def read_log():
 
 
 class IntegrationTest:
-    def __init__(self, name, num_tests, config_file):
+    def __init__(self, name, num_tests, config_file, fixed_ip=True):
         self.name = name
         self.num_tests = num_tests
         self.config_file = config_file
+        self.fixed_ip = fixed_ip
 
     def run(self, target, user):
         config.copy(src_path=self.config_file, dst_path=TARGET_CONFIG_PATH,
@@ -49,9 +52,13 @@ class IntegrationTest:
         failed_file = open("failed_tests.txt", "w")
         passed = failed = 0
 
-        for i in tqdm(range(self.num_tests)):
-            src_ip = packets.rand_src_ip()
+        src_ip = packets.rand_src_ip()
 
+        for i in tqdm(range(self.num_tests)):
+            if not self.fixed_ip:
+                src_ip = packets.rand_src_ip()
+
+            # src_ip = packets.rand_src_ip()
             # send packet to random port
             dst_port = packets.rand_port()
             packets.gen_packets(src_ip, target, packets.SYN, dst_port)
@@ -80,11 +87,13 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # set up test
-    integration_test = IntegrationTest(name='integration_test',
-                                       num_tests=args.num_tests,
-                                       config_file='config/block.json')
+    tests = [IntegrationTest(name='fixed_ip', num_tests=args.num_tests,
+                             config_file='config/integration.json'),
+             IntegrationTest(name='rand_ip', num_tests=args.num_tests,
+                             config_file='config/integration.json',
+                             fixed_ip=False)]
 
     print(f"running {Fore.BLUE + 'integration tests' + Fore.RESET}...")
 
-    # TODO run tests
-    integration_test.run(args.target, args.user)
+    for test in tests:
+        test.run(args.target, args.user)

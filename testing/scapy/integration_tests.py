@@ -75,7 +75,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     init_args(parser)
     parser.add_argument('-n', '--num-tests', nargs='?', metavar='<num>',
-                        default=100, help='number of tests to run')
+                        default=100, help='number of tests to run',
+                        type=int)
     args = parser.parse_args()
 
     # set up test

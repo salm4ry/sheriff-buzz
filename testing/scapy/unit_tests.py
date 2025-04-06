@@ -10,12 +10,13 @@ from args import init_args
 
 TARGET_CONFIG_PATH = '~/sheriff-buzz/config.json'
 TEST_PORT = 12345
-TEST_MAP_NAME = 'test_results'
+TEST_BPF_MAP = 'test_results'
 
 
 class UnitTest:
     def __init__(self, name, expected, config_file,
                  src_ip='', octet='', scan=True,
+                 port=None,
                  port_threshold=100):
         self.name = name                      # test name (used in output)
         self.expected = expected              # expected return value
@@ -29,8 +30,13 @@ class UnitTest:
         else:
             self.src_ip = src_ip
 
+        if port:
+            self.port = port
+        else:
+            self.port = None
+
     def port_scan(self, target, port_threshold):
-        '''Perform a port scan (+1 packet'''
+        '''Perform a port scan to go ogver the port threshold'''
         # scan first 100 ports
         packets.gen_packets(self.src_ip, target, packets.SYN,
                             (1, port_threshold), verbose=True)
@@ -40,8 +46,13 @@ class UnitTest:
 
     def single_packet(self, target):
         '''Send a single packet'''
+        if self.port:
+            port = self.port
+        else:
+            port = TEST_PORT
+
         packets.gen_packets(self.src_ip, target, packets.SYN,
-                            [TEST_PORT])
+                            [port])
 
     def run(self, target, user):
         config.copy(src_path=self.config_file, dst_path=TARGET_CONFIG_PATH,
@@ -53,7 +64,7 @@ class UnitTest:
             self.single_packet(target)
 
         # check results
-        res = lookup(TEST_MAP_NAME, self.src_ip)
+        res = lookup(TEST_BPF_MAP, self.src_ip)
 
         if res is not None:
             print_xdp_result(self.name, res, self.expected)
@@ -77,7 +88,10 @@ if __name__ == '__main__':
                       src_ip="10.10.66.66", scan=False),
              UnitTest(name='wb_precedence', expected=xdp_action.XDP_PASS,
                       config_file='config/wb_precedence.json',
-                      src_ip="10.10.77.77", scan=False)]
+                      src_ip="10.10.77.77", scan=False),
+             UnitTest(name='ip_port_precedence', expected=xdp_action.XDP_DROP,
+                      config_file='config/ip_port_precedence.json',
+                      src_ip="10.10.88.88", scan=False, port=1337)]
 
     print(f"running {Fore.BLUE + 'unit tests' + Fore.RESET}...")
 

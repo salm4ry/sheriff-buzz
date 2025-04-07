@@ -38,9 +38,7 @@
 uint32_t xdp_flags = XDP_FLAGS_UPDATE_IF_NOEXIST;
 int ifindex;
 
-struct bpf_object *xdp_obj, *ip_uretprobe_obj, *subnet_uretprobe_obj, 
-				  *port_uretprobe_obj, *config_uretprobe_obj;
-
+struct bpf_object *bpf_obj;
 
 struct uretprobe_opts ip_uretprobe_args = {
 	.program_name = "read_ip_rb",
@@ -605,6 +603,7 @@ void submit_subnet_list()
 __attribute__((noinline)) int submit_port_entry(__u16 port)
 {
 	int err = 0;
+#ifdef ZERO
 	struct port_rb_event *event;
 
 	event = user_ring_buffer__reserve(port_rb, sizeof(*event));
@@ -618,6 +617,7 @@ __attribute__((noinline)) int submit_port_entry(__u16 port)
 
 	user_ring_buffer__submit(port_rb, event);
 out:
+#endif
 	return err;
 }
 
@@ -999,22 +999,21 @@ int main(int argc, char *argv[])
 	get_thread_env(&use_db_thread);
 
 	/* load and attach XDP program */
-	err = init_xdp_prog(&xdp_obj, init_args.bpf_obj_file, "process_packet",
+	err = init_xdp_prog(&bpf_obj, init_args.bpf_obj_file, "process_packet",
 			    ifindex, xdp_flags, LOG);
 	if (err < 0)
 		goto fail;
 
 	/* get IP hash map file descriptor so it can be shared with the
 	 * corresponding uretprobe */
-	ip_list_fd = get_bpf_map_fd(xdp_obj, "ip_list");
-	subnet_list_fd = get_bpf_map_fd(xdp_obj, "subnet_list");
-	port_list_fd = get_bpf_map_fd(xdp_obj, "port_list");
+	ip_list_fd = get_bpf_map_fd(bpf_obj, "ip_list");
+	subnet_list_fd = get_bpf_map_fd(bpf_obj, "subnet_list");
+	port_list_fd = get_bpf_map_fd(bpf_obj, "port_list");
 
 	/* load and attach IP list uretprobe */
-	ip_uretprobe_args.uretprobe_obj = &ip_uretprobe_obj;
-	ip_uretprobe_args.filename = init_args.bpf_obj_file;
+	ip_uretprobe_args.bpf_obj = &bpf_obj;
 	ip_uretprobe_args.bpf_map_fd = ip_list_fd;
-	if (init_uretprobe(&ip_uretprobe_args, LOG) <= 0) {
+	if (init_uretprobe(&ip_uretprobe_args, LOG) < 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
 			  init_args.bpf_obj_file);
 		err = -1;
@@ -1022,10 +1021,9 @@ int main(int argc, char *argv[])
 	}
 
 	/* load and attach subnet list uretprobe */
-	subnet_uretprobe_args.uretprobe_obj = &subnet_uretprobe_obj;
-	subnet_uretprobe_args.filename = init_args.bpf_obj_file;
+	subnet_uretprobe_args.bpf_obj = &bpf_obj;
 	subnet_uretprobe_args.bpf_map_fd = subnet_list_fd;
-	if (init_uretprobe(&subnet_uretprobe_args, LOG) <= 0) {
+	if (init_uretprobe(&subnet_uretprobe_args, LOG) < 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
 			  init_args.bpf_obj_file);
 		err = -1;
@@ -1033,10 +1031,9 @@ int main(int argc, char *argv[])
 	}
 
 	/* load and attach port list uretprobe */
-	port_uretprobe_args.uretprobe_obj = &port_uretprobe_obj;
-	port_uretprobe_args.filename = init_args.bpf_obj_file;
+	port_uretprobe_args.bpf_obj = &bpf_obj;
 	port_uretprobe_args.bpf_map_fd = port_list_fd;
-	if (init_uretprobe(&port_uretprobe_args, LOG) <= 0) {
+	if (init_uretprobe(&port_uretprobe_args, LOG) < 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
 			  init_args.bpf_obj_file);
 		err = -1;
@@ -1045,13 +1042,15 @@ int main(int argc, char *argv[])
 
 	/* get config hash map file descriptor so it can be shared with the
 	 * corresponding uretprobe */
-	config_hash_fd = get_bpf_map_fd(xdp_obj, "config");
+	config_hash_fd = get_bpf_map_fd(bpf_obj, "config");
 
 	/* load and attach config uretprobe */
-	config_uretprobe_args.uretprobe_obj = &config_uretprobe_obj;
-	config_uretprobe_args.filename = init_args.bpf_obj_file;
+#ifdef ZERO
+	config_uretprobe_args.bpf_obj = &config_uretprobe_obj;
+#endif
+	config_uretprobe_args.bpf_obj = &bpf_obj;
 	config_uretprobe_args.bpf_map_fd = config_hash_fd;
-	if (init_uretprobe(&config_uretprobe_args, LOG) <= 0) {
+	if (init_uretprobe(&config_uretprobe_args, LOG) < 0) {
 		log_error(LOG, "failed to load uretprobe program from file: %s\n",
 			  init_args.bpf_obj_file);
 		err = -1;
@@ -1079,24 +1078,24 @@ int main(int argc, char *argv[])
 	TAILQ_INIT(&task_queue_head);
 
 	/* find kernel ring buffer */
-	xdp_rb_fd = get_bpf_map_fd(xdp_obj, "xdp_rb");
+	xdp_rb_fd = get_bpf_map_fd(bpf_obj, "xdp_rb");
 
 	/* set up kernel ring buffer */
 	init_kernel_rb(&xdp_rb, xdp_rb_fd, handle_event);
 
 	/* set up IP list user ring buffer */
-	ip_rb_fd = get_bpf_map_fd(ip_uretprobe_obj, "ip_rb");
+	ip_rb_fd = get_bpf_map_fd(bpf_obj, "ip_rb");
 	init_user_rb(&ip_rb, ip_rb_fd);
 
 	/* set up subnet user ring buffer */
-	subnet_rb_fd = get_bpf_map_fd(subnet_uretprobe_obj, "subnet_rb");
+	subnet_rb_fd = get_bpf_map_fd(bpf_obj, "subnet_rb");
 	init_user_rb(&subnet_rb, subnet_rb_fd);
 
-	port_rb_fd = get_bpf_map_fd(port_uretprobe_obj, "port_rb");
+	port_rb_fd = get_bpf_map_fd(bpf_obj, "port_rb");
 	init_user_rb(&port_rb, port_rb_fd);
 
 	/* set up config user ring buffer */
-	config_rb_fd = get_bpf_map_fd(config_uretprobe_obj,"config_rb");
+	config_rb_fd = get_bpf_map_fd(bpf_obj,"config_rb");
 	init_user_rb(&config_rb, config_rb_fd);
 
 	/* submit initial config to BPF program */

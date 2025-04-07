@@ -4,9 +4,15 @@
 #include <stdio.h>
 #include <bpf/libbpf.h>
 
+/*
+ * bpf_obj: BPF object (already loaded into the kernel)
+ * program_name: name of program to attach
+ * prog_name: name of uretprobe program
+ * map_fd: file descriptor of map to share
+ * map_name: name of map to share
+ */
 struct uretprobe_opts {
-	struct bpf_object **uretprobe_obj;
-	const char *filename;
+	struct bpf_object **bpf_obj;
 	const char *program_name;
 	const char *uprobe_func;
 	int bpf_map_fd;

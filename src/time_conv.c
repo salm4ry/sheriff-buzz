@@ -48,6 +48,9 @@ void update_total_time(struct timespec *start, struct timespec *end,
  */
 unsigned long packet_rate(unsigned long *total_packets, unsigned long *total_time)
 {
-	/* TODO do we need nanosecond precision in time calculations? */
+	if (*total_time == 0) {
+		/* handle division by 0 */
+		return 0;
+	}
 	return (*total_packets * NS_PER_SEC) / *total_time;
 }

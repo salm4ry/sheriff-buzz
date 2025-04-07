@@ -8,5 +8,7 @@
 	"whitelist_ip": ["8.8.8.8", "100.100.100.100"],
 	"blacklist_subnet": ["10.0.0.0/8", "1.2.3.0/24"],
 	"whitelist_subnet": ["192.168.66.0/24"],
-	"whitelist_port": [493, 12345]
+	"whitelist_port": [493, 12345],
+	"dry_run": false,
+	"test": false
 }

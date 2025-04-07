@@ -13,7 +13,9 @@
         "whitelist_ip": ["8.8.8.8", "100.100.100.100"],
         "blacklist_subnet": ["10.0.0.0/8", "1.2.3.0/24"],
         "whitelist_subnet": ["192.168.66.0/24"],
-        "whitelist_port": [493, 12345]
+        "whitelist_port": [493, 12345],
+        "dry_run": false,
+        "test": false
 }
 ```
 
@@ -29,6 +31,8 @@
 | `blacklist_subnet` | list of subnets (CIDR notation) to blacklist |
 | `whitelist_subnet` | list of subnets (CIDR notation) to whitelist |
 | `whitelist_port` | list of TCP ports to whitelist |
+| `dry_run` | enable dry run mode |
+| `test` | enable testing mode |
 
 ## Blacklist/Whitelist Precedence
 - IP > subnet > port

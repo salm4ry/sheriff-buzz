@@ -16,7 +16,7 @@
 
 3. run `sheriff-buzz` and test suite
     ```bash
-    ./runit.sh
+    ./run_tests.sh
     ```
 
 4. deactivate virtual environment when finished

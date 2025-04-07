@@ -48,9 +48,9 @@ start_buzz
 stop_buzz  # required to clear blacklists and whitelists
 clear_cap
 
-start_buzz
 # set new capabilities for integration testing
 sudo setcap "${integration_test_caps}" "${venv_python}"
+start_buzz
 # run integration tests
 echo '-----'
 "${venv_python}" integration_tests.py -u "${USER}" -t "${LOCALHOST}"

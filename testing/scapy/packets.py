@@ -11,7 +11,7 @@ FIN = "F"
 
 
 # generate source IP in 10.10.octet.x/24
-def rand_src_ip(octet=""):
+def rand_ip(octet=""):
     if not octet:
         return f"10.10.{randint(0, 255)}.{randint(0, 255)}"
     return f"10.10.{octet}.{randint(0, 255)}"

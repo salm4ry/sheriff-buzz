@@ -33,7 +33,7 @@ class UnitTest:
 
         # source IP (leave empty for random)
         if not src_ip:
-            self.src_ip = packets.rand_src_ip(octet)
+            self.src_ip = packets.rand_ip(octet)
         else:
             self.src_ip = src_ip
 

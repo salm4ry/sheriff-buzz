@@ -51,11 +51,11 @@ class IntegrationTest:
         failed_file = open("failed_tests.txt", "w")
         passed = failed = 0
 
-        src_ip = packets.rand_src_ip()
+        src_ip = packets.rand_ip()
 
         for i in tqdm(range(self.num_tests)):
             if not self.fixed_ip:
-                src_ip = packets.rand_src_ip()
+                src_ip = packets.rand_ip()
 
             # send packet to random port
             dst_port = packets.rand_port()

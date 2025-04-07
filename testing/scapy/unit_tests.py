@@ -47,7 +47,7 @@ class UnitTest:
         # scan first 100 ports
         packets.gen_packets(
             self.src_ip, target, packets.SYN, (1, port_threshold),
-            verbose=True
+            log_level=packets.VERBOSE
         )
         # send another packet in order to observe XDP return value
         packets.gen_packets(self.src_ip, target, packets.SYN, [TEST_PORT],
@@ -63,11 +63,8 @@ class UnitTest:
         packets.gen_packets(self.src_ip, target, packets.SYN, [port],
                             log_level=packets.VERBOSE)
 
-    def run(self, target, user):
-        config.copy(
-            src_path=self.config_file, dst_path=TARGET_CONFIG_PATH,
-            username=user
-        )
+    def run(self, target):
+        config.copy(src_path=self.config_file, dst_path=TARGET_CONFIG_PATH)
 
         if self.do_scan:
             self.port_scan(target, self.port_threshold)
@@ -130,4 +127,4 @@ if __name__ == "__main__":
     print(f"running {Fore.BLUE + 'unit tests' + Fore.RESET}...")
 
     for test in tests:
-        test.run(args.target, args.user)
+        test.run(args.target)

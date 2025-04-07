@@ -44,7 +44,7 @@ source "${venv_dir}"/bin/activate
 sudo setcap "${unit_test_caps}" "${venv_python}"
 start_buzz
 # run unit tests
-"${venv_python}" unit_tests.py -u "${USER}" -t "${LOCALHOST}"
+"${venv_python}" unit_tests.py -t "${LOCALHOST}"
 stop_buzz  # required to clear blacklists and whitelists
 clear_cap
 
@@ -53,7 +53,7 @@ sudo setcap "${integration_test_caps}" "${venv_python}"
 start_buzz
 # run integration tests
 echo '-----'
-"${venv_python}" integration_tests.py -u "${USER}" -t "${LOCALHOST}"
+"${venv_python}" integration_tests.py -t "${LOCALHOST}"
 stop_buzz
 clear_cap
 

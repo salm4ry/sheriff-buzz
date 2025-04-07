@@ -42,11 +42,8 @@ class IntegrationTest:
         self.config_file = config_file
         self.fixed_ip = fixed_ip
 
-    def run(self, target, user):
-        config.copy(
-            src_path=self.config_file, dst_path=TARGET_CONFIG_PATH,
-            username=user
-        )
+    def run(self, target):
+        config.copy(src_path=self.config_file, dst_path=TARGET_CONFIG_PATH)
 
         failed_file = open("failed_tests.txt", "w")
         passed = failed = 0
@@ -110,4 +107,4 @@ if __name__ == "__main__":
     print(f"running {Fore.BLUE + 'integration tests' + Fore.RESET}...")
 
     for test in tests:
-        test.run(args.target, args.user)
+        test.run(args.target)

@@ -46,10 +46,12 @@ class UnitTest:
         """Perform a port scan to go ogver the port threshold"""
         # scan first 100 ports
         packets.gen_packets(
-            self.src_ip, target, packets.SYN, (1, port_threshold), verbose=True
+            self.src_ip, target, packets.SYN, (1, port_threshold),
+            verbose=True
         )
         # send another packet in order to observe XDP return value
-        packets.gen_packets(self.src_ip, target, packets.SYN, [TEST_PORT], verbose=True)
+        packets.gen_packets(self.src_ip, target, packets.SYN, [TEST_PORT],
+                            verbose=True)
 
     def single_packet(self, target):
         """Send a single packet"""
@@ -58,11 +60,13 @@ class UnitTest:
         else:
             port = TEST_PORT
 
-        packets.gen_packets(self.src_ip, target, packets.SYN, [port])
+        packets.gen_packets(self.src_ip, target, packets.SYN, [port],
+                            verbose=True)
 
     def run(self, target, user):
         config.copy(
-            src_path=self.config_file, dst_path=TARGET_CONFIG_PATH, username=user
+            src_path=self.config_file, dst_path=TARGET_CONFIG_PATH,
+            username=user
         )
 
         if self.do_scan:
@@ -76,7 +80,8 @@ class UnitTest:
         if res is not None:
             print_xdp_result(self.name, res, self.expected)
         else:
-            print(f"{Fore.BLUE + self.name}:{Fore.RESET} {Fore.YELLOW}" "failed to run")
+            print(f"{Fore.BLUE + self.name}:{Fore.RESET} {Fore.YELLOW}"
+                  "failed to run")
             print(Style.RESET_ALL)
 
 

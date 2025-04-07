@@ -18,7 +18,7 @@ def lookup(map_name, ip):
     try:
         map = bpfmaps.BPF_Map.get_map_by_name(map_name)
         key = int.from_bytes(socket.inet_pton(socket.AF_INET, ip), "little")
-        print(f"looking up BPF {map_name}[{key}]...")
+        # print(f"looking up BPF {map_name}[{key}]...")
         result = map[key]
     except AssertionError as e:
         print(f"{Fore.RED + "BPF map error:" + Fore.RESET} {e}")

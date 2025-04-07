@@ -1,7 +1,5 @@
 #!./.venv/bin/python3
 
-from time import sleep
-
 import argparse
 from tqdm import tqdm
 from colorama import Fore
@@ -13,7 +11,6 @@ from args import init_args
 
 TARGET_CONFIG_PATH = "~/sheriff-buzz/config.json"
 LOG_PATH = "/var/log/sheriff-buzz.log"
-NUM_TRIES = 5  # number of file reading attempts
 
 
 def compare_packets(result, expected):
@@ -47,7 +44,8 @@ class IntegrationTest:
 
     def run(self, target, user):
         config.copy(
-            src_path=self.config_file, dst_path=TARGET_CONFIG_PATH, username=user
+            src_path=self.config_file, dst_path=TARGET_CONFIG_PATH,
+            username=user
         )
 
         failed_file = open("failed_tests.txt", "w")
@@ -59,7 +57,6 @@ class IntegrationTest:
             if not self.fixed_ip:
                 src_ip = packets.rand_src_ip()
 
-            # src_ip = packets.rand_src_ip()
             # send packet to random port
             dst_port = packets.rand_port()
             packets.gen_packets(src_ip, target, packets.SYN, dst_port)

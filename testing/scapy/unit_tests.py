@@ -43,7 +43,7 @@ class UnitTest:
             self.port = None
 
     def port_scan(self, target, port_threshold):
-        """Perform a port scan to go ogver the port threshold"""
+        """Perform a port scan to go over the port threshold"""
         # scan first 100 ports
         packets.gen_packets(
             self.src_ip, target, packets.SYN, (1, port_threshold),
@@ -51,7 +51,7 @@ class UnitTest:
         )
         # send another packet in order to observe XDP return value
         packets.gen_packets(self.src_ip, target, packets.SYN, [TEST_PORT],
-                            verbose=True)
+                            log_level=packets.VERBOSE)
 
     def single_packet(self, target):
         """Send a single packet"""
@@ -61,7 +61,7 @@ class UnitTest:
             port = TEST_PORT
 
         packets.gen_packets(self.src_ip, target, packets.SYN, [port],
-                            verbose=True)
+                            log_level=packets.VERBOSE)
 
     def run(self, target, user):
         config.copy(

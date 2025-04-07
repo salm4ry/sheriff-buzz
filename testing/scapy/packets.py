@@ -9,6 +9,9 @@ NULL = ""
 SYN = "S"
 FIN = "F"
 
+VERBOSE = True
+QUIET = False
+
 
 # generate source IP in 10.10.octet.x/24
 def rand_ip(octet=""):
@@ -22,19 +25,14 @@ def rand_port():
 
 
 # NOTE: [p1, p2, p3, ...] for discrete, (start, end) for continuous
-def gen_packets(src_ip, target, flags, ports, verbose=False):
+def gen_packets(src_ip, target, flags, ports, log_level=QUIET):
     ip_layer = IP(src=src_ip, dst=target)
 
     tcp_layer = TCP(sport=rand_port(), dport=ports, flags=flags)
     packet = ip_layer / tcp_layer
 
     try:
-        send(packet, verbose=verbose)
-        # print(f"{src_ip} -> {target}, ports: {ports}")
+        send(packet, verbose=log_level)
     except PermissionError as e:
-        print(e)
+        print(f"error sending packets: {e}")
         exit(1)
-
-
-if __name__ == "__main__":
-    gen_packets("10.10.66.66", "192.168.1.108", XMAS, [1, 1024])

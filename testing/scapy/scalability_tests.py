@@ -1,9 +1,9 @@
 #!./.venv/bin/python3
 
 import argparse
-from tqdm import tqdm
-from multiprocessing import Process
 from resource import setrlimit, RLIMIT_NOFILE
+from random import randint
+from multiprocessing import Process
 
 from args import init_args
 import packets
@@ -13,15 +13,14 @@ LOG_PATH = "/var/log/sheriff-buzz.log"
 
 
 class ScalabilityTest:
-    def __init__(self, name, num_ips, num_packets, config_file):
+    def __init__(self, name, num_ips, port_threshold):
         self.name = name
         self.num_ips = num_ips
-        self.num_packets = num_packets
-        self.config_file = config_file
+        self.port_threshold = port_threshold
 
-    def gen_port_list(self):
+    def gen_port_list(self, num_packets):
         ports = []
-        for i in range(self.num_packets):
+        for i in range(num_packets):
             ports.append(packets.rand_port())
         return ports
 
@@ -38,8 +37,9 @@ class ScalabilityTest:
         packets.gen_packets(packets.rand_ip(), target, packets.SYN,
                             packets.rand_port())
 
-        for i in tqdm(range(self.num_ips)):
-            ports = self.gen_port_list()
+        for i in range(self.num_ips):
+            ports = self.gen_port_list(randint(self.port_threshold//2,
+                                               self.port_threshold*2))
             p = Process(target=packets.gen_packets, args=(packets.rand_ip(),
                                                           target,
                                                           packets.SYN,
@@ -74,8 +74,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     test = ScalabilityTest(name="scalability", num_ips=args.num_ips,
-                           num_packets=100,
-                           config_file="config/scalability.json")
+                           port_threshold=(16*1024))
 
     setrlimit(RLIMIT_NOFILE, (65536*64*10, 65536*64*10))
 

@@ -7,9 +7,9 @@
 #include <errno.h>
 
 #define MAX_LOG_MSG 512
-#define MAX_TIME_STR 20
-#define MAX_PREFIX 28
-#define TIME_FMT "%Y-%m-%d %H-%M-%S"
+#define MAX_TIME_STR 24
+#define MAX_PREFIX 32
+#define TIME_FMT "%a %Y-%m-%d %H:%M:%S"
 
 #define p_error(msg) do { \
     fprintf(stderr, "%s:%s:%d: %s: %s\n", __FILE__, __func__, __LINE__, (msg), strerror(errno)); \

@@ -4,13 +4,13 @@
 sheriff-buzz \- intrusion detection and response with eBPF
 
 .SH SYNOPSIS
-sheriff-buzz -i <interface> | -d <address> [OPTIONS]
+sheriff-buzz -i <interface> | -a <address> [OPTIONS]
 
 .SH DESCRIPTION
 Detect port scans, blocking/redirecting traffic from hosts deemed suspicious.
 
-Either a network interface name or address is required for attaching; everything
-else is optional.
+A network interface name or address to attach to is required, all other
+arguments are optional.
 
 .SH OPTIONS
 
@@ -44,6 +44,10 @@ enable SKB mode (use if native XDP not supported)
 .TP
 .B --dry-run, -d
 enable dry run mode (do not block/redirect traffic from blacklisted IPs/subnets)
+
+.TP
+.B --test, -t
+enable testing mode (additional logging and storage of packets from test subnet)
 
 .SH AUTHOR
 Salma Berriche (smb114@student.bham.ac.uk)

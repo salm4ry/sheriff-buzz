@@ -5,15 +5,15 @@ NNAAMMEE
 
 
 SSYYNNOOPPSSIISS
-       sheriff-buzz -i <interface> | -d <address> [OPTIONS]
+       sheriff-buzz -i <interface> | -a <address> [OPTIONS]
 
 
 DDEESSCCRRIIPPTTIIOONN
-       Detect  port scans, blocking/redirecting traffic from hosts deemed sus-
+       Detect  port scans, blocking/redirecting traffic from hosts deemed sus‐
        picious.
 
-       Either a network interface name or address is required  for  attaching;
-       everything else is optional.
+       A network interface name or address to attach to is required, all other
+       arguments are optional.
 
 
 OOPPTTIIOONNSS
@@ -42,8 +42,13 @@ OOPPTTIIOONNSS
 
 
        ----ddrryy--rruunn,, --dd
-              enable  dry  run mode (do not block/redirect traffic from black-
+              enable dry run mode (do not block/redirect traffic  from  black‐
               listed IPs/subnets)
+
+
+       ----tteesstt,, --tt
+              enable  testing  mode (additional logging and storage of packets
+              from test subnet)
 
 
 AAUUTTHHOORR

@@ -3,7 +3,7 @@ out = $(in:.roff=.man)
 
 all: $(out)
 %.man: %.roff
-	groff -Tascii -man $< > $@
+	groff -T utf8 -man $< > $@
 
 .PHONY: less
 less:

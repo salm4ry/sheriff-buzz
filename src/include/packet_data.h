@@ -87,7 +87,7 @@ struct value {
 	unsigned long total_packet_count;
 	int alert_count;
 	GHashTable *tcp_ports;
-    GHashTable *udp_ports;
+	GHashTable *udp_ports;
 };
 
 /* port range for writing port-based alerts to the database */

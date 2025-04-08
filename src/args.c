@@ -70,6 +70,7 @@ void set_default_args(struct args *args)
 	args->bpf_obj_file = default_args.bpf_obj_file;
 	args->skb_mode = default_args.skb_mode;
 	args->dry_run = default_args.dry_run;
+	args->test = default_args.test;
 	args->interface = default_args.interface;
 }
 

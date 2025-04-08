@@ -110,6 +110,7 @@ void cleanup()
 
 	/* detach XDP program */
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
+	bpf_object__close(bpf_obj);
 
 	/* free ring buffers */
 	if (ip_rb) {
@@ -162,6 +163,7 @@ void cleanup()
 void init_cleanup(int err)
 {
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
+	bpf_object__close(bpf_obj);
 
 	if (xdp_rb) {
 		ring_buffer__free(xdp_rb);

@@ -21,7 +21,7 @@ def lookup(map_name, ip):
         # print(f"looking up BPF {map_name}[{key}]...")
         result = map[key]
     except AssertionError as e:
-        print(f"{Fore.RED + "BPF map error:" + Fore.RESET} {e}")
+        print(f"{Fore.RED + 'BPF map error:' + Fore.RESET} {e}")
         result = None
 
     return result

@@ -1,11 +1,6 @@
 #!/bin/bash
 
-dir="${HOME}/sheriff-buzz"
-prog=sheriff-buzz
-interface=lo
-config_file="${dir}/config.json"
 venv_dir='.venv'
-bpf_obj="${dir}/src/sheriff-buzz.bpf.o"
 venv_python='.venv/bin/python3'
 
 # set test script capabilities
@@ -20,42 +15,82 @@ integration_test_caps='CAP_NET_RAW=+ep'
 
 LOCALHOST=127.0.0.1
 
-start_buzz() {
-	# run sheriff-buzz on loopback interface, setting config file location
-	# and enabling testing mode
-	sudo -b "${dir}/${prog}" -i "${interface}" -c "${config_file}" -b "${bpf_obj}" -t
-}
+usage="-u: run unit tests
+-i: run integration tests,
+-n: number of packets to send (default 100)"
 
-stop_buzz() {
-	sudo killall "${prog}"
-}
+run_unit=false
+run_integration=false
+num_packets=100
 
 clear_cap() {
 	# remove capabilities on .venv Python interpreter
 	sudo setcap -r "${venv_python}"
 }
 
+activate() {
+	source "${venv_dir}/bin/activate"
+}
+
+unit_tests() {
+	# set unit testing capabilities
+	sudo setcap "${unit_test_caps}" "${venv_python}"
+	# run unit tests
+	"${venv_python}" unit_tests.py -t "${LOCALHOST}"
+	clear_cap
+	echo '-----'
+}
+
+integration_tests() {
+	# set new capabilities for integration testing
+	sudo setcap "${integration_test_caps}" "${venv_python}"
+	# run integration tests
+	"${venv_python}" integration_tests.py -t "${LOCALHOST}" -n "${1}"
+	clear_cap
+	echo '-----'
+}
+
+print_usage() {
+	echo "usage: $0 [-u] [-i] [-n num_packets]"
+	echo "${usage}"
+}
+
+# parse command-line arguments
+while getopts 'huin:' OPTION
+do
+	case "${OPTION}" in
+		u)
+			run_unit=true
+			;;
+		i)
+			run_integration=true
+			;;
+		n)
+			num_packets=$OPTARG
+			;;
+		h)
+			print_usage
+			exit 0
+			;;
+		?)
+			print_usage
+			exit 1
+	esac
+done
 
 # activate virtual environment
 # (follow instructions in README.md to create the .venv directory)
-source "${venv_dir}"/bin/activate
+activate
 
-# set unit testing capabilities
-sudo setcap "${unit_test_caps}" "${venv_python}"
-start_buzz
-# run unit tests
-"${venv_python}" unit_tests.py -t "${LOCALHOST}"
-stop_buzz  # required to clear blacklists and whitelists
-clear_cap
+if $run_unit
+then
+	unit_tests
+fi
 
-# set new capabilities for integration testing
-sudo setcap "${integration_test_caps}" "${venv_python}"
-start_buzz
-# run integration tests
-echo '-----'
-"${venv_python}" integration_tests.py -t "${LOCALHOST}"
-stop_buzz
-clear_cap
+if $run_integration
+then
+	integration_tests "${num_packets}"
+fi
 
 # deactivate virtual environment
 deactivate

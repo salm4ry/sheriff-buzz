@@ -394,13 +394,13 @@ void report_flag_based_alert(int alert_type, struct key *key, struct value *val,
 		char *ip_str, int dst_port)
 {
 	if (alert_type == types.XMAS_SCAN) {
-		log_alert(LOG, "nmap Xmas scan detected from %s (port %d)!\n",
+		log_alert(LOG, "nmap Xmas scan detected from %s (port %d)\n",
 				ip_str, dst_port);
 	} else if (alert_type == types.FIN_SCAN) {
-		log_alert(LOG, "nmap FIN scan detected from %s (port %d)!\n",
+		log_alert(LOG, "nmap FIN scan detected from %s (port %d)\n",
 				ip_str, dst_port);
 	} else if (alert_type == types.NULL_SCAN) {
-		log_alert(LOG, "nmap NULL scan detected from %s (port %d)!\n",
+		log_alert(LOG, "nmap NULL scan detected from %s (port %d)\n",
 				ip_str, dst_port);
 	}
 
@@ -417,7 +417,7 @@ void report_port_based_alert(int alert_type, struct key *key, struct value *val,
 {
 	struct port_range *range;
 
-	log_alert(LOG, "port scan (%d or more ports) detected from %s!\n",
+	log_alert(LOG, "port scan (%d or more ports) detected from %s\n",
 			port_threshold, ip_str);
 
 	if (use_db_thread) {

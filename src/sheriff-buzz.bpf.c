@@ -30,7 +30,7 @@ struct subnet_loop_ctx {
 
 /* hash map of black/whitelisted IPs */
 struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
 	__type(key, __u32); /* length of IPv4 address */
 	__type(value, short);
 	__uint(max_entries, 16384);
@@ -46,7 +46,7 @@ struct {
 
 /* hash map of whitelisted ports */
 struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
 	__type(key, __u16);
 	__type(value, short);
 	__uint(max_entries, 1024);
@@ -62,7 +62,7 @@ struct {
 
 /* used for XDP unit testing */
 struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
 	__type(key, __u32);
 	__type(value, __u16);
 	__uint(max_entries, 128);

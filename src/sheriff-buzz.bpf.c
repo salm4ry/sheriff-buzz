@@ -13,10 +13,6 @@
 #include "include/bpf_common.h"
 #include "sys/cdefs.h"
 
-/* TODO #define all map maximum sizes */
-#define MAX_LIST 256  /* max IP/subnet/port list length */
-#define _XDP_STATE_UNKNOWN -1
-
 /* TODO docstrings */
 
 char LICENSE[] SEC("license") = "GPL";
@@ -24,20 +20,20 @@ char LICENSE[] SEC("license") = "GPL";
 struct bpf_subnet {
 	in_addr_t network_addr;
 	in_addr_t mask;
-	__u16 type;
+	short type;
 };
 
 struct subnet_loop_ctx {
 	in_addr_t src_ip;
-	int type; /* blacklist/whitelist/not found */
+	short type; /* blacklist/whitelist/not found */
 };
 
 /* hash map of black/whitelisted IPs */
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__type(key, __u32); /* length of IPv4 address */
-	__type(value, __u16);
-	__uint(max_entries, MAX_LIST);
+	__type(value, short);
+	__uint(max_entries, 16384);
 } ip_list SEC(".maps");
 
 /* array of black/whitelisted subnets */
@@ -45,15 +41,15 @@ struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__type(key, __u32);
 	__type(value, struct bpf_subnet);
-	__uint(max_entries, MAX_LIST);
+	__uint(max_entries, 128);
 } subnet_list SEC(".maps");
 
 /* hash map of whitelisted ports */
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__type(key, __u16);
-	__type(value, __u16);
-	__uint(max_entries, MAX_LIST);
+	__type(value, short);
+	__uint(max_entries, 1024);
 } port_list SEC(".maps");
 
 /* config (sent from user space */
@@ -64,11 +60,12 @@ struct {
 	__uint(max_entries, 1); /* only one entry required: the current config */
 } config SEC(".maps");
 
+/* used for XDP unit testing */
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__type(key, __u32);
 	__type(value, __u16);
-	__uint(max_entries, 65535); /* size of 10.10.0.0/16 */;
+	__uint(max_entries, 128);
 	__uint(pinning, LIBBPF_PIN_BY_NAME);
 } test_results SEC(".maps");
 
@@ -328,7 +325,6 @@ static long subnet_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 static long port_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 {
 	struct port_rb_event *sample;
-	int type = WHITELIST;
 
 	sample = bpf_dynptr_data(dynptr, 0, sizeof(*sample));
 	if (!sample) {
@@ -338,7 +334,7 @@ static long port_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 	bpf_debug("whitelist port %d", sample->port_num);
 
 	/* insert hash map entry for new whitelisted port */
-	bpf_map_update_elem(&port_list, &sample->port_num, &type, 0);
+	bpf_map_update_elem(&port_list, &sample->port_num, &sample->type, 0);
 
 	return 0;
 }
@@ -413,9 +409,11 @@ int handle_blacklist(__u32 src_ip, struct iphdr *ip_headers,
 		if (current_config->block_src) {
 			bpf_debug("block %lu", src_ip);
 
+			/*
 			if (!current_config->dry_run) {
 				packet_action = XDP_DROP;
 			}
+			*/
 		} else {
 			/* NOTE: ip_headers NULL check required to pass verifier checks */
 			if (ip_headers) {
@@ -433,25 +431,27 @@ int handle_blacklist(__u32 src_ip, struct iphdr *ip_headers,
 	return packet_action;
 }
 
-int src_ip_state(__u32 src_ip, struct iphdr *ip_headers,
+int src_ip_action(__u32 src_ip, struct iphdr *ip_headers,
 		struct config_rb_event *current_config)
 {
-	__u16 *ip_list_type;
-	int packet_action = _XDP_STATE_UNKNOWN;
+	short *ip_list_type;
+	int packet_action = UNKNOWN;
 
 	/* look up source IP */
 	ip_list_type = bpf_map_lookup_elem(&ip_list, &src_ip);
 
 	if (ip_list_type) {
+		bpf_debug("ip_list_type: %d", *ip_list_type);
 		switch (*ip_list_type) {
 			case BLACKLIST:
 				bpf_debug("IP lookup: %ld blacklisted", src_ip);
 				packet_action = handle_blacklist(src_ip, ip_headers, current_config);
 				break;
-			default:
+			case WHITELIST:
 				bpf_debug("IP lookup: %ld whitelisted", src_ip);
 				packet_action = XDP_PASS;
-
+				break;
+			default:
 				break;
 		}
 	}
@@ -459,12 +459,12 @@ int src_ip_state(__u32 src_ip, struct iphdr *ip_headers,
 	return packet_action;
 }
 
-int subnet_state(__u32 src_ip)
+short subnet_state(__u32 src_ip)
 {
 	/* set up loop callback args */
 	struct subnet_loop_ctx ctx = {
 		.src_ip = src_ip,
-		.type = _XDP_STATE_UNKNOWN
+		.type = UNKNOWN
 	};
 
 	/* iterate through subnet list */
@@ -472,12 +472,12 @@ int subnet_state(__u32 src_ip)
 	return ctx.type;
 }
 
-int dst_port_state(__u16 dst_port)
+short dst_port_state(__u16 dst_port)
 {
 	/* translate to host byte order */
 	__u16 key = bpf_ntohs(dst_port);
-	__u16 *port_type = bpf_map_lookup_elem(&port_list, &key);
-	int state = _XDP_STATE_UNKNOWN;
+	short *port_type = bpf_map_lookup_elem(&port_list, &key);
+	int state = UNKNOWN;
 
 	if (port_type) {
 		state = *port_type;
@@ -600,8 +600,8 @@ int process_packet(struct xdp_md *ctx)
 	}
     */
 
-	packet_action = src_ip_state(src_ip, ip_headers, current_config);
-	if (packet_action != _XDP_STATE_UNKNOWN) {
+	packet_action = src_ip_action(src_ip, ip_headers, current_config);
+	if (packet_action != UNKNOWN) {
 		/* block/redirect without checking subnet */
 		bpf_debug("return after IP lookup: pass = %d, drop = %d, tx  = %d",
 				packet_action == XDP_PASS, packet_action == XDP_DROP, packet_action == XDP_TX);
@@ -630,9 +630,11 @@ int process_packet(struct xdp_md *ctx)
 				tcp_headers = parse_tcp_headers(ctx);
 				/* check whether port is whitelisted */
 				if (tcp_headers) {
+					bpf_debug("TCP headers: dst_port_state: %d", dst_port_state(tcp_headers->dest));
 					if (dst_port_state(tcp_headers->dest) == WHITELIST) {
 						bpf_debug("TCP port %-5d whitelisted", bpf_ntohs(tcp_headers->dest));
 					} else {
+						bpf_debug("submitting TCP headers");
 						submit_tcp_headers(ip_headers, tcp_headers);
 					}
 				}
@@ -644,6 +646,7 @@ int process_packet(struct xdp_md *ctx)
 					if (dst_port_state(udp_headers->dest) == WHITELIST) {
 						bpf_debug("UDP port %-5d whitelisted", bpf_ntohs(udp_headers->dest));
 					} else {
+						bpf_debug("submitting UDP headers");
 						submit_udp_headers(ip_headers, udp_headers);
 					}
 				}

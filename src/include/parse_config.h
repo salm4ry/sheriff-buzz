@@ -14,7 +14,14 @@
 #include <poll.h>
 #include <sys/inotify.h>
 
-#define MAX_LIST 256
+/* NOTE this is the maximum number of IPs allowed from the config file (256
+ * blacklist and 256 whitelist) */
+#define MAX_IP_LIST 256
+
+/* max list sizes (in line with BPF map max_entries for each) */
+#define MAX_SUBNET_LIST 128
+#define MAX_PORT_LIST 1024
+
 #define MAX_PACKET_THRESHOLD 1000
 #define MAX_PORT_THRESHOLD 65536
 #define MAX_FLAG_THRESHOLD 10

@@ -502,7 +502,7 @@ int *get_port_list(char *filename, int num_ports) {
 }
 
 /* submit IP list entry (black/whitelist) to BPF program with user ring buffer */
-__attribute__((noinline)) int submit_ip_entry(__u32 src_ip, int type)
+__attribute__((noinline)) int submit_ip_entry(__u32 src_ip, short type)
 {
 	int err = 0;
 	struct ip_rb_event *event;
@@ -555,7 +555,7 @@ void report_blocked_ip(struct key *key, struct value *val, char *ip_str)
 
 
 __attribute__((noinline)) int submit_subnet_entry(struct subnet *entry,
-						  int index, int type)
+						  int index, short type)
 {
 	int err = 0;
 	struct subnet_rb_event *event;
@@ -602,10 +602,9 @@ void submit_subnet_list()
 	pthread_rwlock_unlock(&config_lock);
 }
 
-__attribute__((noinline)) int submit_port_entry(__u16 port)
+__attribute__((noinline)) int submit_port_entry(__u16 port, short type)
 {
 	int err = 0;
-#ifdef ZERO
 	struct port_rb_event *event;
 
 	event = user_ring_buffer__reserve(port_rb, sizeof(*event));
@@ -616,10 +615,10 @@ __attribute__((noinline)) int submit_port_entry(__u16 port)
 
 	/* fill out ring buffer sample */
 	event->port_num = port;
+	event->type = type;
 
 	user_ring_buffer__submit(port_rb, event);
 out:
-#endif
 	return err;
 }
 
@@ -628,7 +627,8 @@ void submit_port_list()
 	pthread_rwlock_rdlock(&config_lock);
 	if (current_config.whitelist_port) {
 		for (int i = 0; i < current_config.whitelist_port->size; i++) {
-			submit_port_entry(current_config.whitelist_port->entries[i]);
+			submit_port_entry(current_config.whitelist_port->entries[i],
+					WHITELIST);
 		}
 	}
 	pthread_rwlock_unlock(&config_lock);

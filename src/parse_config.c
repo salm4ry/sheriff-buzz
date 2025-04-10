@@ -197,10 +197,10 @@ struct ip_list *ip_list_json(cJSON *obj, const char *item_name, FILE *LOG)
 	array = cJSON_GetObjectItemCaseSensitive(obj, item_name);
 	list->size = cJSON_GetArraySize(array);
 	if (list->size != 0) {
-		if (list->size > MAX_LIST) {
+		if (list->size > MAX_IP_LIST) {
 			log_info(LOG, "config: %s list exceeds maximum size %d, truncating\n",
-				 item_name, MAX_LIST);
-			list->size = MAX_LIST;
+				 item_name, MAX_IP_LIST);
+			list->size = MAX_IP_LIST;
 		}
 
 		list->entries = calloc(list->size, sizeof(in_addr_t));
@@ -211,7 +211,7 @@ struct ip_list *ip_list_json(cJSON *obj, const char *item_name, FILE *LOG)
 
 		/* extract IP addresses from array */
 		cJSON_ArrayForEach(elem, array) {
-			if (index >= MAX_LIST) {
+			if (index >= MAX_IP_LIST) {
 				/* stop reading in elements after maximum list size */
 				break;
 			}
@@ -245,10 +245,10 @@ struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name, FILE *LO
 	array = cJSON_GetObjectItemCaseSensitive(obj, item_name);
 	list->size = cJSON_GetArraySize(array);
 	if (list->size != 0) {
-		if (list->size > MAX_LIST) {
+		if (list->size > MAX_SUBNET_LIST) {
 			log_info(LOG, "config: %s list exceeds maximum size %d, truncating\n",
-				 item_name, MAX_LIST);
-			list->size = MAX_LIST;
+				 item_name, MAX_SUBNET_LIST);
+			list->size = MAX_SUBNET_LIST;
 		}
 
 		list->entries = calloc(list->size, sizeof(struct subnet));
@@ -259,7 +259,7 @@ struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name, FILE *LO
 
 		/* extract subnets from array */
 		cJSON_ArrayForEach(elem, array) {
-			if (index >= MAX_LIST) {
+			if (index >= MAX_SUBNET_LIST) {
 				/* stop reading in elements after maximum list size */
 				break;
 			}
@@ -293,10 +293,10 @@ struct port_list *port_list_json(cJSON *obj, const char *item_name, FILE *LOG)
 	array = cJSON_GetObjectItemCaseSensitive(obj, item_name);
 	list->size = cJSON_GetArraySize(array);
 	if (list->size != 0) {
-		if (list->size > MAX_LIST) {
+		if (list->size > MAX_PORT_LIST) {
 			log_info(LOG, "config: %s list exceeds maximum size %d, truncating\n",
-				 item_name, MAX_LIST);
-			list->size = MAX_LIST;
+				 item_name, MAX_PORT_LIST);
+			list->size = MAX_PORT_LIST;
 		}
 
 		list->entries = calloc(list->size, sizeof(int));
@@ -309,7 +309,7 @@ struct port_list *port_list_json(cJSON *obj, const char *item_name, FILE *LOG)
 
 		/* extract ports from array */
 		cJSON_ArrayForEach(elem, array) {
-			if (index >= MAX_LIST) {
+			if (index >= MAX_PORT_LIST) {
 				/* stop reading in elements after maximum list size */
 				break;
 			}

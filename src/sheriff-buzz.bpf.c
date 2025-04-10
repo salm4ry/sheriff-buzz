@@ -292,7 +292,7 @@ static long ip_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 		return 0;
 	}
 
-	bpf_debug("submitting ip %ld, blacklist = %d", sample->src_ip,
+	bpf_debug("ip %ld, blacklist = %d", sample->src_ip,
 			sample->type == BLACKLIST);
 
 	/* insert hash map entry for new black/whitelisted IP */
@@ -331,7 +331,8 @@ static long port_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 		return 0;
 	}
 
-	bpf_debug("whitelist port %d", sample->port_num);
+	bpf_debug("port %d, blacklist = %d",
+			sample->port_num, sample->type == BLACKLIST);
 
 	/* insert hash map entry for new whitelisted port */
 	bpf_map_update_elem(&port_list, &sample->port_num, &sample->type, 0);
@@ -630,11 +631,10 @@ int process_packet(struct xdp_md *ctx)
 				tcp_headers = parse_tcp_headers(ctx);
 				/* check whether port is whitelisted */
 				if (tcp_headers) {
-					bpf_debug("TCP headers: dst_port_state: %d", dst_port_state(tcp_headers->dest));
 					if (dst_port_state(tcp_headers->dest) == WHITELIST) {
 						bpf_debug("TCP port %-5d whitelisted", bpf_ntohs(tcp_headers->dest));
 					} else {
-						bpf_debug("submitting TCP headers");
+						/* bpf_debug("submitting TCP headers"); */
 						submit_tcp_headers(ip_headers, tcp_headers);
 					}
 				}
@@ -646,7 +646,7 @@ int process_packet(struct xdp_md *ctx)
 					if (dst_port_state(udp_headers->dest) == WHITELIST) {
 						bpf_debug("UDP port %-5d whitelisted", bpf_ntohs(udp_headers->dest));
 					} else {
-						bpf_debug("submitting UDP headers");
+						/* bpf_debug("submitting UDP headers"); */
 						submit_udp_headers(ip_headers, udp_headers);
 					}
 				}

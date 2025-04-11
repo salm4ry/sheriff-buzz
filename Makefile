@@ -48,6 +48,8 @@ src = $(filter-out $(top_dir)/%.bpf.c, $(wildcard $(top_dir)/*.c))
 # BPF source code: .bpf.c
 ksrc = $(top_dir)/$(BASENAME).bpf.c
 
+man_page = man/sheriff-buzz.roff
+
 all: $(ktarget) $(target)
 
 # build BPF object
@@ -103,3 +105,7 @@ ifeq ($(SYN_HLT),1)
 else
 	@llvm-objdump -d $(ktarget)
 endif
+
+.PHONY: man
+man:
+	@man -l $(man_page)

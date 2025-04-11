@@ -154,7 +154,7 @@ in_addr_t ip_json_value(cJSON *obj, const char *item_name)
 		/* inet_pton() returns 1 on success, 0 on error */
 		res = inet_pton(AF_INET, value, &ip);
 		if (res == 0) {
-			return UNDEFINED;
+			return 0;
 		}
 	}
 
@@ -503,7 +503,9 @@ void apply_config(cJSON *config_json, struct config *current_config,
 	block_src = check_action(config_json, "action");
 	redirect_ip = ip_json_value(config_json, "redirect_ip");
 
-	if (!block_src && redirect_ip != UNDEFINED) {
+	/* NOTE: can't use UNDEFINED for redirect_ip since it's an unsigned
+	 * integer */
+	if (!block_src && redirect_ip != 0) {
 		/* redirect: check IP address and only apply if a valid IP is supplied */
 		pthread_rwlock_wrlock(lock);
 		current_config->block_src = false;
@@ -553,6 +555,8 @@ void apply_config(cJSON *config_json, struct config *current_config,
 		pthread_rwlock_unlock(lock);
 		log_info(LOG, "config: test = %d\n", test);
 	}
+
+	/* set test subnet if defined */
 	if (test_subnet.mask != 0) {
 		pthread_rwlock_wrlock(lock);
 		current_config->test = test;

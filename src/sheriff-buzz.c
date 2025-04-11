@@ -1,3 +1,5 @@
+/// @file
+
 #include <stdio.h>
 #include <stdint.h>
 #include <errno.h>
@@ -32,14 +34,16 @@
 #include "include/parse_headers.h"
 #include "include/args.h"
 
-#define XDP_RB_TIMEOUT 100  /* XDP ring buffer poll timeout (ms) */
-#define LOG_FILENAME_LENGTH 24
+#define XDP_RB_TIMEOUT 100  ///< XDP ring buffer poll timeout (ms)
 
 uint32_t xdp_flags = XDP_FLAGS_UPDATE_IF_NOEXIST;
 int ifindex;
 
 struct bpf_object *bpf_obj;
 
+/**
+ * @brief Arguments for IP uretprobe initialisation
+ */
 struct uretprobe_opts ip_uretprobe_args = {
 	.program_name = "read_ip_rb",
 	.uprobe_func = "submit_ip_entry",
@@ -47,18 +51,27 @@ struct uretprobe_opts ip_uretprobe_args = {
 };
 
 
+/**
+ * @brief Arguments for subnet uretprobe initialisation
+ */
 struct uretprobe_opts subnet_uretprobe_args = {
 	.program_name = "read_subnet_rb",
 	.uprobe_func = "submit_subnet_entry",
 	.map_name = "subnet_list"
 };
 
+/**
+ * @brief Arguments for port uretprobe initialisation
+ */
 struct uretprobe_opts port_uretprobe_args = {
 	.program_name = "read_port_rb",
 	.uprobe_func = "submit_port_entry",
 	.map_name = "port_list"
 };
 
+/**
+ * @brief Arguments for config uretprobe initialisation
+ */
 struct uretprobe_opts config_uretprobe_args =  {
 	.program_name = "read_config_rb",
 	.uprobe_func = "submit_config",
@@ -70,7 +83,6 @@ struct user_ring_buffer *ip_rb = NULL;
 struct user_ring_buffer *subnet_rb = NULL;
 struct user_ring_buffer *port_rb = NULL;
 struct user_ring_buffer *config_rb = NULL;
-int err;
 
 GHashTable *packet_table;
 struct db_task_queue task_queue_head;
@@ -100,6 +112,11 @@ unsigned long total_blocked_ips = 0;
 FILE *LOG = NULL;
 int LOG_FD = -1;
 
+/**
+ * @brief Clean up on program exit
+ * @details Detach XDP program, stop worker threads, and free
+ * dynamically-allocated memory
+ */
 void cleanup()
 {
 	/* don't call cleanup() more than once by setting exiting to true */
@@ -159,7 +176,10 @@ void cleanup()
 	PQfinish(db_conn);
 }
 
-/* cleanup for initialisation */
+/**
+ * @brief Clean up on program exit (initialisation)
+ * @details Used in the case of fatal errors during initialisation
+ */
 void init_cleanup(int err)
 {
 	bpf_xdp_detach(ifindex, xdp_flags, NULL);
@@ -186,35 +206,35 @@ void init_cleanup(int err)
 	exit(-err);
 }
 
+/**
+ * @brief Call cleanup() and exit
+ * @param signum signal number
+ * @details SIGINT & SIGTERM handler
+ */
 void cleanup_handler(int signum)
 {
 	cleanup();
 	exit(EXIT_SUCCESS);
 }
 
+/**
+ * @brief Output statistics to the log file
+ * @param signum signal number
+ * @details SIGUSR1 handler
+ */
 void print_stats(int signum)
 {
 	char buf[MAX_LOG_MSG];
-	/*
-	char prefix[MAX_PREFIX];
-	char fmt[MAX_LOG_MSG];
-
-	make_prefix(prefix, "stats: ");
-	strncpy(fmt, prefix, MAX_LOG_MSG);
-	strncat(fmt, "%ld packets per second\n", MAX_LOG_MSG - (strlen(prefix)+1));
-	*/
-
 	snprintf(buf, MAX_LOG_MSG, "stats: %ld packets per second, %ld blocked IPs\n",
 			packet_rate(&total_packet_count, &total_handle_time), total_blocked_ips);
 	write(LOG_FD, buf, strlen(buf));
 }
 
-void gen_log_name(char *name)
-{
-	time_to_str(time(NULL), name,
-			LOG_FILENAME_LENGTH, "log/%Y-%m-%d_%H-%M-%S");
-}
-
+/**
+ * @brief Get file handle
+ * @param name name of file to open
+ * @param file opened file
+ */
 void open_file(char *name, FILE **file)
 {
 	*file = fopen(name, "a");
@@ -224,6 +244,11 @@ void open_file(char *name, FILE **file)
 	}
 }
 
+/**
+ * @brief Get file descriptor
+ * @param name name of file to open
+ * @param fd opened file descriptor
+ */
 void open_fd(char *name, int *fd)
 {
 	*fd = open(name, O_RDWR | O_APPEND);
@@ -233,14 +258,25 @@ void open_fd(char *name, int *fd)
 	}
 }
 
+/**
+ * @brief Get log file handle and desscriptor
+ * @param filename name of file to open
+ */
 void init_log_file(char *filename)
 {
 	open_file(filename, &LOG);
 	open_fd(filename, &LOG_FD);
 }
 
+/**
+ * @brief Get absolute and relative paths to config file
+ * @param relative_path relative file path (supplied)
+ * @param config_path absolute file path (returned)
+ * @param config_dir directory config file is in (returned)
+ * @param config_filename name of config file (returned)
+ */
 void init_config_path(char **relative_path, char **config_path, char **config_dir,
-		char **config_filename, FILE *LOG)
+		char **config_filename)
 {
 	char *dirc, *basec;
 	char *tmp;
@@ -267,7 +303,11 @@ void init_config_path(char **relative_path, char **config_path, char **config_di
 	*config_filename = strndup(tmp, strlen(tmp)+1);
 	free(basec);
 }
-
+/**
+ * @brief Load and apply configuration from JSON file
+ * @param path path to config file
+ * @details Load config with json_config(), then apply it with apply_config()
+ */
 void load_config(char *path)
 {
 	cJSON *config_json = json_config(path, LOG);
@@ -279,6 +319,10 @@ void load_config(char *path)
 	cJSON_Delete(config_json);
 }
 
+/**
+ * @brief Set up signal handlers
+ * @details cleanup_handler() for SIGINT and SIGTERM, print_stats() for SIGUSR1
+ */
 void setup_signal_handlers()
 {
 	struct sigaction cleanup_action, stats_action;
@@ -291,10 +335,10 @@ void setup_signal_handlers()
 	cleanup_action.sa_handler = cleanup_handler;
 	sigemptyset(&cleanup_action.sa_mask);
 
-    /* block other signals while in the cleanup handler */
-    sigaddset(&cleanup_action.sa_mask, SIGINT);
-    sigaddset(&cleanup_action.sa_mask, SIGTERM);
-    sigaddset(&cleanup_action.sa_mask, SIGUSR1);
+	/* block other signals while in the cleanup handler */
+	sigaddset(&cleanup_action.sa_mask, SIGINT);
+	sigaddset(&cleanup_action.sa_mask, SIGTERM);
+	sigaddset(&cleanup_action.sa_mask, SIGUSR1);
 
 	cleanup_action.sa_flags = 0;
 
@@ -320,6 +364,10 @@ void setup_signal_handlers()
 	}
 }
 
+/**
+ * @brief Get DB_THREAD environment variable value
+ * @param use_db_thread Boolean to store the result
+ */
 void get_thread_env(bool *use_db_thread) {
 	/* check if we're using the database worker thread */
 	char *thread_env = getenv("DB_THREAD");
@@ -337,6 +385,12 @@ void get_thread_env(bool *use_db_thread) {
 }
 
 
+/**
+ * @brief Get BPF map file descriptor by name from BPF object
+ * @param obj BPF object
+ * @param name map name
+ * @return file descriptor on success, -EINVAL on error
+ */
 int get_bpf_map_fd(struct bpf_object *obj, char *name) {
 	struct bpf_map *map;
 
@@ -348,8 +402,15 @@ int get_bpf_map_fd(struct bpf_object *obj, char *name) {
 	return bpf_map__fd(map);
 }
 
+/**
+ * @brief Initialise BPF kernel ring buffer
+ * @param rb ring buffer
+ * @param fd ring buffer file descriptor
+ * @param callback callback function
+ */
 void init_kernel_rb(struct ring_buffer **rb, int fd, void *callback)
 {
+	int err = 0;
 	*rb = ring_buffer__new(fd, callback, NULL, NULL);
 	if (!*rb) {
 		err = -1;
@@ -358,8 +419,14 @@ void init_kernel_rb(struct ring_buffer **rb, int fd, void *callback)
 	}
 }
 
+/**
+ * @brief Initialise BPF user ring buffer
+ * @param rb ring buffer
+ * @param fd ring buffer file descriptor
+ */
 void init_user_rb(struct user_ring_buffer **rb, int fd)
 {
+	int err = 0;
 	*rb = user_ring_buffer__new(fd, NULL);
 	if (!*rb) {
 		err = -1;
@@ -368,17 +435,29 @@ void init_user_rb(struct user_ring_buffer **rb, int fd)
 	}
 }
 
+/**
+ * @brief Initialise database worker (db_worker) thread
+ * @param function function for the thread to run
+ * @param args arguments supplied to the thread
+ * @details Cleanup and exit if thread creation fails
+ */
 void init_db_thread(void *function, struct db_thread_args *args)
 {
-		int res = pthread_create(&db_worker, NULL,
-				function , args);
-		if (res != 0) {
-			log_error(LOG, "%s\n", "db_worker pthread_create failed");
-			cleanup();
-			exit(res);
-		}
+	int res = pthread_create(&db_worker, NULL,
+			function , args);
+	if (res != 0) {
+		log_error(LOG, "%s\n", "db_worker pthread_create failed");
+		cleanup();
+		exit(res);
+	}
 }
 
+/**
+ * @brief Initialise inotify worker (config_worker) thread
+ * @param function function for the thread to run
+ * @param args arguments supplied to the thred
+ * @details Cleanup and exit if thread creation fails
+ */
 void init_inotify_thread(void *function, struct inotify_thread_args *args)
 {
 	int res = pthread_create(&inotify_worker, NULL,
@@ -390,6 +469,16 @@ void init_inotify_thread(void *function, struct inotify_thread_args *args)
 	}
 }
 
+/**
+ * @brief Report (write to log file and database) a flag-based alert
+ * @param alert_type type of alert
+ * @param key packet hash table key
+ * @param val packet hash table value
+ * @param ip_str source IP (string)
+ * @param dst_port destination port
+ * @details Perform the database write or add it to the database work queue
+ * depending on whether db_worker is enabled
+ */
 void report_flag_based_alert(int alert_type, struct key *key, struct value *val,
 		char *ip_str, int dst_port)
 {
@@ -408,10 +497,19 @@ void report_flag_based_alert(int alert_type, struct key *key, struct value *val,
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 				 alert_type, types, key, val, dst_port, LOG);
 	} else {
-		db_write_scan_alert(db_conn, alert_type, types, key, val, NULL, dst_port, LOG);
+		db_record_scan_alert(db_conn, alert_type, types, key, val, NULL, dst_port, LOG);
 	}
 }
-
+/**
+ * @brief Report (write to log file and database) a flag-based alert
+ * @param alert_type type of alert
+ * @param key packet hash table key
+ * @param val packet hash table value
+ * @param ip_str source IP (string)
+ * @param port_threshold port threshold that caused the alert
+ * @details Perform the database write or add it to the database work queue
+ * depending on whether db_worker is enabled
+ */
 void report_port_based_alert(int alert_type, struct key *key, struct value *val,
 		char *ip_str, int port_threshold)
 {
@@ -425,12 +523,18 @@ void report_port_based_alert(int alert_type, struct key *key, struct value *val,
 				alert_type, types, key, val, 0, LOG);
 	} else {
 		range = lookup_port_range(val);
-		db_write_scan_alert(db_conn, alert_type, types, key, val, range, 0, LOG);
+		db_record_scan_alert(db_conn, alert_type, types, key, val, range, 0, LOG);
 		free(range);
 	}
 }
 
 
+/**
+ * @brief Convert protocol number to string (ICMP, UDP, or TCP)
+ * @param protocol protocol number
+ * @return protocol string on success, "other" for a non-ICMP, UDP, or TCP
+ * protocol, and "invalid" for undefined behaviour
+ */
 char *procnum_to_str(int protocol)
 {
 	switch (protocol) {
@@ -449,13 +553,23 @@ char *procnum_to_str(int protocol)
 	}
 }
 
+/**
+ * @brief Convert IPv4 address to string
+ * @param address IP address
+ * @param buffer buffer to store IP string
+ */
 void ip_to_str(in_addr_t address, char buffer[]) {
 	/* NOTE specific to IPv4, would need to add another case (and maximum
 	 * length) for IPv6 addresses (AF_INET6) */
 	inet_ntop(AF_INET, &address, buffer, MAX_ADDR_LEN);
 }
 
-/* get port list from comma-separated file */
+/**
+ * @brief Parse comma-separated file into port list
+ * @param filename name of file to read
+ * @param num_ports number of ports file contains
+ * @details currently unused
+ */
 int *get_port_list(char *filename, int num_ports) {
 	FILE *file;
 	char *buf = NULL;
@@ -501,7 +615,12 @@ int *get_port_list(char *filename, int num_ports) {
 	return port_list;
 }
 
-/* submit IP list entry (black/whitelist) to BPF program with user ring buffer */
+/**
+ * @brief Submit IP blacklist/whitelist entry to BPF program using ip_rb
+ * @param src_ip source IP
+ * @param type BLACKLIST/WHITELIST
+ * @return 0 on success, negative error code on failure
+ */
 __attribute__((noinline)) int submit_ip_entry(__u32 src_ip, short type)
 {
 	int err = 0;
@@ -522,7 +641,9 @@ out:
 	return err;
 }
 
-/* submit blacklist and whitelist to BPF program */
+/**
+ * @brief Submit IP blacklist and whitelist to BPF program
+ */
 void submit_ip_list()
 {
 	pthread_rwlock_rdlock(&config_lock);
@@ -540,6 +661,14 @@ void submit_ip_list()
 	pthread_rwlock_unlock(&config_lock);
 }
 
+/**
+ * @brief Report (write to log file and database) a blocked IP
+ * @param key packet hash table key
+ * @param val packet hash table value
+ * @param ip_str IP address string
+ * @details Perform the database write or add it to the database work queue
+ * depending on whether db_worker is enabled
+ */
 void report_blocked_ip(struct key *key, struct value *val, char *ip_str)
 {
 	log_alert(LOG, "blacklisting %s\n", ip_str);
@@ -549,11 +678,18 @@ void report_blocked_ip(struct key *key, struct value *val, char *ip_str)
 		queue_work(&task_queue_head, &task_queue_lock, &task_queue_cond,
 			   UNDEFINED, types, key, val, UNDEFINED, LOG);
 	} else {
-		db_write_blocked_ip(db_conn, key, val, LOG);
+		db_record_blocked_ip(db_conn, key, val, LOG);
 	}
 }
 
 
+/**
+ * @brief Submit subnet blacklist/whitelist entry to BPF program using subnet_rb
+ * @param entry subnet entry to submit
+ * @param index BPF array index
+ * @param type BLACKLIST/WHITELIST
+ * @return 0 on success, negative error code on failure
+ */
 __attribute__((noinline)) int submit_subnet_entry(struct subnet *entry,
 						  int index, short type)
 {
@@ -577,6 +713,9 @@ out:
 	return err;
 }
 
+/**
+ * @brief Submit subnet blacklist and whitelist to BPF program
+ */
 void submit_subnet_list()
 {
 	int index = 0;
@@ -602,6 +741,12 @@ void submit_subnet_list()
 	pthread_rwlock_unlock(&config_lock);
 }
 
+/**
+ * @brief Submit port whitelist entry to BPF program using port_rb
+ * @param port port number
+ * @param type WHITELIST
+ * @return 0 on success, negative error code on failure
+ */
 __attribute__((noinline)) int submit_port_entry(__u16 port, short type)
 {
 	int err = 0;
@@ -622,6 +767,9 @@ out:
 	return err;
 }
 
+/**
+ * @brief Submit port whitelist to BPF program
+ */
 void submit_port_list()
 {
 	pthread_rwlock_rdlock(&config_lock);
@@ -634,6 +782,10 @@ void submit_port_list()
 	pthread_rwlock_unlock(&config_lock);
 }
 
+/**
+ * @brief Submit config to BPF program using config_rb
+ * @return 0 on success, neagative error code on failure
+ */
 __attribute__((noinline)) int submit_config()
 {
 	int err = 0;
@@ -663,7 +815,13 @@ out:
 	return err;
 }
 
-/* called for each packet sent through the ring buffer */
+/**
+ * @brief Handle XDP ring buffer events; perform analysis and scan detection
+ * @param ctx context passed to the callback function (NULL)
+ * @param data ring buffer event
+ * @param data_sz size of ring buffer event
+ * @details xdp_rb callback; called for each set of packet headers received
+ */
 int handle_event(void *ctx, void *data, size_t data_sz)
 {
 	char address[MAX_ADDR_LEN];
@@ -794,6 +952,15 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	return err;
 }
 
+/**
+ * @brief Handle inotify events; reload configuration when applicable
+ * @param fd file descriptor to read events from
+ * @param target_path config file path
+ * @param target_filename config filename- used to check whether inotify event
+ * corresponds to the desired file
+ * @param current_config current configuration (to update where possible)
+ * @param lock config lock
+ */
 void handle_inotify_events(int fd, const char *target_path, const char *target_filename,
 		struct config *current_config, pthread_rwlock_t *lock)
 {
@@ -802,7 +969,7 @@ void handle_inotify_events(int fd, const char *target_path, const char *target_f
 	 *
 	 * (see inotify(7) for more details)
 	 */
-	char buf[MAX_EVENT]
+	char buf[MAX_INOTIFY_EVENT]
 		__attribute__((aligned(__alignof__(struct inotify_event))));
 	const struct inotify_event *event;
 	size_t len;
@@ -850,6 +1017,10 @@ void handle_inotify_events(int fd, const char *target_path, const char *target_f
 	}
 }
 
+/**
+ * @brief Work for config thread config_worker
+ * @param args struct inotify_worker_args passed to the thread on creation
+ */
 void inotify_thread_work(void *args)
 {
 	struct inotify_thread_args *ctx = args;
@@ -936,6 +1107,8 @@ int main(int argc, char *argv[])
 	/* ring buffers */
 	int xdp_rb_fd, ip_rb_fd, subnet_rb_fd, port_rb_fd, config_rb_fd;
 
+	int err = 0;
+
 	/* arguments to pass to database and inotify worker threads */
 	struct db_thread_args db_worker_args;
 	bool use_inotify_thread = true;
@@ -972,7 +1145,7 @@ int main(int argc, char *argv[])
 
 	/* load argument-specified config file */
 	init_config_path(&init_args.config_file, &config_path, &config_dir,
-			 &config_filename, LOG);
+			 &config_filename);
 
 	if (config_path) {
 		log_info(LOG, "loading config from %s\n", config_path);
@@ -980,7 +1153,7 @@ int main(int argc, char *argv[])
 	} else {
 		/* use default config path, directory, and filename */
 		init_config_path((char **) &DEFAULT_CONFIG_PATH,
-				 &config_path, &config_dir, &config_filename, LOG);
+				 &config_path, &config_dir, &config_filename);
 		/* default config not found */
 		if (!config_path) {
 			log_info(LOG, "no default config at %s\n", DEFAULT_CONFIG_PATH);
@@ -1060,14 +1233,14 @@ int main(int argc, char *argv[])
 	}
 
 	/* set up database */
-	db_conn = connect_db("root", "sheriff_logbook", LOG);
+	db_conn = db_connect("root", "sheriff_logbook", LOG);
 	if (!db_conn) {
 		err = -1;
 		init_cleanup(err);
 	}
 
-	types = db_read_alert_type(db_conn, LOG);
-	if (!check_alert_type(types)) {
+	types = db_get_alert_types(db_conn, LOG);
+	if (!validate_alert_type(types)) {
 		log_error(LOG, "alert types not found in database\n");
 		err = -1;
 		init_cleanup(err);

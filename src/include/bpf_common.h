@@ -1,3 +1,8 @@
+/**
+ * @file
+ * @brief Shared definitions between user space and BPF program
+ */
+
 #ifndef __BPF_COMMON_INTERFACE
 #define __BPF_COMMON_INTERFACE
 
@@ -17,94 +22,76 @@
 #include <bpf/bpf_endian.h>
 #include <sys/cdefs.h>
 
-/* Shared definitions between user space and BPF program */
-
-#define TCP_PNUM 6   /* TCP protocol number */
-#define UDP_PNUM 17  /* UDP protocol number */
-#define ICMP_PNUM 1  /* ICMP protocol number */
-#define NUM_PORTS 65536
+#define TCP_PNUM 6  ///< TCP protocol number
+#define UDP_PNUM 17  ///< UDP protocol number
+#define ICMP_PNUM 1  ///< ICMP protocol number
+#define NUM_PORTS 65536  ///< number of TCP/UDP ports
 
 /* packet processing values */
-#define WHITELIST 0xaa
-#define BLACKLIST 0xab
-#define UNKNOWN 0xac
+#define WHITELIST 0xaa  ///< whitelisted packet state
+#define BLACKLIST 0xab  ///< blacklisted packet state
+#define UNKNOWN 0xac  ///< unknown packet state/action
 
-/*
- * XDP ring buffer event
- *
- * ip_header: packet IP headers
- * tcp_header: packet TCP headers
- * udp_header: packet UDP headers
+/**
+ * @struct xdp_rb_event
+ * @brief XDP ring buffer event
  */
 struct xdp_rb_event {
-	struct iphdr ip_header;
-	struct tcphdr tcp_header;
-	struct udphdr udp_header;
+	struct iphdr ip_header;  ///< packet IP headers
+	struct tcphdr tcp_header;  ///< packet TCP headers
+	struct udphdr udp_header;  ///< packet UDP headers
 };
 
-/*
- * IP user ring buffer event
- *
- * src_ip: source IP address to add to list
- * type: either BLACKLIST or WHITELIST
+/**
+ * @struct ip_rb_event
+ * @brief IP user ring buffer event
  */
 struct ip_rb_event {
-	__u32 src_ip;
-	short type;
+	__u32 src_ip;  ///< source IP address to add to list
+	short type;  ///< either BLACKLIST or WHITELIST
 };
 
-/*
- * Subnet user ring buffer event
- *
- * network_addr: subnet network address
- * mask: subnet mask
- * index: subnet array index (calculated in user space)
- * type: either BLACKLIST or WHITELIST
+/**
+ * @struct subnet_rb_event
+ * @brief Subnet user ring buffer event
  */
 struct subnet_rb_event {
-	in_addr_t network_addr;
-	in_addr_t mask;
-	int index;
-	short type;
+	in_addr_t network_addr;  ///< subnet network address
+	in_addr_t mask;  ///< subnet mask
+	int index;  ///< subnet array index (calculated in user space)
+	short type;  ///< either BLACKLIST or WHITELIST
 };
 
-/*
- * Port user ring buffer event
- *
- * port_num: port number
- * type: either BLACKLIST or WHITELIST
+/**
+ * @struct port_rb_event
+ * @brief Port user ring buffer event
  */
 struct port_rb_event {
-	__u16 port_num;
-	short type;
+	__u16 port_num;  ///< port number
+	short type;  ///< either BLACKLIST or WHITELIST
 };
 
-/*
- * Config user ring buffer event
- *
- * block_src: true = block flagged IPs, false = redirect flagged IPs
- * dry_run: should we actually block/redirect flagged IPs?
- * test: are we in testing mode?
- * redirect_ip: IP address to redirect traffic from flagged IPs to
- * test_network_addr: testing subnet network address
- * test_mask: testing subnet mask
+/**
+ * @struct config_rb_event
+ * @brief Config user ring buffer event
  */
 struct config_rb_event {
-	bool block_src;
-	bool dry_run;
-	bool test;
-	__u32 redirect_ip;
-	in_addr_t test_network_addr;
-	in_addr_t test_mask;
+	bool block_src;  ///< true = block, false = redirect
+	bool dry_run;  ///< are we in dry run mode?
+	bool test;  ///< are we in testing mode?
+	__u32 redirect_ip;  ///< IP address to redirect blacklisted traffic to
+	in_addr_t test_network_addr;  ///< testing subnet network address
+	in_addr_t test_mask;  ///< testing subnet mask
 };
 
 __u32 src_addr(struct iphdr *ip_header);
 
-/* Determine if a given IP belongs to a given subnet
- *
- * ip: IP address to test
- * network_addr: network address of subnet
- * mask: subnet mask
+/**
+ * @brief Determine if a given IP belongs to a given subnet
+ * @param ip IP address to test
+ * @param network_addr network address of subnet
+ * @param mask subnet mask
+ * @return true if the IP belongs, false otherwise
  */
 static __always_inline bool in_subnet(__u32 ip, __u32 network_addr, __u32 mask)
 {

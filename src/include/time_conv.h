@@ -1,11 +1,12 @@
+/// @file
+
 #ifndef __TIME_CONV_H
 #define __TIME_CONV_H
 
 #include <time.h>
 #include <sys/sysinfo.h>
 
-/* 1 second = 10^9 nanoseconds */
-#define NS_PER_SEC 1000000000UL
+#define NS_PER_SEC 1000000000UL ///< 1 second = 10^9 nanoseconds
 
 void get_clock_time(struct timespec *time);
 void time_to_str(time_t time, char *time_string, int size, char *format);

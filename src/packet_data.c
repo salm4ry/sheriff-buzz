@@ -1,3 +1,5 @@
+/// @file
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +24,13 @@
 
 struct db_task_queue;
 
+/**
+ * @brief Update minimum and maximum port
+ * @param key current hash table key
+ * @param value current hash table value
+ * @param user_data current minimum and maximum ports
+ * @details g_hash_table_foreach() callback
+ */
 void min_max_port(gpointer key, gpointer value, gpointer user_data)
 {
 	int *port = (int *) key;
@@ -46,7 +55,11 @@ void min_max_port(gpointer key, gpointer value, gpointer user_data)
 	}
 }
 
-/* get min and max port from port count hash table */
+/**
+ * @brief Get TCP and UDP min and max ports present from port count hash tables
+ * @param val value containing TCP and UDP port hash tables
+ * @return port_range object containing TCP and UDP minimum and maximum ports
+ */
 struct port_range *lookup_port_range(struct value *val)
 {
 	struct port_range *res;
@@ -70,10 +83,12 @@ struct port_range *lookup_port_range(struct value *val)
 	res->min_udp = INIT_MIN_PORT;
 	res->max_udp = INIT_MAX_PORT;
 
+	/* get TCP min and max ports */
 	ctx->range = res;
 	ctx->protocol = TCP_PNUM;
 	g_hash_table_foreach(val->tcp_ports, &min_max_port, (gpointer) ctx);
 
+	/* get UDP min and max ports */
 	ctx->protocol = UDP_PNUM;
 	g_hash_table_foreach(val->udp_ports, &min_max_port, (gpointer) ctx);
 
@@ -81,6 +96,13 @@ struct port_range *lookup_port_range(struct value *val)
 	return res;
 }
 
+/**
+ * @brief Format port range from minimum and maximum
+ * @param buf output buffer
+ * @param min minimum port
+ * @param max maximum port
+ * @details If min = max, output single port, otherwise output "min:max"
+ */
 void format_port_range(char *buf, int min, int max)
 {
 	if (min == INIT_MIN_PORT && max == INIT_MAX_PORT) {
@@ -94,6 +116,13 @@ void format_port_range(char *buf, int min, int max)
 	}
 }
 
+/**
+ * @brief Destroy port hash tables for a given packet entry
+ * @param key packet hash table key
+ * @param value packet hash table value
+ * @param user_data context data passed from g_hash_table_foreach() (empty)
+ * @details g_hash_table_foreach() callback
+ */
 void destroy_port_tables(gpointer key, gpointer value, gpointer user_data)
 {
 	struct value *val = (struct value *) value;
@@ -101,30 +130,31 @@ void destroy_port_tables(gpointer key, gpointer value, gpointer user_data)
 	g_hash_table_destroy(val->udp_ports);
 }
 
-
-/* destroy all IP entries' port hash tables */
+/**
+ * @brief Destroy all packet entries' port hash tables
+ * @param packet_table hash table to iterate over
+ */
 void port_table_cleanup(GHashTable *packet_table)
 {
 	g_hash_table_foreach(packet_table, &destroy_port_tables, NULL);
 }
 
-/*
- * Helper to update hash table entry count
- *
- * - key: hash table key
- * - value: hash table value
- * - user_data: count value to update
+/**
+ * @brief Update hash table entry count (g_hash_table_foreach() callback)
+ * @param key hash table key
+ * @param value hash table value
+ * @param user_data count value to update
  */
-/* TODO double check this works in small example */
 void update_entry_count(gpointer key, gpointer value, gpointer user_data)
 {
 	*((int*) user_data) = *((int*) user_data) + 1;
 }
 
-/*
- * Get number of entries in a GHashTable
- * table: hash table to count entries of
- * Walks the hash table, incrementing the final count value for each entry
+/**
+ * @brief Get number of entries in a GHashTable
+ * @param table hash table to count entries of
+ * @return number of hash table entries
+ * @details Walks the hash table, incrementing the final count value for each entry
  */
 int count_entries(GHashTable *table)
 {
@@ -134,7 +164,13 @@ int count_entries(GHashTable *table)
     return count;
 }
 
-/* get dst_port's packet count */
+/**
+ * @brief Get a given destination port's packet count
+ * @param val packet hash table value containing port table to perform lookup on
+ * @param dst_port destination port to look up
+ * @param protocol protocol number (TCP/UDP) of destination port
+ * @return lookup result on success, NULL on failure
+ */
 gpointer lookup_packet_count(struct value *val, int dst_port, int protocol)
 {
 	gpointer res = NULL;
@@ -151,7 +187,13 @@ gpointer lookup_packet_count(struct value *val, int dst_port, int protocol)
 	return res;
 }
 
-/* update dst_port's packet count */
+/**
+ * @brief Update a destination port's packet count
+ * @param val packet hash table value containing port table to update
+ * @param dst_port destination port to update entry of
+ * @param new_count new packet count
+ * @param protocol protocol number (TCP/UDP) of destination port
+ */
 void update_packet_count(struct value *val, int dst_port, int new_count,
 			 int protocol)
 {
@@ -169,7 +211,15 @@ void update_packet_count(struct value *val, int dst_port, int new_count,
 	}
 }
 
-/* initialise hash table entry either based on existing entry or new */
+/**
+ * @brief Initialise packet hash table entry
+ * @desc Use data from an existing entry if an entry with the key already exists
+ * @param table packet hash table
+ * @param key hash table key
+ * @param val hash table value
+ * @param dst_port destination port
+ * @param protocol protocol number (TCP/UDP) of destination port
+ */
 void init_entry(GHashTable *table, struct key *key, struct value *val,
 		int dst_port, int protocol)
 {
@@ -221,10 +271,17 @@ void init_entry(GHashTable *table, struct key *key, struct value *val,
 	}
 }
 
+/**
+ * @brief Update packet hash table entry
+ * @param table packet hash table
+ * @param key hash table key
+ * @param val hash table value
+ * @param delete should we delete this entry? (use if IP has been blacklisted)
+ */
 void update_entry(GHashTable *table, struct key *key, struct value *val,
-		  bool flagged)
+		  bool delete)
 {
-	if (flagged) {
+	if (delete) {
 		/* flagged: destroy IP's port hash tables and remove IP entry from
 		 * packet hash table */
 		g_hash_table_destroy(val->tcp_ports);
@@ -238,12 +295,24 @@ void update_entry(GHashTable *table, struct key *key, struct value *val,
 	}
 }
 
+/**
+ * @brief Determine whether a description matches the given target
+ * @param desc description to check
+ * @param target target description
+ * @return true if strings match, false otherwise
+ */
 bool description_match(char *desc, const char *target)
 {
 	return strncmp(desc, target, strlen(target)) == 0;
 }
 
-bool check_alert_type(struct alert_type types)
+/**
+ * @brief Determine whether all alert types are defined
+ * @param types alert_type object to check
+ * @return true if all types are defined, false otherwise
+ * @details Use to validate objects returned from db_get_alert_types()
+ */
+bool validate_alert_type(struct alert_type types)
 {
 	/* check alert types are all defined */
 	return (types.XMAS_SCAN != UNDEFINED &&
@@ -252,7 +321,14 @@ bool check_alert_type(struct alert_type types)
 		types.PORT_SCAN != UNDEFINED);
 }
 
-struct alert_type db_read_alert_type(PGconn *conn, FILE *LOG)
+/**
+ * @brief Read alert type IDs from the database
+ * @param conn database connection
+ * @param LOG log file to write errors to
+ * @return alert_type object
+ * @details Read alert types from the `alert_type` table in the existing database connection.
+ */
+struct alert_type db_get_alert_types(PGconn *conn, FILE *LOG)
 {
 	PGresult *res = NULL;
 	int err = 0;
@@ -295,18 +371,20 @@ struct alert_type db_read_alert_type(PGconn *conn, FILE *LOG)
 	return types;
 }
 
-/*
- * Log alert to database (upsert)
- *
- * - conn: database connection
- * - alert_type: type of alert (from alert_type enum)
- * - key: hash table key
- * - value: hash table value
- * - dst_port: alert destination port (optional- flag-based alerts only)
- *
- * Return 0 on success, non-zero value on error
+/**
+ * @brief Write alert information to database
+ * @param conn database connection
+ * @param alert_type type of alert (from alert_type enum)
+ * @param types alert type object
+ * @param key hash table key
+ * @param value hash table value
+ * @param range destination port range (port-based alerts only)
+ * @param dst_port alert destination port (flag-based alerts only)
+ * @param LOG log file to write errors to
+ * @details Upsert (update/insert) record in `scan_alerts` corresponding to
+ * information from the packet hash table
  */
-int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
+void db_record_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
 			struct key *key, struct value *value, struct port_range *range,
 			int dst_port, FILE *LOG)
 {
@@ -359,20 +437,18 @@ int db_write_scan_alert(PGconn *conn, int alert_type, struct alert_type types,
 	}
 
 	PQclear(db_res);
-
-	return err;
 }
 
 /**
- * Log blocked IP address to database
- *
- * - conn: database connection
- * - key: hash table key
- * - value: hash table value
- *
- * Return 0 on success, non-zero on error
+ * @brief Write blocked IP information to database
+ * @param conn database connection
+ * @param key hash table key
+ * @param value hash table value
+ * @param LOG log file to write errors to
+ * @details Insert record into `blocked_ips` corresponding to information from
+ * the packet hash table
  */
-int db_write_blocked_ip(PGconn *conn, struct key *key, struct value *value,
+void db_record_blocked_ip(PGconn *conn, struct key *key, struct value *value,
 			FILE *LOG)
 {
 	PGresult *db_res;
@@ -394,18 +470,17 @@ int db_write_blocked_ip(PGconn *conn, struct key *key, struct value *value,
 	}
 
 	PQclear(db_res);
-
-	return err;
 }
 
-/*
- * Connect to PostgreSQL database with peer authentication
- * (postgres username = system username)
- * - user: username
- * - dbname: database name
- * Return the database connection object on success, NULL on error
+/**
+ * @brief Connect to PostgreSQL database with *peer authentication*
+ * @details Peer authentication: postgres username = system username
+ * @param user username
+ * @param dbname database name
+ * @param LOG log file to write errors to
+ * @return the database connection object on success, NULL on error
  */
-PGconn *connect_db(char *user, char *dbname, FILE *LOG)
+PGconn *db_connect(char *user, char *dbname, FILE *LOG)
 {
 	char query[MAX_QUERY];
 	PGconn *db;
@@ -423,9 +498,10 @@ PGconn *connect_db(char *user, char *dbname, FILE *LOG)
 	return db;
 }
 
-/*
- * Calculate the number of entries in a database task queue (tailq)
- * head: head of queue
+/**
+ * @brief Calculate the number of entries in a database task queue (tailq)
+ * @param head head of database task queue
+ * @return number of entries
  */
 int queue_size(struct db_task_queue *head)
 {
@@ -439,28 +515,28 @@ int queue_size(struct db_task_queue *head)
 	return size;
 }
 
-/*
- * Determine whether a database task queue is full
- * head: head of queue
- * return 1 if full, 0 otherwise
+/**
+ * @brief Determine whether a database task queue is full
+ * @param head head of database task queue
+ * @return 1 if full, 0 otherwise
  */
 int queue_full(struct db_task_queue *head)
 {
 	return queue_size(head) >= MAX_DB_TASKS;
 }
 
-/*
- * Queue database work
- *
- * - task_queue_head: head of database work queue
- * - lock: task queue lock
- * - cond: task queue condition
- * - alert_type: type of alert
- * - key: hash table key
- * - value: hash table value
- * - dst_port: destination port (optional- used for flag-based alerts)
- *
- * return 0 on success, 1 on error (queue full)
+/**
+ * @brief Queue database work
+ * @param task_queue_head head of database work queue
+ * @param lock task queue lock
+ * @param cond task queue condition
+ * @param alert_type type of alert
+ * @param types alert type object
+ * @param key hash table key
+ * @param value hash table value
+ * @param dst_port destination port (flag-based alerts only)
+ * @param LOG log file to write errors to
+ * @return 0 on success, 1 on error (queue full)
  */
 int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 	       pthread_cond_t *cond, int alert_type, struct alert_type types,
@@ -510,10 +586,10 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 	return 0;
 }
 
-/*
- * Work for database thread
- * args = struct db_thread_args passed to the thread on creation
- * wait for work from the task queue and carry it out as it arrives
+/**
+ * @brief Work for database thread
+ * @details Wait for work from the task queue and carry it out as it arrives
+ * @param args = struct db_thread_args passed to the thread on creation
  */
 void db_thread_work(void *args)
 {
@@ -540,7 +616,7 @@ void db_thread_work(void *args)
 
 		if (current->alert_type != UNDEFINED) {
 			/* write alert to database */
-			db_write_scan_alert(db_conn,
+			db_record_scan_alert(db_conn,
 					    current->alert_type,
 					    current->types,
 					    &current->key,
@@ -550,7 +626,7 @@ void db_thread_work(void *args)
 					    current->log_file);
 		} else {
 			/* write flagged IP to database */
-			db_write_blocked_ip(db_conn, &current->key, &current->value, current->log_file);
+			db_record_blocked_ip(db_conn, &current->key, &current->value, current->log_file);
 		}
 
 		free(current);

@@ -1,3 +1,5 @@
+/// @file
+
 #include <stdio.h>
 #include <errno.h>
 
@@ -6,8 +8,17 @@
 #include "include/bpf_load.h"
 #include "include/log.h"
 
-/* load XDP program */
-int init_xdp_prog(struct bpf_object **xdp_obj,
+/**
+ * @brief Load and attach XDP program
+ * @param bpf_obj BPF object containing the XDP program
+ * @param filename file to load the BPF object from
+ * @param name XDP program nmae
+ * @param ifindex network interface index
+ * @param flags XDP flags
+ * @param LOG log file to write errors to
+ * @return 0 on success, negative error code on failure
+ */
+int init_xdp_prog(struct bpf_object **bpf_obj,
 		const char *filename, const char *name, int ifindex, uint32_t flags,
 		FILE *LOG)
 {
@@ -17,15 +28,15 @@ int init_xdp_prog(struct bpf_object **xdp_obj,
 	struct bpf_program *xdp_prog;
 
 	/* returns NULL on error, error stored in errno */
-	*xdp_obj = bpf_object__open_file(filename, NULL);
-	if (*xdp_obj == NULL) {
+	*bpf_obj = bpf_object__open_file(filename, NULL);
+	if (*bpf_obj == NULL) {
 		log_error(LOG, "open object file failed: %s\n", strerror(errno));
 		err = -errno;
 		goto fail;
 	}
 
 	/* returns NULL on error */
-	xdp_prog = bpf_object__find_program_by_name(*xdp_obj, name);
+	xdp_prog = bpf_object__find_program_by_name(*bpf_obj, name);
 	if (xdp_prog == NULL) {
 		log_error(LOG, "find program in object failed: %s\n", strerror(err));
 		err = -errno;
@@ -41,7 +52,7 @@ int init_xdp_prog(struct bpf_object **xdp_obj,
 
 	/* returns 0 on success, negative error code otherwise (error code
 	 * stored in errno) */
-	err = bpf_object__load(*xdp_obj);
+	err = bpf_object__load(*bpf_obj);
 	if (err < 0) {
 		log_error(LOG, "load bpf object failed: %s\n", strerror(errno));
 		err = -errno;
@@ -65,20 +76,13 @@ fail:
 }
 
 /**
- * Load and attach BPF uretprobe with a shared (already loaded) map
- *
- * bpf_obj: BPF object to load program into
- * prog_name: name of BPF uretprobe program
- * uprobe_func: function to trace
- * map_fd: file descriptor of map to share
- * map_name: name of map to share
- *
- * bpf_program__attach_uprobe_opts():
- * 	uretprobe_prog: name of program
- * 	0: PID (0 for self)
- * 	/proc/self/exe: path to binary containing function symbol
- * 	0: offset within binary (set to 0 since we function name is in opts)
- * 	uprobe_opts: uprobe options
+ * @brief Load and attach BPF uretprobe with a shared (already loaded) map
+ * @param bpf_obj BPF object to load program into
+ * @param prog_name name of BPF uretprobe program
+ * @param uprobe_func function to trace
+ * @param map_fd file descriptor of map to share
+ * @param map_name: name of map to share
+ * @return 0 on success, negative error code on failure
  */
 int init_uretprobe(struct uretprobe_opts *args, FILE *LOG)
 {
@@ -127,7 +131,15 @@ int init_uretprobe(struct uretprobe_opts *args, FILE *LOG)
 	 * after we're done submitting) */
 	uprobe_opts.retprobe = true;
 
-	/* attach BPF uprobe (returns NULL on error and sets errno) */
+	/*
+	 * attach BPF uprobe (returns NULL on error and sets errno)
+	 *
+	 * uretprobe_prog: name of program
+	 * 0: PID (0 for self)
+	 * /proc/self/exe: path to binary containing function symbol
+	 * 0: offset within binary (set to 0 since we function name is in opts)
+	 * uprobe_opts: options
+	 */
 	if (!bpf_program__attach_uprobe_opts(uretprobe_prog, 0,
 				"/proc/self/exe", 0, &uprobe_opts)) {
 		log_error(LOG, "uprobe attach failed: %s\n", strerror(errno));

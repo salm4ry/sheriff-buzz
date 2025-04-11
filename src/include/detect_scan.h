@@ -1,3 +1,5 @@
+/// @file
+
 #ifndef __DETECT_SCAN_INTERFACE
 #define __DETECT_SCAN_INTERFACE
 
@@ -8,8 +10,7 @@
 
 #include "packet_data.h"
 
-#define NUM_PORTS 65536
-#define MAX_PACKETS 1024
+#define NUM_PORTS 65536  ///< number of TCP/UDP ports
 
 bool is_fin_scan(struct tcphdr *tcp_headers);
 int is_xmas_scan(struct tcphdr *tcp_headers);

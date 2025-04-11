@@ -1,3 +1,5 @@
+/// @file
+
 #include <linux/stddef.h>
 #include <linux/tcp.h>
 #include <linux/types.h>
@@ -7,11 +9,11 @@
 #include "include/packet_data.h"
 #include "include/parse_headers.h"
 
-#define NUM_PORTS 65536
-#define MAX_PACKETS 1024
-
-
-/* detect nmap -sF: FIN only */
+/**
+ * @brief Determine whether a set of TCP headers has FIN flag only set
+ * @param tcp_headers: headers to check
+ * @return true if combination set, false otherwise
+ */
 bool is_fin_scan(struct tcphdr *tcp_headers)
 {
 	/* check if FIN enabled */
@@ -29,14 +31,22 @@ bool is_fin_scan(struct tcphdr *tcp_headers)
 	return true;
 }
 
-/* detect nmap -sX: FIN + PSH + URG */
+/**
+ * @brief Determine whether a set of TCP headers has Xmas flags (FIN + PSH + URG) set
+ * @param tcp_headers headers to check
+ * @return true if combination set, false otherwise
+ */
 int is_xmas_scan(struct tcphdr *tcp_headers) {
 	return (tcp_flag(tcp_headers, FIN) &&
 		tcp_flag(tcp_headers, PSH) &&
 		tcp_flag(tcp_headers, URG));
 }
 
-/* no flags set */
+/**
+ * @brief Determine whether a set of TCP headers has no flags set
+ * @param tcp_headers headers to check
+ * @return true if no flags set, false otherwise
+ */
 int is_null_scan(struct tcphdr *tcp_headers) {
 	for (int i = FIN; i <= CWR; i++) {
 		if (tcp_flag(tcp_headers, i)) {
@@ -46,6 +56,12 @@ int is_null_scan(struct tcphdr *tcp_headers) {
 	return true;
 }
 
+/**
+ * @brief Determine if a packet is part of a flag-based scan
+ * @param tcp_headers headers to check
+ * @param types alert types to assign
+ * @return non-zero alert type if there is a scan, 0 otherwise
+ */
 int flag_based_scan(struct tcphdr *tcp_headers, struct alert_type types)
 {
 	int scan_type = 0;

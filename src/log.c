@@ -1,3 +1,5 @@
+/// @file
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +9,11 @@
 
 #include "include/log.h"
 
+/**
+ * @brief Print error message to stderr
+ * @param fmt format string
+ * @param ... format arguments
+ */
 void pr_err(char *fmt, ...)
 {
 	va_list args;
@@ -15,8 +22,13 @@ void pr_err(char *fmt, ...)
 	va_end(args);
 }
 
-/* TODO inline? */
-
+/**
+ * @brief Format logging prefix
+ * @param base prefix base
+ * @return prefix string
+ * @details Logging prefix of the form `("%s %s", timestamp, base)`. The format
+ * prefix is dynamically allocated so must be freed outside of this function.
+ */
 char *format_prefix(char *base)
 {
 	char time_str[MAX_TIME_STR];
@@ -37,11 +49,24 @@ char *format_prefix(char *base)
     return prefix;
 }
 
+/**
+ * @brief Format log message
+ * @param msg buffer to store formatted result
+ * @param fmt format string
+ * @param args format arguments
+ */
 void format_msg(char *msg, char *fmt, va_list args)
 {
     vsnprintf(msg, MAX_LOG_MSG, fmt, args);
 }
 
+/**
+ * @brief Write log message to log file
+ * @param file log file to write to
+ * @param prefix logging prefix (created with format_prefix())
+ * @param fmt format string
+ * @param args format arguments
+ */
 void log_msg(FILE *file, char *prefix, char *fmt, va_list args)
 {
     char *msg;
@@ -69,6 +94,13 @@ void log_msg(FILE *file, char *prefix, char *fmt, va_list args)
     free(new_fmt);
 }
 
+/**
+ * @brief Format prefix and write log message to file
+ * @param file log file to write to
+ * @param log_type base of prefix to generate with format_prefix()
+ * @param fmt format string
+ * @param args format arguments
+ */
 void log_with_prefix(FILE *file, char *log_type, char *fmt, va_list args)
 {
     char *prefix = format_prefix(log_type);
@@ -76,6 +108,13 @@ void log_with_prefix(FILE *file, char *log_type, char *fmt, va_list args)
     free(prefix);
 }
 
+/**
+ * @brief Log debug message
+ * @param file log file
+ * @param fmt format string
+ * @param ... format arguments
+ * @details Only log when compiled with -DDEBUG
+ */
 #ifdef DEBUG
     void log_debug(FILE *file, char *fmt, ...)
     {
@@ -88,6 +127,12 @@ void log_with_prefix(FILE *file, char *log_type, char *fmt, va_list args)
    void log_debug(FILE *file, char *fmt, ...) { }
 #endif
 
+/**
+ * @brief Log info message
+ * @param file log file
+ * @param fmt format string
+ * @param ... format arguments
+ */
 void log_info(FILE *file, char *fmt, ...)
 {
     va_list args;
@@ -96,6 +141,12 @@ void log_info(FILE *file, char *fmt, ...)
     va_end(args);
 }
 
+/**
+ * @brief Log error message
+ * @param file log file
+ * @param fmt format string
+ * @param ... format arguments
+ */
 void log_error(FILE *file, char *fmt, ...)
 {
     va_list args;
@@ -104,7 +155,12 @@ void log_error(FILE *file, char *fmt, ...)
     va_end(args);
 }
 
-/* TODO check for dry run */
+/**
+ * @brief Log alert message
+ * @param file log file
+ * @param fmt format string
+ * @param ... format arguments
+ */
 void log_alert(FILE *file, char *fmt, ...)
 {
     va_list args;

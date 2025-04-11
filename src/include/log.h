@@ -1,16 +1,21 @@
+/// @file
+
 #ifndef __LOG_INTERFACE
 #define __LOG_INTERFACE
 
 #include <stdio.h>
 #include <stdarg.h>
-#include <string.h>
 #include <errno.h>
 
-#define MAX_LOG_MSG 512
-#define MAX_TIME_STR 24
-#define MAX_PREFIX 32
-#define TIME_FMT "%a %Y-%m-%d %H:%M:%S"
+#define MAX_LOG_MSG 512  ///< maximum log message length
+#define MAX_TIME_STR 24  ///< maximum time string length
+#define MAX_PREFIX 32  ///< maximum log prefix length
+#define TIME_FMT "%a %Y-%m-%d %H:%M:%S"  ///< time format string
 
+/**
+ * @brief Print error message with file, function, and line information
+ * @param msg message to print preceding error message
+ */
 #define p_error(msg) do { \
     fprintf(stderr, "%s:%s:%d: %s: %s\n", __FILE__, __func__, __LINE__, (msg), strerror(errno)); \
 } while(0)

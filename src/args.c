@@ -1,3 +1,5 @@
+/// @file
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,7 +14,11 @@
 #include "include/args.h"
 #include "include/log.h"
 
-/* get interface from address */
+/**
+ * @brief Get network interface name from address
+ * @param address address of network interface
+ * @return interface name on success, NULL on error
+ */
 char *addr_to_iface(char *address)
 {
 	struct ifaddrs *current_iface, *ifaces;
@@ -63,6 +69,10 @@ char *addr_to_iface(char *address)
 	return iface_name;
 }
 
+/**
+ * @brief Set default command-line argument values
+ * @param args argument structure to set values of
+ */
 void set_default_args(struct args *args)
 {
 	args->config_file = default_args.config_file;
@@ -74,6 +84,10 @@ void set_default_args(struct args *args)
 	args->interface = default_args.interface;
 }
 
+/**
+ * @brief Print usage
+ * @param prog_name name of executable (argv[0])
+ */
 void usage(const char *prog_name)
 {
 	printf("usage: %s -i <interface> | -a <address> [<args>]\n", prog_name);
@@ -87,6 +101,12 @@ void usage(const char *prog_name)
 	       "-t, --test: enable testing mode\n");
 }
 
+/**
+ * @brief Parse command-line arguments
+ * @param argc argument count
+ * @param argv argument vector
+ * @param args argument structure to store results
+ */
 void parse_args(int argc, char *argv[], struct args *args)
 {
 	int opt = 0, option_index = 0;

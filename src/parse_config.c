@@ -1,3 +1,5 @@
+/// @file
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -18,8 +20,9 @@
 #include "include/parse_config.h"
 #include "include/log.h"
 
-/*
- * Convert a string to lowercase
+/**
+ * @brief Convert a string to lowercase
+ * @param str string to convert
  */
 void str_tolower(char *str)
 {
@@ -32,7 +35,11 @@ void str_tolower(char *str)
 	}
 }
 
-/* get network address and subnet mask given CIDR (slash notation) string */
+/**
+ * @brief Get network address and subnet mask given CIDR (slash notation) string
+ * @param cidr CIDR notation string to parse
+ * @param subnet output subnet
+ */
 void cidr_to_subnet(char *cidr, struct subnet *subnet)
 {
 	int bits;
@@ -50,9 +57,11 @@ void cidr_to_subnet(char *cidr, struct subnet *subnet)
 	subnet->network_addr &= subnet->mask;
 }
 
-/*
- * Extract and parse config from JSON file
- * return parsed JSON object on success, NULL on error
+/**
+ * @brief Extract and parse config from JSON file
+ * @param filename name JSON file to parse
+ * @param LOG log file to write errors to
+ * @return parsed JSON object on success, NULL on error
  */
 cJSON *json_config(const char *filename, FILE *LOG)
 {
@@ -119,6 +128,12 @@ out:
 	return cfg_json;
 }
 
+/**
+ * @brief Extract string value from JSON item
+ * @param obj JSON object containing item
+ * @param item_name name of item containing string
+ * @return the extracted string on success, NULL on error
+ */
 char *str_json_value(cJSON *obj, const char *item_name)
 {
 	char *value = NULL;
@@ -139,9 +154,11 @@ char *str_json_value(cJSON *obj, const char *item_name)
 	return value;
 }
 
-/*
- * Extract IP address from JSON item
- * return parsed IP on success, -1 on error
+/**
+ * @brief Extract IP address from JSON item
+ * @param obj JSON object containing item
+ * @param item_name name of item containing IP
+ * @return the parsed IP on success, 0 on error
  */
 in_addr_t ip_json_value(cJSON *obj, const char *item_name)
 {
@@ -163,6 +180,12 @@ in_addr_t ip_json_value(cJSON *obj, const char *item_name)
 	return ip;
 }
 
+/**
+ * @brief Extract subnet from JSON item
+ * @param obj JSON object containing item
+ * @param item_name name of item containing subnet
+ * @return parsed subnet on success, {0, 0} on error
+ */
 struct subnet subnet_json_value(cJSON *obj, const char *item_name)
 {
 	struct subnet subnet = {0, 0};
@@ -178,17 +201,20 @@ struct subnet subnet_json_value(cJSON *obj, const char *item_name)
 	return subnet;
 }
 
-/*
- * Extract array of IP addresses from JSON item into long
- * return number of entries
+/**
+ * @brief Extract array of IP addresses from JSON item
+ * @param obj JSON object containing item
+ * @param item_name name of item containing IP array
+ * @param LOG log file to write errors to
+ * @return config_ip_list object on success, NULL on error
  */
-struct ip_list *ip_list_json(cJSON *obj, const char *item_name, FILE *LOG)
+struct config_ip_list *ip_list_json(cJSON *obj, const char *item_name, FILE *LOG)
 {
 	int index = 0;
 	cJSON *array, *elem;
-	struct ip_list *list;
+	struct config_ip_list *list;
 
-	list = malloc(sizeof(struct ip_list));
+	list = malloc(sizeof(struct config_ip_list));
 	if (!list) {
 		p_error("failed to allocate IP address list");
 		exit(errno);
@@ -230,13 +256,20 @@ struct ip_list *ip_list_json(cJSON *obj, const char *item_name, FILE *LOG)
 	return list;
 }
 
-struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name, FILE *LOG)
+/**
+ * @brief Extract array of subnets from JSON item
+ * @param obj JSON object containing item
+ * @param item_name name of item containing subnet array
+ * @param LOG log file to write errors to
+ * @return config_subnet_list object on success, NULL on error
+ */
+struct config_subnet_list *subnet_list_json(cJSON *obj, const char *item_name, FILE *LOG)
 {
 	int index = 0;
 	cJSON *array, *elem;
-	struct subnet_list *list;
+	struct config_subnet_list *list;
 
-	list = malloc(sizeof(struct subnet_list));
+	list = malloc(sizeof(struct config_subnet_list));
 	if (!list) {
 		p_error("failed to allocate subnet list");
 		exit(errno);
@@ -278,13 +311,20 @@ struct subnet_list *subnet_list_json(cJSON *obj, const char *item_name, FILE *LO
 	return list;
 }
 
-struct port_list *port_list_json(cJSON *obj, const char *item_name, FILE *LOG)
+/**
+ * @brief Extract array of ports from JSON item
+ * @param obj JSON object containing item
+ * @param item_name name of item containing port array
+ * @param LOG log file to write errors to
+ * @return config_port_list object on success, NULL on error
+ */
+struct config_port_list *port_list_json(cJSON *obj, const char *item_name, FILE *LOG)
 {
 	int index = 0;
 	cJSON *array, *elem;
-	struct port_list *list;
+	struct config_port_list *list;
 
-	list = malloc(sizeof(struct port_list));
+	list = malloc(sizeof(struct config_port_list));
 	if (!list) {
 		p_error("failed to allocate port list");
 		exit(errno);
@@ -338,15 +378,16 @@ struct port_list *port_list_json(cJSON *obj, const char *item_name, FILE *LOG)
 }
 
 
-/*
- * Extract block/redirect action from JSON item
- *
- * return 0/1 (false/true) on success, -1 on error
+/**
+ * @brief Extract block/redirect action from JSON item
+ * @param obj JSON object containing item
+ * @param item_name name of item containing action
+ * @return BLOCK/REDIRECT on success, UNDEFINED on error
  */
-int check_action(cJSON *json_obj, const char *item_name)
+int check_action(cJSON *obj, const char *item_name)
 {
 	int action = UNDEFINED;
-	char *value = str_json_value(json_obj, item_name);
+	char *value = str_json_value(obj, item_name);
 
 	if (!value)
 		goto out;
@@ -364,13 +405,14 @@ out:
 	return action;
 }
 
-/*
- * Extract value of integer/boolean JSON item
- *
- * - json_obj: JSON object to extract value from
- * - item_name: name of item to extract value of
- * - MAX_THRESHOLD: maximum threshold to compare for threshold values; ignore if
- *   set to UNDEFINED (e.g. for booleans)
+/**
+ * @brief Extract value of integer/boolean JSON item
+ * @param json_obj JSON object to extract value from
+ * @param item_name name of item to extract value of
+ * @param MAX_THRESHOLD maximum threshold to compare for threshold values
+ * @return value on success, UNDEFINED on error
+ * @details Read thresholded integer with MAX_THRESHOLD != UNDEFINED,
+ * boolean otherwise
  */
 int int_json_value(cJSON *json_obj, const char *item_name,
 		   const int MAX_THRESHOLD)
@@ -400,8 +442,11 @@ out:
 	return value;
 }
 
-
-void drop_ips(struct ip_list *list)
+/**
+ * @brief Drop (free) IP list object
+ * @param list list to free
+ */
+void drop_ips(struct config_ip_list *list)
 {
 	if (list) {
 		if (list->entries) {
@@ -411,7 +456,11 @@ void drop_ips(struct ip_list *list)
 	}
 }
 
-void drop_subnets(struct subnet_list *list)
+/**
+ * @brief Drop (free) subnet list object
+ * @param list list to free
+ */
+void drop_subnets(struct config_subnet_list *list)
 {
 	if (list) {
 		if (list->entries) {
@@ -421,7 +470,11 @@ void drop_subnets(struct subnet_list *list)
 	}
 }
 
-void drop_ports(struct port_list *list)
+/**
+ * @brief Drop (free) port list object
+ * @param list list to free
+ */
+void drop_ports(struct config_port_list *list)
 {
 	if (list) {
 		if (list->entries) {
@@ -431,12 +484,21 @@ void drop_ports(struct port_list *list)
 	}
 }
 
+/**
+ * @brief Drop (free) list object
+ * @param list list to free
+ * @param func drop_xxx() function to call
+ */
 void drop_list(void *list, drop_func func)
 {
 	func(list);
 }
 
 
+/**
+ * @brief Drop dynamically allocated configuration (IP, subnet, and port lists)
+ * @param config config to drop lists from
+ */
 void drop_config(struct config *config)
 {
 	drop_list(config->blacklist_ip, (drop_func)drop_ips);
@@ -446,8 +508,13 @@ void drop_config(struct config *config)
 	drop_list(config->whitelist_port, (drop_func)drop_ports);
 }
 
-/* config to use when default config file unavailable/invalid */
-/* define the numerical constants in the header file */
+/**
+ * @brief Set fallback configuration
+ * @param config config object to set
+ * @param lock lock on config
+ * @details Used when default config file unavailable/invalid). Constants used
+ * are defined in parse_config.h
+ */
 void fallback_config(struct config *config, pthread_rwlock_t *lock)
 {
 	pthread_rwlock_wrlock(lock);
@@ -473,6 +540,13 @@ void fallback_config(struct config *config, pthread_rwlock_t *lock)
 	pthread_rwlock_unlock(lock);
 }
 
+/**
+ * @brief Apply configuration from JSON object
+ * @param json_obj JSON object
+ * @param current_config config object to update
+ * @param lock config lock
+ * @param LOG log file to write errors to
+ */
 void apply_config(cJSON *config_json, struct config *current_config,
 		pthread_rwlock_t *lock, FILE *LOG)
 {
@@ -481,9 +555,9 @@ void apply_config(cJSON *config_json, struct config *current_config,
 
 	in_addr_t redirect_ip;
 
-	struct ip_list *blacklist_ip, *whitelist_ip;
-	struct subnet_list *blacklist_subnet, *whitelist_subnet;
-	struct port_list *whitelist_port;
+	struct config_ip_list *blacklist_ip, *whitelist_ip;
+	struct config_subnet_list *blacklist_subnet, *whitelist_subnet;
+	struct config_port_list *whitelist_port;
 	struct subnet test_subnet;
 
 	/* read thresholds */
@@ -492,7 +566,7 @@ void apply_config(cJSON *config_json, struct config *current_config,
 	port_threshold = int_json_value(config_json,
 					      "port_threshold", MAX_PORT_THRESHOLD);
 	alert_threshold = int_json_value(config_json,
-					       "alert_threshold", MAX_FLAG_THRESHOLD);
+					       "alert_threshold", MAX_ALERT_THRESHOLD);
 
 	dry_run = int_json_value(config_json, "dry_run", UNDEFINED);
 

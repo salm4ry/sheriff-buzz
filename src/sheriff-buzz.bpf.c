@@ -1,3 +1,5 @@
+/// @file
+
 #include <linux/bpf.h>
 #include <linux/if_ether.h>
 #include <linux/ip.h>
@@ -17,34 +19,57 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-struct bpf_subnet {
-	in_addr_t network_addr;
-	in_addr_t mask;
-	short type;
+/**
+ * @struct subnet_entry
+ * @brief Subnet list entry
+ */
+struct subnet_entry {
+	in_addr_t network_addr; ///< subnet address
+	in_addr_t mask;  ///< subnet mask
+	short type;  ///< BLACKLIST/WHITELIST
 };
 
+/**
+ * @brief Subnet iteration context
+ * @details Used as context to bpf_for_each_map_elem()
+ */
 struct subnet_loop_ctx {
-	in_addr_t src_ip;
-	short type; /* blacklist/whitelist/not found */
+	in_addr_t src_ip; ///< source IP
+	short type;  ///< BLACKLIST/WHITELIST/UNDEFINED
 };
 
-/* hash map of black/whitelisted IPs */
+/**
+ * @struct ip_list
+ * @brief IP hash map
+ * @details Stores blacklisted and whitelisted IPs (key = source IP, value =
+ * BLACKLIST/WHITELIST
+ */
 struct {
 	__uint(type, BPF_MAP_TYPE_LRU_HASH);
-	__type(key, __u32); /* length of IPv4 address */
+	__type(key, __u32);
 	__type(value, short);
 	__uint(max_entries, 16384);
 } ip_list SEC(".maps");
 
-/* array of black/whitelisted subnets */
+/**
+ * @struct subnet_list
+ * @brief Subnet array
+ * @details Stores blacklisted and whitelisted subnets (key = array index, value
+ * = bpf_subnet)
+ */
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__type(key, __u32);
-	__type(value, struct bpf_subnet);
+	__type(value, struct subnet_entry);
 	__uint(max_entries, 128);
 } subnet_list SEC(".maps");
 
-/* hash map of whitelisted ports */
+/**
+ * @struct port_list
+ * @brief Port hash map
+ * @details Stores whitelisted ports (key = destination port,
+ * value = WHITELIST only)
+ */
 struct {
 	__uint(type, BPF_MAP_TYPE_LRU_HASH);
 	__type(key, __u16);
@@ -52,15 +77,25 @@ struct {
 	__uint(max_entries, 1024);
 } port_list SEC(".maps");
 
-/* config (sent from user space */
+/**
+ * @struct config
+ * @brief Config array
+ * @details One-element array to store current action configuration in the value
+ * field
+ */
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__type(key, __u32);
 	__type(value, struct config_rb_event);
-	__uint(max_entries, 1); /* only one entry required: the current config */
+	__uint(max_entries, 1);
 } config SEC(".maps");
 
-/* used for XDP unit testing */
+/**
+ * @struct test_results
+ * @brief XDP unit test result hash map
+ * @details Store test subnet XDP return values (key = source IP, value = XDP
+ * return value)
+ */
 struct {
 	__uint(type, BPF_MAP_TYPE_LRU_HASH);
 	__type(key, __u32);
@@ -69,48 +104,52 @@ struct {
 	__uint(pinning, LIBBPF_PIN_BY_NAME);
 } test_results SEC(".maps");
 
-/* kernel ring buffer
- *
- * send TCP headers from kernel -> user space
+/**
+ * @struct xdp_rb
+ * @brief Kernel ring buffer used by XDP program
+ * @details Send TCP headers from kernel -> user space (struct xdp_rb_event)
  */
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
 	__uint(max_entries, (8 * 1024) * 1024); /* 8 MB */
 } xdp_rb SEC(".maps");
 
-/* IP user ring buffer
- *
- * send black/whitelisted IPs from user -> kernel space
- *
- * NOTE: IPs take precedence over subnets e.g. an IP being whitelisted takes
- * precedence over its subnet being blacklisted
+/**
+ * @struct ip_rb
+ * @brief IP user ring buffer
+ * @details Send black/whitelisted IPs from user -> kernel space (struct ip_rb_event)
  */
 struct {
 	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
 	__uint(max_entries, 256 * 1024); /* 256 KB */
 } ip_rb SEC(".maps");
 
-/* subnet user ring buffer
- *
- * send black/whitelisted subnets from user -> kernel space
+/**
+ * @struct subnet_rb
+ * @brief Subnet user ring buffer
+ * @details Send black/whitelisted subnets from user -> kernel space
+ * (struct subnet_rb_event)
  */
 struct {
 	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
 	__uint(max_entries, 256 * 1024); /* 256 KB */
 } subnet_rb SEC(".maps");
 
-/* port user ring buffer
- *
- * send whitelisted ports from user -> kernel space
+/**
+ * @struct port_rb
+ * @brief Port user ring buffer
+ * @details Send whitelisted ports from user -> kernel space (struct port_rb_event)
  */
 struct {
 	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
 	__uint(max_entries, 256 * 1024); /* 256 KB  */
 } port_rb SEC(".maps");
 
-/* action config user ring buffer
- *
- * sent from user space
+/**
+ * @struct config_rb
+ * @brief Config user ring buffer
+ * @details Send configuration (e.g. block/redirect) from user -> kernel space
+ * (struct config_rb_event)
  */
 struct {
 	__uint(type, BPF_MAP_TYPE_USER_RINGBUF);
@@ -118,6 +157,12 @@ struct {
 } config_rb SEC(".maps");
 
 
+/**
+ * @brief Print to kernel trace log (/sys/kernel/tracing/trace_pipe)
+ * @param fmt format string
+ * @param ... format arguments
+ * @details Only print when compiled with -DDEBUG
+ */
 #ifdef DEBUG
 	#define bpf_debug(fmt, ...)  \
 		bpf_printk(fmt, ##__VA_ARGS__);
@@ -126,11 +171,21 @@ struct {
 		;
 #endif
 
-__u32 src_addr(struct iphdr *ip_header)
+/**
+ * @brief Get source IP address from IP headers
+ * @param ip_headers IP headers
+ * @return source IP address
+ */
+__u32 src_addr(struct iphdr *ip_headers)
 {
-	return ip_header->saddr;
+	return ip_headers->saddr;
 }
 
+/**
+ * @brief Look up packet protocol number
+ * @param ctx XDP context (raw packet data)
+ * @return protocol number on success, 0 on error
+ */
 __always_inline __u8 lookup_protocol(struct xdp_md *ctx)
 {
 	__u8 protocol = 0;
@@ -154,6 +209,11 @@ __always_inline __u8 lookup_protocol(struct xdp_md *ctx)
 	return protocol;
 }
 
+/**
+ * @brief Parse IP headers
+ * @param ctx XDP context (raw packet data)
+ * @return IP headers on success, NULL on error
+ */
 __always_inline struct iphdr *parse_ip_headers(struct xdp_md *ctx)
 {
 	struct ethhdr *eth_header = NULL;
@@ -177,6 +237,11 @@ fail:
 	return ip_header;
 }
 
+/**
+ * @brief Parse TCP headers
+ * @param ctx XDP context (raw packet data)
+ * @return TCP headers on success, NULL on error
+ */
 __always_inline struct tcphdr *parse_tcp_headers(struct xdp_md *ctx)
 {
 	struct tcphdr *tcph = NULL;
@@ -198,6 +263,11 @@ fail:
 	return tcph;
 }
 
+/**
+ * @brief Parse UDP headers
+ * @param ctx XDP context (raw packet data)
+ * @return UDP headers on success, NULL on error
+ */
 __always_inline struct udphdr *parse_udp_headers(struct xdp_md *ctx)
 {
 	struct udphdr *udph = NULL;
@@ -219,7 +289,12 @@ fail:
 	return udph;
 }
 
-/* TODO understand */
+/**
+ * @brief Fold 64-bit checksum into 16 bits by adding the 16-bit segments
+ * @param sum original 64-bit checksum
+ * @return 16-bit checksum
+ * @details based on RFC1071 (https://datatracker.ietf.org/doc/html/rfc1071) implementation
+ */
 __always_inline __u16 fold(__u64 sum)
 {
 	for (int i = 0; i < 4; i++) {
@@ -231,7 +306,8 @@ __always_inline __u16 fold(__u64 sum)
 }
 
 /**
- * Set checksum of IP header
+ * @brief Set IP header checksum
+ * @param ip_headers IP headers
  */
 void ip_checksum(struct iphdr *ip_headers)
 {
@@ -250,17 +326,12 @@ void ip_checksum(struct iphdr *ip_headers)
 	__u16 csum = fold(sum);
 
 	ip_headers->check = csum;
-
-	/* ihl = Internet Header Length */
-	/* iph->check = calc_checksum((__u16 *)iph, iph->ihl<<2); */
-	/* bpf_printk("calculated checksum = 0x%04x\n", bpf_htons(iph->check)); */
 }
 
 /**
- * Patch IP header destination IP address and recompute header checksum
- *
- * iph: IP header to patch
- * dst_ip: destination IP to use
+ * @brief Change IP header destination IP address and recompute header checksum
+ * @param iph IP header to alter
+ * @param dst_ip new destination IP
  */
 inline void change_dst_addr(struct iphdr *ip_headers, __be32 dst_ip)
 {
@@ -272,15 +343,11 @@ inline void change_dst_addr(struct iphdr *ip_headers, __be32 dst_ip)
 	ip_checksum(ip_headers);
 }
 
-/*
- * IP user ring buffer callback
- *
- * Add black/whitelisted IP sent from user space to BPF array map
- *
- * In general:
- * return 0: continue to try and drain next sample
- * return 1: skip the rest of the samples and return
- * other: not used- rejected by verifier
+/**
+ * @brief IP user ring buffer callback: add IP sent from user space to list
+ * @param dynptr pointer to ring buffer sample
+ * @param ctx context from bpf_user_ringbuf_drain() (unused)
+ * @return 0 so that bpf_user_ringbuf_drain() continues to drain samples
  */
 static long ip_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 {
@@ -300,10 +367,17 @@ static long ip_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 	return 0;
 }
 
+/**
+ * @brief Subnet user ring buffer callback: Add subnet sent from user space to
+ * list
+ * @param dynptr pointer to ring buffer sample
+ * @param ctx context from bpf_user_ringbuf_drain() (unused)
+ * @return 0 so that bpf_user_ringbuf_drain() continues to drain samples
+ */
 static long subnet_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 {
     struct subnet_rb_event *sample;
-    struct bpf_subnet subnet;
+    struct subnet_entry subnet;
 
     sample = bpf_dynptr_data(dynptr, 0, sizeof(*sample));
     if (!sample) {
@@ -322,6 +396,12 @@ static long subnet_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
     return 0;
 }
 
+/**
+ * @brief Port user ring buffer callback: Add port sent from user space to list
+ * @param dynptr pointer to ring buffer sample
+ * @param ctx context from bpf_user_ringbuf_drain() (unused)
+ * @return 0 so that bpf_user_ringbuf_drain() continues to drain samples
+ */
 static long port_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 {
 	struct port_rb_event *sample;
@@ -339,6 +419,13 @@ static long port_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 
 	return 0;
 }
+/**
+ * @brief Config user ring buffer callback: Update config map with configuration
+ * sent from user space
+ * @param dynptr: pointer to ring buffer sample
+ * @param ctx: context from bpf_user_ringbuf_drain() (unused)
+ * @return 0 so that bpf_user_ringbuf_drain() continues to drain samples
+ */
 
 static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 {
@@ -357,22 +444,21 @@ static long config_rb_callback(struct bpf_dynptr *dynptr, void *ctx)
 }
 
 /**
- * bpf_for_each_map_elem() callback for subnet array iteration: check whether
- * the source IP belongs to the subnet with the given index.
- *
- * map: BPF map we're looping through
- * key: current key
- * value: current value
- * ctx: source IP to check subnet for (and space to store type)
- *
- * return:
- * 0: helper continues to next loop
- * 1: helper skips rest of the loops and returns
+ * @brief Check whether the source IP belongs to the subnet with the given index
+ * @param map BPF map we're looping through
+ * @param key current key
+ * @param value current value
+ * @param ctx source IP to check subnet for (and space to store type)
+ * @return 1 when subnet found, 0 otherwise
+ * @details bpf_for_each_map_elem() callback for subnet array iteration.
+ * Returning 0 makes the helper continue to the next iteration, returning 1 makes the
+ * helper skip the rest of the iterations and returns
  */
+
 static long subnet_loop_callback(void *map, const void *key,
         void *value, void *ctx)
 {
-    struct bpf_subnet *subnet = value;
+    struct subnet_entry *subnet = value;
     struct subnet_loop_ctx *loop_ctx = ctx;
 
     if (subnet) {
@@ -400,6 +486,14 @@ static long subnet_loop_callback(void *map, const void *key,
     }
 }
 
+/**
+ * @brief Determine the XDP return value for a packet from a blacklisted source
+ * @param src_ip source IP
+ * @param ip_headers IP headers
+ * @param current_config current action configuration
+ * @return XDP_DROP (blocking), XDP_TX (redirection after changing
+ * destination IP), XDP_PASS (dry run mode)
+ */
 int handle_blacklist(__u32 src_ip, struct iphdr *ip_headers,
 		struct config_rb_event *current_config)
 {
@@ -432,6 +526,15 @@ int handle_blacklist(__u32 src_ip, struct iphdr *ip_headers,
 	return packet_action;
 }
 
+/**
+ * @brief Get the packet action for a source IP based on ip_list
+ * @param src_ip source IP
+ * @param ip_headers IP headers
+ * @param current_config current action configuration
+ * @return XDP_PASS (whitelisted), XDP_DROP/XDP_TX (blacklisted), or UNKNOWN
+ * @details Look up the source IP to determine whether it's whitelisted,
+ * blacklisted, or unknown
+ */
 int src_ip_action(__u32 src_ip, struct iphdr *ip_headers,
 		struct config_rb_event *current_config)
 {
@@ -460,6 +563,12 @@ int src_ip_action(__u32 src_ip, struct iphdr *ip_headers,
 	return packet_action;
 }
 
+/**
+ * @brief Determine the state of an IP based on subnet_list
+ * @param src_ip source IP
+ * @return BLACKLIST, WHITELIST, or UNKNOWN (no matching subnet found)
+ * @details Iterate through the subnet map, testing whether the IP belongs
+ */
 short subnet_state(__u32 src_ip)
 {
 	/* set up loop callback args */
@@ -473,6 +582,11 @@ short subnet_state(__u32 src_ip)
 	return ctx.type;
 }
 
+/**
+ * @brief Determine the state of a destination port based on port_list
+ * @param dst_port destination port
+ * @return BLACKLIST, WHITELIST, or UNKNOWN
+ */
 short dst_port_state(__u16 dst_port)
 {
 	/* translate to host byte order */
@@ -487,6 +601,11 @@ short dst_port_state(__u16 dst_port)
 	return state;
 }
 
+/**
+ * @brief Send IP & TCP headers to user space through the XDP ring buffer
+ * @param ip_headers IP headers
+ * @param tcp_headers TCP headers
+ */
 void submit_tcp_headers(struct iphdr *ip_headers, struct tcphdr *tcp_headers)
 {
 	struct xdp_rb_event *event;
@@ -510,6 +629,11 @@ void submit_tcp_headers(struct iphdr *ip_headers, struct tcphdr *tcp_headers)
 	}
 }
 
+/**
+ * @brief Send IP & UDP headers to user space through the XDP ring buffer
+ * @param ip_headers IP headers
+ * @param udp_headers UDP headers
+ */
 void submit_udp_headers(struct iphdr *ip_headers, struct udphdr *udp_headers)
 {
 	struct xdp_rb_event *event;
@@ -533,6 +657,10 @@ void submit_udp_headers(struct iphdr *ip_headers, struct udphdr *udp_headers)
 	}
 }
 
+/**
+ * @brief Read ip_rb samples when they are submitted from user space
+ * @return 0
+ */
 SEC("uretprobe")
 int read_ip_rb()
 {
@@ -540,6 +668,10 @@ int read_ip_rb()
 	return 0;
 }
 
+/**
+ * @brief Read subnet_rb samples when they are submitted from user space
+ * @return 0
+ */
 SEC("uretprobe")
 int read_subnet_rb()
 {
@@ -547,6 +679,10 @@ int read_subnet_rb()
     return 0;
 }
 
+/**
+ * @brief Read port_rb samples when they are submitted from user space
+ * @return 0
+ */
 SEC("uretprobe")
 int read_port_rb()
 {
@@ -554,6 +690,10 @@ int read_port_rb()
 	return 0;
 }
 
+/**
+ * @brief Read config_rb samples when they are submitted from user space
+ * @return 0
+ */
 SEC("uretprobe")
 int read_config_rb()
 {
@@ -561,6 +701,13 @@ int read_config_rb()
 	return 0;
 }
 
+/**
+ * @brief Process packets, applying actions based on blacklist, whitelist, and
+ * configuration maps
+ * @param ctx XDP context (raw packet data)
+ * @return XDP_PASS when packet whitelisted/unknown, XDP_DROP ("block") or
+ * XDP_TX ("redirect") when blacklisted
+ */
 SEC("xdp")
 int process_packet(struct xdp_md *ctx)
 {
@@ -587,7 +734,7 @@ int process_packet(struct xdp_md *ctx)
 
 	src_ip = src_addr(ip_headers);
 
-    /*
+	/*
 	switch (protocol_number) {
 		case ICMP_PNUM:
 			bpf_debug("ICMP: src IP %ld", src_ip);
@@ -599,7 +746,7 @@ int process_packet(struct xdp_md *ctx)
 			bpf_debug("UDP: src IP %ld", src_ip);
 			break;
 	}
-    */
+	*/
 
 	packet_action = src_ip_action(src_ip, ip_headers, current_config);
 	if (packet_action != UNKNOWN) {

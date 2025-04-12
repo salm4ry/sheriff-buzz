@@ -48,7 +48,8 @@ src = $(filter-out $(top_dir)/%.bpf.c, $(wildcard $(top_dir)/*.c))
 # BPF source code: .bpf.c
 ksrc = $(top_dir)/$(BASENAME).bpf.c
 
-man_page = man/sheriff-buzz.roff
+man_page = man/sheriff-buzz.roff  # man page source
+doxyfile = doc/Doxyfile  # doxygen config file
 
 all: $(ktarget) $(target)
 
@@ -109,3 +110,7 @@ endif
 .PHONY: man
 man:
 	@man -l $(man_page)
+
+.PHONY: docs
+docs:
+	doxygen $(doxyfile)

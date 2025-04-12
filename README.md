@@ -19,6 +19,7 @@
 - `pkg-config`
 - `clang-tools` *(optional- for `scan-build`)*
 - `python3-pygments` *(optional- for `pygmentize`)*
+- `doxygen` *(optional- for documentation generation)*
 
 ### Libraries
 - `libglib2.0-dev`

@@ -1117,6 +1117,13 @@ int main(int argc, char *argv[])
 	/* parse command-line arguments */
 	parse_args(argc, argv, &init_args);
 
+	/* check if running as root */
+	if (geteuid() != 0) {
+		pr_err("%s needs to run as root\n",
+				basename(argv[0]));
+		exit(EXIT_FAILURE);
+	}
+
 	if (!init_args.interface) {
 		usage(argv[0]);
 		exit(EXIT_FAILURE);

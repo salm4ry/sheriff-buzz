@@ -68,7 +68,7 @@ static struct args default_args = {
 
 char *addr_to_iface(char *address);
 void set_default_args(struct args *args);
-void usage(const char *prog_name);
+void usage(char *prog_name);
 void parse_args(int argc, char *argv[], struct args *args);
 
 #endif

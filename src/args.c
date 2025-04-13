@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <errno.h>
+#include <libgen.h>
 
 #include <ifaddrs.h>
 #include <netdb.h>
@@ -88,9 +89,10 @@ void set_default_args(struct args *args)
  * @brief Print usage
  * @param prog_name name of executable (argv[0])
  */
-void usage(const char *prog_name)
+void usage(char *prog_name)
 {
-	printf("usage: %s -i <interface> | -a <address> [<args>]\n", prog_name);
+	printf("usage: %s -i <interface> | -a <address> [<args>]\n",
+			basename(prog_name));
 	printf("-i, --interface <name>: name of network interface to attach to\n"
 	       "-a, --address <address>: address of network interface to attach to\n"
 	       "-c, --config <filename>: path to config file\n"
@@ -98,7 +100,8 @@ void usage(const char *prog_name)
 	       "-b, --bpf-obj <path>: path to BPF object file\n"
 	       "-s, --skb-mode: enable SKB mode (use if native XDP not supported)\n"
 	       "-d, --dry-run: enable dry run mode\n"
-	       "-t, --test: enable testing mode\n");
+	       "-t, --test: enable testing mode\n"
+	       "-h, --help: print this message and exit\n");
 }
 
 /**
@@ -116,7 +119,7 @@ void parse_args(int argc, char *argv[], struct args *args)
 	while ((opt = getopt_long(argc, argv, short_opts, long_opts, &option_index)) != -1) {
 		switch (opt) {
 		case 'h':
-			usage(argv[0]);
+			usage(basename(argv[0]));
 			exit(EXIT_SUCCESS);
 		case 'c':
 			/* config file path */
@@ -176,7 +179,7 @@ void parse_args(int argc, char *argv[], struct args *args)
 			break;
 		default:
 			/* invalid argument: print usage and exit */
-			usage(argv[0]);
+			usage(basename(argv[0]));
 			exit(EXIT_FAILURE);
 		}
 	}

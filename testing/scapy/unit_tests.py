@@ -45,13 +45,19 @@ class UnitTest:
     def port_scan(self, target, port_threshold):
         """Perform a port scan to go over the port threshold"""
         # scan first 100 ports
+        print(f"sending {port_threshold} packets from {self.src_ip}"
+              "...", end="")
         packets.gen_packets(
             self.src_ip, target, packets.SYN, (1, port_threshold),
-            log_level=packets.VERBOSE
+            log_level=packets.QUIET
         )
+        print("done")
+        print(f"check {self.src_ip} is {self.name}ed")
+        print(f"sending 1 packet from {self.src_ip}...", end="")
         # send another packet in order to observe XDP return value
         packets.gen_packets(self.src_ip, target, packets.SYN, [TEST_PORT],
-                            log_level=packets.VERBOSE)
+                            log_level=packets.QUIET)
+        print("done")
 
     def single_packet(self, target):
         """Send a single packet"""
@@ -60,10 +66,13 @@ class UnitTest:
         else:
             port = TEST_PORT
 
+        print(f"sending 1 packet from {self.src_ip}... ", end="")
         packets.gen_packets(self.src_ip, target, packets.SYN, [port],
-                            log_level=packets.VERBOSE)
+                            log_level=packets.QUIET)
+        print("done")
 
     def run(self, target):
+        print(f"running {Fore.BLUE + self.name + Fore.RESET}")
         config.copy(src_path=self.config_file, dst_path=TARGET_CONFIG_PATH)
 
         if self.do_scan:
@@ -75,7 +84,7 @@ class UnitTest:
         res = lookup(TEST_BPF_MAP, self.src_ip)
 
         if res is not None:
-            print_xdp_result(self.name, res, self.expected)
+            print_xdp_result("result", res, self.expected)
         else:
             print(f"{Fore.BLUE + self.name}:{Fore.RESET} {Fore.YELLOW}"
                   "failed to run")

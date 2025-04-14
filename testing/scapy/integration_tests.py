@@ -43,12 +43,19 @@ class IntegrationTest:
         self.fixed_ip = fixed_ip
 
     def run(self, target):
+        print(f"running {Fore.BLUE + self.name + Fore.RESET}")
         config.copy(src_path=self.config_file, dst_path=TARGET_CONFIG_PATH)
 
         failed_file = open("failed_tests.txt", "w")
         passed = failed = 0
 
         src_ip = packets.rand_ip()
+
+        if self.fixed_ip:
+            print(f"sending {self.num_tests} packets from {src_ip}...")
+        else:
+            print(f"sending {self.num_tests} packets from {self.num_tests} "
+                  "random IPs...")
 
         for i in tqdm(range(self.num_tests)):
             if not self.fixed_ip:
@@ -68,10 +75,10 @@ class IntegrationTest:
 
         failed_file.close()
         print(
-            f"{Fore.BLUE + self.name}: "
+            f"{Fore.BLUE + 'result: '}"
             f"{Fore.YELLOW + str(self.num_tests) + Fore.RESET} total, "
             f"{Fore.GREEN + str(passed) + Fore.RESET} passed, "
-            f"{Fore.RED + str(failed) + Fore.RESET} failed"
+            f"{Fore.RED + str(failed) + Fore.RESET} failed\n"
         )
 
 

@@ -5,7 +5,7 @@ import os
 
 
 def copy(src_path, dst_path):
-    print(f"copying {src_path} to {dst_path}...", end=" ")
+    print(f"loading config {os.path.basename(src_path)}...", end="")
 
     subprocess.run(["cp", src_path, os.path.expanduser(dst_path)])
     print("done")

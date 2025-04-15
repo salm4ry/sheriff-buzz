@@ -893,7 +893,6 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 
 
 	/* set up hash table entry */
-	/* TODO can init_entry() handle garbage destination port? */
 	init_entry(packet_table, current_key, val, dst_port, protocol);
 
 	/* read packet and port thresholds from config file */

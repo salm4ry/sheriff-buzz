@@ -40,8 +40,7 @@ struct timespec time_diff(struct timespec *start, struct timespec *end)
 	struct timespec res;
 
 	if ((end->tv_nsec - start->tv_nsec) < 0) {
-		/* TODO better explanation
-		 * go back into previous second to calculate difference */
+		/* go back into previous second to calculate difference */
 		res.tv_sec = end->tv_sec - start->tv_sec - 1;
 		res.tv_nsec = (end->tv_nsec - start->tv_nsec) + NS_PER_SEC;
 	} else {
@@ -63,7 +62,6 @@ void update_total_time(struct timespec *start, struct timespec *end,
 		       unsigned long *total_time)
 {
 	struct timespec delta = time_diff(start, end);
-	/* TODO do we need nanosecond precision in time calculations? */
 	*total_time += (delta.tv_sec * NS_PER_SEC) + delta.tv_nsec;
 }
 

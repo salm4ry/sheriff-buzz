@@ -551,8 +551,7 @@ int queue_work(struct db_task_queue *task_queue_head, pthread_mutex_t *lock,
 
 	new_task = malloc(sizeof(struct db_task));
 	if (!new_task) {
-		/* TODO improve error message */
-		p_error("memory allocation failed");
+		p_error("failed to allocate new database task");
 		exit(errno);
 	}
 

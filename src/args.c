@@ -145,7 +145,6 @@ void parse_args(int argc, char *argv[], struct args *args)
 				strncpy(args->interface, optarg, strlen(optarg)+1);
 			} else {
 				printf("interface already set, ignoring -i\n");
-				/* TODO should we exit with an error or continue? */
 			}
 			break;
 		case 'a':
@@ -156,7 +155,6 @@ void parse_args(int argc, char *argv[], struct args *args)
 				args->interface = addr_to_iface(optarg);
 			} else {
 				printf("interface already set, ignoring -a\n");
-				/* TODO should we exit with an error or continue? */
 			}
 
 			if (!args->interface) {

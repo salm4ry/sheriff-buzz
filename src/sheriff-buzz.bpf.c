@@ -15,8 +15,6 @@
 #include "include/bpf_common.h"
 #include "sys/cdefs.h"
 
-/* TODO docstrings */
-
 char LICENSE[] SEC("license") = "GPL";
 
 /**

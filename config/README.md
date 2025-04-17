@@ -2,6 +2,23 @@
 
 ## Options
 
+| name | description |
+| -- | -- |
+| `packet_threshold` | minimum number of packets to trigger a flag-based alert |
+| `port_threshold` | minimum number of ports probed by an IP to trigger a port-based alert |
+| `alert_threshold` | minimum number of alerts that warrant blacklisting of an IP |
+| `action` | either `"block"` or `"redirect"` traffic from flagged IPs |
+| `redirect_ip` | IP address to redirect to |
+| `blacklist_ip` | list of IP addresses to blacklist |
+| `whitelist_ip` | list of IP addresses to whitelist |
+| `blacklist_subnet` | list of subnets (CIDR notation) to blacklist |
+| `whitelist_subnet` | list of subnets (CIDR notation) to whitelist |
+| `whitelist_port` | list of TCP ports to whitelist |
+| `dry_run` | toggle dry run mode |
+| `test` | toggle testing mode |
+
+### Example
+
 ```json
 {
         "packet_threshold": 5,
@@ -18,21 +35,6 @@
         "test": false
 }
 ```
-
-| name | description |
-| -- | -- |
-| `packet_threshold` | number of packets before a flag-based alert |
-| `port_threshold` | number of ports a source IP sends packets to before a port-based alert |
-| `alert_threshold` | number of alerts produced for a given source IP before it is blacklisted |
-| `action` | either `"block"` or `"redirect"` traffic from flagged IPs |
-| `redirect_ip` | IP address to redirect to if `action` is set to `"redirect"` |
-| `blacklist_ip` | list of IP addresses to blacklist |
-| `whitelist_ip` | list of IP addresses to whitelist |
-| `blacklist_subnet` | list of subnets (CIDR notation) to blacklist |
-| `whitelist_subnet` | list of subnets (CIDR notation) to whitelist |
-| `whitelist_port` | list of TCP ports to whitelist |
-| `dry_run` | enable dry run mode |
-| `test` | enable testing mode |
 
 ## Blacklist/Whitelist Precedence
 - IP > subnet > port

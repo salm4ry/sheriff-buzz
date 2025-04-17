@@ -1,19 +1,27 @@
-# `sheriff-buzz`: Intrusion Detection and Response with eBPF and XDP
+# `sheriff-buzz`: Port Scan Detection and Response with eBPF
 
 ## Table of Contents
-1. [Dependencies](#dependencies)
-2. [Alert Types](#alert-types)
-3. [Logging](#logging)
-4. [Configuration](#configuration)
+- [Dependencies](#dependencies)
+- [Setup](#setup)
+- [Configuration](#configuration)
+- [Documentation](#documentation)
+- [Licensing](#licensing)
 
 ## Dependencies
 
-### Kernel
+### Linux kernel version
 
-- Major release: Linux 6.3
-- Must contain commit `6715df8d5d24` (`bpf: Allow reads from uninit stack`)
+- Linux 6.3 or more recent
+- or kernel with backport of upstream commit `6715df8d5d24 - bpf: Allow reads from uninit stack`
 
-### Compilation Tools
+### Database
+`postgresql`: tested with versions 15.12 and 17.4
+
+### Development Packages
+
+On a Debian-based system:
+
+#### Compilation tools
 - `clang`
 - `make`
 - `pkg-config`
@@ -21,27 +29,67 @@
 - `python3-pygments` *(optional- for `pygmentize`)*
 - `doxygen` *(optional- for documentation generation)*
 
-### Libraries
+#### Libraries
 - `libglib2.0-dev`
 - `libbpf-dev`
 - `gcc-multilib`
 - `libcjson-dev`
 - `libpq-dev`
 
-### Database
-- `postgresql`
 
-## Logging
+## Setup
 
-The default log location is `/var/log/sheriff-buzz.log`.
+### Compilation
+To compile `sheriff-buzz`, navigate to the root of the repository directory and
+run:
+
+```bash
+$ make
+```
+
+#### Environment variables
+- `DEBUG=1`: compile in debug mode
+- `SCAN_BUILD=1`: perform compile-time static analysis with `scan-build`
+- `V=1`: enable verbose mode
+
+### Usage
+
+`man` page:
+
+```bash
+$ make man
+ ```
+
+
+usage instructions:
+
+```bash
+$ sheriff-buzz --help
+```
 
 ## Configuration
 
-All configuration is optional; defaults are in `./config/default.json` and an
-example is in `./config/example_config.json`.
+All configuration is optional:
 
-See [the config README](config/README.md) for option information
+- `config/default.json`: default config
+- `config/example_config.json`: example configuration
+
+See [the config README](config/README.md) for option information.
+
+## Documentation
+
+Produce documentation (HTML and LaTeX):
+
+```bash
+$ make docs
+```
+
+View the HTML documentation in a browser:
+
+```bash
+$ firefox doc/html/index.html
+```
 
 ## Licensing
 
-This project is licenseed under GNU GPL 2.0.
+This project is licensed under GNU GPL 2.0.

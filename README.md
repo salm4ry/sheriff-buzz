@@ -1,5 +1,7 @@
 # `sheriff-buzz`: Port Scan Detection and Response with eBPF
 
+Read the `sheriff-buzz` report (my dissertation) [here](./sheriff-buzz-report.pdf).
+
 ## Table of Contents
 - [Dependencies](#dependencies)
 - [Setup](#setup)
